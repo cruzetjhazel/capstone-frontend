@@ -1,4 +1,4 @@
-import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info } from "lucide-react";
+import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, Sparkles, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useRole, UserRole, getRoleDashboardPath } from "@/contexts/RoleContext";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useRole, getRoleDashboardPath, type Role } from "@/contexts/RoleContext";
+import { AUTH_TOKEN_KEY } from "@/config/env";
 import { cn } from "@/lib/utils";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
-import { saveApplication } from "@/lib/pendingApprovals";
 
 /* ============================================================
    Constants
@@ -19,27 +20,91 @@ const SERVICE_OPTIONS = [
   "Family Portrait", "Couples Shoot", "Corporate Event", "Product Shoot",
   "Baptism", "Lifestyle", "Studio Portrait", "Outdoor Photoshoot",
 ];
+
 const AREA_PRESETS = [
   "Bulan only",
   "Bulan and nearby municipalities",
   "Anywhere in Sorsogon",
   "Travel outside Sorsogon",
 ];
+
 const SHOOTING_TYPES = ["Indoor", "Outdoor", "Event Coverage", "Drone / Aerial", "Hybrid (Indoor + Outdoor)"];
 const HYBRID = "Hybrid (Indoor + Outdoor)";
 
+const PHOTOGRAPHY_STYLES = [
+  "Cinematic", "Moody", "Bright & Airy", "Classic/Traditional", 
+  "Vintage/Retro", "Fine Art", "Documentary/Editorial", "Vibrant"
+];
+
+const API_BASE = "http://127.0.0.1:8000/api";
+
+// Frontend labels → backend enum values
+const AREA_COVERAGE_MAP: Record<string, string> = {
+  "Bulan only": "bulan_only",
+  "Bulan and nearby municipalities": "bulan_nearby",
+  "Anywhere in Sorsogon": "anywhere_sorsogon",
+  "Travel outside Sorsogon": "travel_outside_sorsogon",
+};
+
+const SHOOTING_TYPE_MAP: Record<string, string> = {
+  "Indoor": "indoor",
+  "Outdoor": "outdoor",
+  "Event Coverage": "event_coverage",
+  "Drone / Aerial": "drone_aerial",
+  "Hybrid (Indoor + Outdoor)": "hybrid",
+};
+
+function authHeaders(json = true): HeadersInit {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (json) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
+async function parseApiResponse(response: Response) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 422 && data.errors) {
+      const messages = Object.values(data.errors as Record<string, string[]>).flat().join(" ");
+      throw new Error(messages || data.message || "Validation failed. Please check your inputs.");
+    }
+    throw new Error(data.message || `Request failed (${response.status}). Please try again.`);
+  }
+  return data;
+}
+
 type AccountType = "client" | "freelancer" | "studio";
 
-const accountTypes: { type: AccountType; role: UserRole; label: string; desc: string; icon: typeof User }[] = [
+const accountTypes: { type: AccountType; role: Role; label: string; desc: string; icon: typeof User }[] = [
   { type: "client", role: "client", label: "Client", desc: "Find & book photographers for your events", icon: User },
   { type: "freelancer", role: "studio", label: "Freelance Photographer", desc: "Offer your services independently", icon: Camera },
   { type: "studio", role: "studio", label: "Studio Owner", desc: "Manage a team and list your studio", icon: Aperture },
 ];
 
+const CLIENT_INTERESTS = ["Wedding", "Portrait", "Graduation", "Birthday", "Other Events"] as const;
+const GENDER_OPTIONS = ["Male", "Female", "Non-binary", "Prefer not to say"] as const;
+
 const STEP_TITLES: Record<AccountType, string[]> = {
-  client: ["Account type", "Your details"],
-  freelancer: ["Account type", "Account basics", "Photographer info", "About your service", "Verification", "Profile preview"],
-  studio: ["Account type", "Account basics", "Studio info", "About your service", "Verification", "Profile preview"],
+  client: ["Account type", "Account basics", "About you", "Preferences"],
+  freelancer: [
+    "Account type", 
+    "Account basics", 
+    "Photographer info", 
+    "About your service", 
+    "Verification", 
+    "Portfolio upload", 
+    "Public Profile & Preview"
+  ],
+  studio: [
+    "Account type", 
+    "Account basics", 
+    "Studio info", 
+    "About your service", 
+    "Verification", 
+    "Portfolio upload", 
+    "Public Profile & Preview"
+  ],
 };
 
 /* ============================================================
@@ -51,8 +116,20 @@ export default function Register() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [submitted, setSubmitted] = useState(false);
-  const { loginAsRole } = useRole();
+  const [clientCreated, setClientCreated] = useState(false);
+  
+  // API loading & error state
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const { setUserFromRegistration, refreshApplication } = useRole();
   const navigate = useNavigate();
+
+  // Smooth scroll helper for step transitions
+  const handleStepChange = (newStep: number) => {
+    setStep(newStep);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // Basics
   const [name, setName] = useState("");
@@ -60,6 +137,21 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
+
+  // Client — about you
+  const [profilePicture, setProfilePicture] = useState<File | null>(null);
+  const [profilePreview, setProfilePreview] = useState<string | null>(null);
+  const [birthday, setBirthday] = useState("");
+  const [gender, setGender] = useState("");
+  const [clientAddress, setClientAddress] = useState("");
+  
+  // Locked to system's operational area
+  const [city] = useState("Bulan");
+  const [province] = useState("Sorsogon");
+
+  // Client — preferences
+  const [interests, setInterests] = useState<string[]>([]);
+  const [receivePromotions, setReceivePromotions] = useState(false);
 
   // Studio / photographer info
   const [businessName, setBusinessName] = useState("");
@@ -75,31 +167,166 @@ export default function Register() {
   const [shootingTypes, setShootingTypes] = useState<string[]>([]);
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
-  const [packages, setPackages] = useState<{ name: string; price: string; desc: string }[]>([
-    { name: "", price: "", desc: "" },
-  ]);
 
-  // Verification docs (files stored as names only — real upload happens on backend later)
+  const handleStep4Submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canStep4 || isLoading) return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/photographer/application`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          services,
+          other_services: otherService.trim() || null,
+          coverage_area: AREA_COVERAGE_MAP[areaCoverage] ?? null,
+          shooting_types: shootingTypes.map((s) => SHOOTING_TYPE_MAP[s]).filter(Boolean),
+          price_min: Number(priceMin),
+          price_max: Number(priceMax),
+        }),
+      });
+      await parseApiResponse(response);
+
+      setIsLoading(false);
+      handleStepChange(5);
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : "Unable to save. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
+  // Verification docs
   const [govId, setGovId] = useState<File | null>(null);
   const [selfieId, setSelfieId] = useState<File | null>(null);
   const [businessPermit, setBusinessPermit] = useState<File | null>(null);
+  const [additionalProof, setAdditionalProof] = useState<File[]>([]);
+  
+  // Portfolio Step 6
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>([]);
+  const [portfolioPreviews, setPortfolioPreviews] = useState<string[]>([]);
 
-  // Profile preview
+  const handleStep6Submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canStep6Portfolio || isLoading) return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    const failed: string[] = [];
+
+    for (const file of portfolioFiles) {
+      try {
+        const formData = new FormData();
+        formData.append("image", file);
+        const response = await fetch(`${API_BASE}/photographer/portfolio`, {
+          method: "POST",
+          headers: authHeaders(false),
+          body: formData,
+        });
+        await parseApiResponse(response);
+      } catch {
+        failed.push(file.name);
+      }
+    }
+
+    setIsLoading(false);
+
+    if (failed.length > 0) {
+      setApiError(`${failed.length} image(s) failed to upload: ${failed.join(", ")}. Remove and re-add them, then try again.`);
+      return;
+    }
+
+    handleStepChange(7);
+  };
+
+  // Step 7: Public profile preview & assets
   const [bio, setBio] = useState("");
-  const [equipment, setEquipment] = useState("");
+  const [photographyStyles, setPhotographyStyles] = useState<string[]>([]);
+  const [customStyleInput, setCustomStyleInput] = useState(""); 
+  const [coverPhoto, setCoverPhoto] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [facebook, setFacebook] = useState("");
   const [instagram, setInstagram] = useState("");
   const [website, setWebsite] = useState("");
 
   const totalSteps = accountType ? STEP_TITLES[accountType].length : 3;
 
+  const handleStep3Submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canProStep3 || isLoading) return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    try {
+      const payload: Record<string, unknown> = {
+        business_name: businessName.trim(),
+        location: address.trim(),
+      };
+      if (accountType === "studio") {
+        payload.years_active = Number(yearsOperating);
+        payload.team_size = Number(teamSize);
+      } else {
+        payload.years_active = Number(yearsExp);
+      }
+
+      const response = await fetch(`${API_BASE}/photographer/application`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+      await parseApiResponse(response);
+
+      setIsLoading(false);
+      handleStepChange(4);
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : "Unable to save. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
+  const handleStep5Submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canStep5Verify || isLoading) return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("_method", "PATCH");
+      if (govId) formData.append("government_id", govId);
+      if (selfieId) formData.append("selfie_with_id", selfieId);
+      if (accountType === "studio" && businessPermit) {
+        formData.append("business_permit", businessPermit);
+      }
+      additionalProof.forEach((file) => {
+        formData.append("additional_documents[]", file);
+      });
+
+      const response = await fetch(`${API_BASE}/photographer/application`, {
+        method: "POST",
+        headers: authHeaders(false),
+        body: formData,
+      });
+      await parseApiResponse(response);
+
+      setIsLoading(false);
+      handleStepChange(6);
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : "Unable to upload documents. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
   /* ---------- Helpers ---------- */
   const toggleServices = (v: string) =>
     setServices((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
 
   const toggleShooting = (v: string) => {
-    // Hybrid auto-selects Indoor + Outdoor and locks them
     if (v === HYBRID) {
       if (shootingTypes.includes(HYBRID)) {
         setShootingTypes((prev) => prev.filter((x) => x !== HYBRID && x !== "Indoor" && x !== "Outdoor"));
@@ -108,9 +335,62 @@ export default function Register() {
       }
       return;
     }
-    // Indoor/Outdoor locked while Hybrid is on
     if ((v === "Indoor" || v === "Outdoor") && shootingTypes.includes(HYBRID)) return;
     setShootingTypes((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  };
+
+  const toggleStyle = (style: string) => {
+    setPhotographyStyles((prev) => 
+      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
+    );
+  };
+
+  const handleAddCustomStyle = () => {
+    const trimmed = customStyleInput.trim();
+    if (trimmed && !photographyStyles.includes(trimmed)) {
+      setPhotographyStyles((prev) => [...prev, trimmed]);
+      setCustomStyleInput("");
+    }
+  };
+
+  const handleAdditionalProofChange = (files: File[]) => {
+    const MAX_SIZE = 2 * 1024 * 1024; 
+    const validFiles = files.filter((f) => f.size <= MAX_SIZE);
+    
+    if (validFiles.length < files.length) {
+      alert("Some files were skipped because they exceed the 2MB size limit.");
+    }
+
+    const totalSelected = [...additionalProof, ...validFiles].slice(0, 6);
+    setAdditionalProof(totalSelected);
+  };
+
+  const removeAdditionalProof = (idx: number) => {
+    setAdditionalProof((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handlePortfolioChange = (files: File[]) => {
+    const totalSelected = [...portfolioFiles, ...files].slice(0, 12);
+    setPortfolioFiles(totalSelected);
+
+    portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
+    const newPreviews = totalSelected.map((f) => URL.createObjectURL(f));
+    setPortfolioPreviews(newPreviews);
+  };
+
+  const removePortfolioImage = (idx: number) => {
+    const updatedFiles = portfolioFiles.filter((_, i) => i !== idx);
+    setPortfolioFiles(updatedFiles);
+
+    URL.revokeObjectURL(portfolioPreviews[idx]);
+    const updatedPreviews = portfolioPreviews.filter((_, i) => i !== idx);
+    setPortfolioPreviews(updatedPreviews);
+  };
+
+  const handleCoverPhotoChange = (file: File | null) => {
+    setCoverPhoto(file);
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+    setCoverPreview(file ? URL.createObjectURL(file) : null);
   };
 
   /* ---------- Gating ---------- */
@@ -122,86 +402,186 @@ export default function Register() {
     isStrongPassword(password) &&
     password === confirmPassword;
 
-  const canStep3 =
+  const canClientStep3 = !!birthday && !!gender && !!clientAddress.trim();
+  const canClientStep4 = interests.length > 0;
+
+  const canProStep3 =
     accountType === "studio"
       ? !!(businessName.trim() && address.trim() && yearsOperating && teamSize)
       : !!(businessName.trim() && address.trim() && yearsExp);
 
-  const validPackages = packages.filter((p) => p.name.trim() && p.price.trim());
   const canStep4 =
     services.length > 0 &&
     !!areaCoverage &&
     shootingTypes.length > 0 &&
     !!priceMin &&
     !!priceMax &&
-    Number(priceMax) >= Number(priceMin) &&
-    validPackages.length > 0;
+    Number(priceMax) >= Number(priceMin);
 
+  const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 6;
   const canStep5Verify =
     accountType === "studio"
-      ? !!(govId && selfieId && businessPermit)
-      : !!(govId && selfieId && portfolioFiles.length >= 3);
+      ? !!(govId && selfieId && businessPermit && additionalProofValid)
+      : !!(govId && selfieId && additionalProofValid);
 
-  const canStep6 = bio.trim().length >= 20 && (facebook.trim() || instagram.trim() || website.trim());
+  const portfolioFilesWithinLimits = portfolioFiles.length >= 6 && portfolioFiles.length <= 12;
+  const portfolioFilesValidSizes = portfolioFiles.every((f) => f.size <= 5 * 1024 * 1024);
+  const canStep6Portfolio = portfolioFilesWithinLimits && portfolioFilesValidSizes;
 
-  /* ---------- Submit ---------- */
+  const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && (facebook.trim() || instagram.trim() || website.trim());
+
+  /* ---------- Submit Handlers ---------- */
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canStep6 || !accountType || accountType === "client") return;
+    if (!canStep7Profile || isLoading) return;
 
-    const clean = {
-      id: `app_${Date.now()}`,
-      role: accountType,
-      status: "pending" as const,
-      submittedAt: new Date().toISOString(),
-      name: sanitizeText(name, 100),
-      email: sanitizeEmail(email),
-      phone: sanitizePhone(phone),
-      businessName: sanitizeText(businessName, 120),
-      address: sanitizeText(address, 200),
-      yearsExp: yearsExp || undefined,
-      yearsOperating: yearsOperating || undefined,
-      teamSize: teamSize || undefined,
-      services: [
-        ...services,
-        ...otherService.split(",").map((s) => sanitizeText(s, 40)).filter(Boolean),
-      ],
-      areaCoverage,
-      shootingTypes,
-      priceMin,
-      priceMax,
-      packages: validPackages.map((p) => ({
-        name: sanitizeText(p.name, 60),
-        price: p.price,
-        desc: sanitizeText(p.desc, 200),
-      })),
-      bio: sanitizeText(bio, 800),
-      equipment: sanitizeText(equipment, 400),
-      facebook: sanitizeUrl(facebook),
-      instagram: sanitizeUrl(instagram),
-      website: sanitizeUrl(website),
-      docs: {
-        governmentIdName: govId?.name,
-        selfieWithIdName: selfieId?.name,
-        businessPermitName: businessPermit?.name,
-        portfolioSampleNames: portfolioFiles.map((f) => f.name),
-      },
-    };
+    setIsLoading(true);
+    setApiError(null);
 
-    await saveApplication(clean);
-    setSubmitted(true);
+    try {
+      const profileFormData = new FormData();
+      profileFormData.append("bio", bio.trim());
+      photographyStyles.forEach((style) => profileFormData.append("style[]", style));
+      if (facebook.trim()) profileFormData.append("facebook", facebook.trim());
+      if (instagram.trim()) profileFormData.append("instagram", instagram.trim());
+      if (website.trim()) profileFormData.append("website", website.trim());
+      if (profilePicture) profileFormData.append("profile_photo", profilePicture);
+      if (coverPhoto) profileFormData.append("cover_photo", coverPhoto);
+
+      const profileResponse = await fetch(`${API_BASE}/photographer/profile`, {
+        method: "POST",
+        headers: authHeaders(false),
+        body: profileFormData,
+      });
+      await parseApiResponse(profileResponse);
+
+      const submitResponse = await fetch(`${API_BASE}/photographer/application/submit`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      await parseApiResponse(submitResponse);
+
+      await refreshApplication();
+      setIsLoading(false);
+      navigate("/photographer/status");
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : "Unable to submit your application. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
+  const toggleInterest = (v: string) =>
+    setInterests((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+
+  const handleProfilePictureChange = (file: File | null) => {
+    setProfilePicture(file);
+    if (profilePreview) URL.revokeObjectURL(profilePreview);
+    setProfilePreview(file ? URL.createObjectURL(file) : null);
   };
 
   const handleClientSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canStep2) return;
-    loginAsRole("client");
-    navigate(getRoleDashboardPath("client"));
+    if (!canClientStep4 || isLoading) return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    let response: Response;
+    let data: any;
+
+    try {
+      response = await fetch("http://127.0.0.1:8000/api/auth/register-client", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone_number: phone.trim(),
+          password: password,
+          password_confirmation: confirmPassword,
+        }),
+      });
+      data = await response.json().catch(() => ({}));
+    } catch (err: unknown) {
+      // Only genuine network-level failures land here now
+      setApiError("Unable to connect to the server. Please check your connection and try again.");
+      setIsLoading(false);
+      return;
+    }
+
+    if (!response.ok) {
+      if (response.status === 422 && data.errors) {
+        const messages = Object.values(data.errors as Record<string, string[]>).flat().join(" ");
+        setApiError(messages || data.message || "Validation failed. Please check your inputs.");
+      } else {
+        setApiError(data.message || `Registration failed (${response.status}). Please try again.`);
+      }
+      setIsLoading(false);
+      return;
+    }
+
+    // Registration succeeded — this is now OUTSIDE the fetch try/catch,
+    // so a bug here won't be mislabeled as a connection error
+    setIsLoading(false);
+    await setUserFromRegistration(data.data.user, data.data.token);
+    setClientCreated(true);
   };
 
-  /* ============================================================
-     Pending approval screen
-  ============================================================ */
+  const handlePhotographerAccountSubmit = async () => {
+    if (!canStep2 || isLoading || !accountType || accountType === "client") return;
+
+    setIsLoading(true);
+    setApiError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/auth/register-photographer`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone_number: phone.trim(),
+          password: password,
+          password_confirmation: confirmPassword,
+          photographer_type: accountType, // "freelancer" | "studio"
+        }),
+      });
+      const data = await parseApiResponse(response);
+
+      await setUserFromRegistration(data.data.user, data.data.token);
+
+      setIsLoading(false);
+      handleStepChange(3);
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.");
+      setIsLoading(false);
+    }
+  };
+
+  if (clientCreated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-6 relative">
+        <BackLink />
+        <div className="max-w-md w-full text-center bg-card border border-border rounded-2xl p-8 card-shadow animate-fade-up">
+          <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-5">
+            <Sparkles className="w-8 h-8 text-primary" />
+          </div>
+          <h1 className="text-2xl font-heading font-bold mb-2">Welcome!</h1>
+          <p className="text-foreground font-medium text-lg mb-2">Account created successfully!</p>
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8">
+            Let's personalize your experience.
+          </p>
+          <Button className="w-full" size="lg" onClick={() => navigate(getRoleDashboardPath("client"))}>
+            Go to Dashboard <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-6 relative">
@@ -237,41 +617,46 @@ export default function Register() {
     );
   }
 
-  /* ============================================================
-     Form
-  ============================================================ */
   const stepLabel = accountType ? STEP_TITLES[accountType][step - 1] : "Join the community";
+  const isProfileBuilderStep = step === 7 && accountType !== "client";
 
   return (
     <div className="min-h-screen flex bg-white relative text-foreground">
       <BackLink />
 
-      {/* Left panel */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
-        <div className="relative z-10 px-16 max-w-lg animate-fade-up">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
-              <Camera className="w-5 h-5 text-white" />
+      {!isProfileBuilderStep && (
+        <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
+          <div className="relative z-10 px-16 max-w-lg animate-fade-up">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+                <Camera className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-heading text-2xl font-bold text-white">Bulan</span>
             </div>
-            <span className="font-heading text-2xl font-bold text-white">Bulan</span>
+            <h1 className="text-4xl font-heading font-bold leading-tight mb-4">{stepLabel}</h1>
+            <p className="text-white/60 text-lg leading-relaxed">
+              {step === 1 && "Whether you're booking or showcasing your craft — Bulan connects talent with opportunity."}
+              {step === 2 && (accountType === "client" ? "Set up your login credentials." : "Required information for your account.")}
+              {step === 3 && (accountType === "client" ? "Tell us a bit about yourself." : accountType === "studio" ? "Tell us about your studio." : "Tell us about your photography practice.")}
+              {step === 4 && "Define what services you offer, your general price limits, and active dynamic coverage area."}
+              {step === 5 && "Upload documents so we can verify you're a real professional."}
+              {step === 6 && "Upload 6 to 12 showcase items from your stunning portfolio."}
+              {step === 7 && "Review and build your public profile live before submission."}
+            </p>
           </div>
-          <h1 className="text-4xl font-heading font-bold leading-tight mb-4">{stepLabel}</h1>
-          <p className="text-white/60 text-lg leading-relaxed">
-            {step === 1 && "Whether you're booking or showcasing your craft — Bulan connects talent with opportunity."}
-            {step === 2 && "Set up your account with a few basic details."}
-            {step === 3 && (accountType === "studio" ? "Tell us about your studio." : "Tell us about your photography practice.")}
-            {step === 4 && "Define what services you offer and your pricing."}
-            {step === 5 && "Upload documents so we can verify you're a real professional."}
-            {step === 6 && "Polish what clients will see on your public profile."}
-          </p>
+          <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-white/5" />
+          <div className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/5" />
         </div>
-        <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-white/5" />
-        <div className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/5" />
-      </div>
+      )}
 
-      {/* Right panel — white form area */}
-      <div className="flex-1 flex items-center justify-center px-6 py-12 bg-white text-foreground">
-        <div className="w-full max-w-md animate-fade-up">
+      <div className={cn(
+        "flex-1 flex items-start pt-24 lg:pt-32 justify-center px-6 py-12 bg-white text-foreground transition-all duration-300",
+        isProfileBuilderStep ? "lg:px-12" : ""
+      )}>
+        <div className={cn(
+          "w-full animate-fade-up",
+          isProfileBuilderStep ? "max-w-6xl" : "max-w-md"
+        )}>
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Camera className="w-4 h-4 text-primary-foreground" />
@@ -310,7 +695,7 @@ export default function Register() {
                 ))}
               </div>
 
-              <Button className="w-full" size="lg" disabled={!canStep1} onClick={() => setStep(2)}>
+              <Button className="w-full" size="lg" disabled={!canStep1} onClick={() => handleStepChange(2)}>
                 Continue <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -324,10 +709,42 @@ export default function Register() {
                 {accountType === "client" ? "Set up your account to start booking." : "Required information for your account."}
               </p>
 
+              {accountType === "client" && (
+                <div className="animate-fade-up">
+                  <Button 
+                    variant="outline" 
+                    className="w-full mb-5 flex items-center justify-center gap-2 h-12 rounded-xl border-2 hover:bg-muted/50 transition-colors" 
+                    type="button"
+                    onClick={() => console.log("Trigger Google Auth")}
+                  >
+                    <svg viewBox="0 0 24 24" className="w-5 h-5 shrink-0" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                    </svg>
+                    <span className="font-medium text-sm">Sign up with Google</span>
+                  </Button>
+
+                  <div className="relative mb-5">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-[10px] uppercase tracking-wider font-bold">
+                      <span className="bg-white px-3 text-muted-foreground">Or continue with email</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <form className="space-y-4" onSubmit={(e) => {
                 e.preventDefault();
-                if (accountType === "client") return handleClientSubmit(e);
-                if (canStep2) setStep(3);
+                if (!canStep2) return;
+                if (accountType === "client") {
+                  handleStepChange(3);
+                } else {
+                  handlePhotographerAccountSubmit();
+                }
               }}>
                 <Field label={accountType === "studio" ? "Your full name (owner)" : "Full name"} required>
                   <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" maxLength={100} />
@@ -350,12 +767,143 @@ export default function Register() {
                   <PasswordInput value={confirmPassword} onChange={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} placeholder="Re-enter password" />
                 </Field>
 
-                <StepNav onBack={() => setStep(1)} nextLabel={accountType === "client" ? "Create account" : "Continue"} disabled={!canStep2} />
+                {apiError && accountType !== "client" && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Registration Failed</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={!canStep2 || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
 
-          {/* ===== Step 3 ===== */}
+          {/* ===== Step 3: Client — About you ===== */}
+          {step === 3 && accountType === "client" && (
+            <div>
+              <h2 className="text-2xl font-heading font-bold mb-1">About you</h2>
+              <p className="text-muted-foreground mb-6">Help photographers know who they're working with.</p>
+
+              <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (canClientStep3) handleStepChange(4); }}>
+                <Field label="Profile picture" hint="Optional — JPG or PNG, max 5 MB">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-muted border border-border overflow-hidden flex items-center justify-center shrink-0">
+                      {profilePreview ? (
+                        <img src={profilePreview} alt="Profile preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-7 h-7 text-muted-foreground/50" />
+                      )}
+                    </div>
+                    <label className="cursor-pointer">
+                      <span className="text-sm text-primary font-medium hover:underline">Upload photo</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => handleProfilePictureChange(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                    {profilePicture && (
+                      <button type="button" onClick={() => handleProfilePictureChange(null)} className="text-xs text-muted-foreground hover:text-foreground">
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </Field>
+
+                <Field label="Birthday" required>
+                  <Input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} max={new Date().toISOString().split("T")[0]} />
+                </Field>
+
+                <Field label="Gender" required>
+                  <Select value={gender} onValueChange={setGender}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GENDER_OPTIONS.map((g) => (
+                        <SelectItem key={g} value={g}>{g}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+
+                <Field label="Address" required>
+                  <Input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="Street, barangay" maxLength={200} />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="City">
+                    <Input value={city} readOnly className="bg-muted text-muted-foreground focus-visible:ring-0 cursor-default" />
+                  </Field>
+                  <Field label="Province">
+                    <Input value={province} readOnly className="bg-muted text-muted-foreground focus-visible:ring-0 cursor-default" />
+                  </Field>
+                </div>
+
+                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={!canClientStep3} />
+              </form>
+            </div>
+          )}
+
+          {/* ===== Step 4: Client — Preferences ===== */}
+          {step === 4 && accountType === "client" && (
+            <div>
+              <h2 className="text-2xl font-heading font-bold mb-1">Preferences</h2>
+              <p className="text-muted-foreground mb-6">Tell us what kinds of photography you're interested in.</p>
+
+              <form className="space-y-5" onSubmit={handleClientSubmit}>
+                <Field label="I'm interested in" required hint="Select at least one">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-xl border border-border bg-card">
+                    {CLIENT_INTERESTS.map((interest) => (
+                      <label key={interest} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/60 rounded-md p-2 transition-colors">
+                        <Checkbox
+                          checked={interests.includes(interest)}
+                          onCheckedChange={() => toggleInterest(interest)}
+                        />
+                        {interest}
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted/30 transition-colors">
+                  <Checkbox
+                    checked={receivePromotions}
+                    onCheckedChange={(v) => setReceivePromotions(v === true)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Receive promotions</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Optional — get deals, seasonal offers, and studio highlights by email.</p>
+                  </div>
+                </label>
+
+                {apiError && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Registration Failed</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <StepNav 
+                  onBack={() => handleStepChange(3)} 
+                  nextLabel="Create account" 
+                  disabled={!canClientStep4 || isLoading} 
+                  isLoading={isLoading} 
+                />
+              </form>
+            </div>
+          )}
+
+          {/* ===== Step 3: Pro — Studio / Photographer info ===== */}
           {step === 3 && accountType !== "client" && (
             <div>
               <h2 className="text-2xl font-heading font-bold mb-1">
@@ -365,7 +913,7 @@ export default function Register() {
                 {accountType === "studio" ? "Details about your studio business." : "Details about your photography practice."}
               </p>
 
-              <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (canStep3) setStep(4); }}>
+              <form className="space-y-4" onSubmit={handleStep3Submit}>
                 <Field label={accountType === "studio" ? "Studio / Business name" : "Photography brand name"} required>
                   <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)}
                     placeholder={accountType === "studio" ? "e.g. Rivera Studio" : "e.g. Juan dela Cruz Photography"} maxLength={120} />
@@ -393,18 +941,28 @@ export default function Register() {
                   </Field>
                 )}
 
-                <StepNav onBack={() => setStep(2)} nextLabel="Continue" disabled={!canStep3} />
+                {apiError && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Couldn't save</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={!canProStep3 || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
 
-          {/* ===== Step 4 ===== */}
+          {/* ===== Step 4: Pro — Services ===== */}
           {step === 4 && accountType !== "client" && (
             <div>
               <h2 className="text-2xl font-heading font-bold mb-1">About your service</h2>
-              <p className="text-muted-foreground mb-6">What you offer, where you cover, and pricing.</p>
+              <p className="text-muted-foreground mb-6">What you offer, where you cover, and pricing options.</p>
 
-              <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); if (canStep4) setStep(5); }}>
+              <form className="space-y-5" onSubmit={handleStep4Submit}>
                 <Field label="Services you offer" required>
                   <div className="grid grid-cols-2 gap-2 p-3 rounded-xl border border-border bg-card">
                     {SERVICE_OPTIONS.map((s) => (
@@ -455,41 +1013,28 @@ export default function Register() {
                   </div>
                 </Field>
 
-                <Field label="Price range (₱)" required>
+                <Field label="General base pricing rate limits (₱)" required>
                   <div className="grid grid-cols-2 gap-3">
-                    <Input type="number" min={0} value={priceMin} onChange={(e) => setPriceMin(e.target.value)} placeholder="Min" />
-                    <Input type="number" min={0} value={priceMax} onChange={(e) => setPriceMax(e.target.value)} placeholder="Max" />
+                    <Input type="number" min={0} value={priceMin} onChange={(e) => setPriceMin(e.target.value)} placeholder="Min Price" />
+                    <Input type="number" min={0} value={priceMax} onChange={(e) => setPriceMax(e.target.value)} placeholder="Max Price" />
+                  </div>
+                  <div className="mt-2 text-xs bg-muted/40 p-3 rounded-lg flex items-start gap-2 text-muted-foreground border">
+                    <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                    <p>Specific booking catalogs and draft tiers can be configured comfortably inside your dashboard room post-registration approval.</p>
                   </div>
                 </Field>
 
-                <Field label="Fixed packages you offer" required hint="Add at least one complete package">
-                  <div className="space-y-3">
-                    {packages.map((pkg, i) => (
-                      <div key={i} className="p-3 rounded-xl border border-border bg-card relative">
-                        {packages.length > 1 && (
-                          <button type="button" onClick={() => setPackages(packages.filter((_, j) => j !== i))}
-                            className="absolute top-2 right-2 w-6 h-6 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <div className="grid grid-cols-2 gap-2 mb-2">
-                          <Input placeholder="Package name" value={pkg.name} maxLength={60}
-                            onChange={(e) => { const c = [...packages]; c[i].name = e.target.value; setPackages(c); }} />
-                          <Input type="number" placeholder="Price ₱" value={pkg.price}
-                            onChange={(e) => { const c = [...packages]; c[i].price = e.target.value; setPackages(c); }} />
-                        </div>
-                        <Input placeholder="What's included (short description)" value={pkg.desc} maxLength={200}
-                          onChange={(e) => { const c = [...packages]; c[i].desc = e.target.value; setPackages(c); }} />
-                      </div>
-                    ))}
-                    <Button type="button" variant="outline" size="sm" className="gap-1.5"
-                      onClick={() => setPackages([...packages, { name: "", price: "", desc: "" }])}>
-                      <Plus className="w-3.5 h-3.5" /> Add another package
-                    </Button>
+                {apiError && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Couldn't save</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
                   </div>
-                </Field>
+                )}
 
-                <StepNav onBack={() => setStep(3)} nextLabel="Continue" disabled={!canStep4} />
+                <StepNav onBack={() => handleStepChange(3)} nextLabel="Continue" disabled={!canStep4 || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -504,7 +1049,7 @@ export default function Register() {
                 Help our admins confirm you're a real professional. Documents are private and reviewed by admin only.
               </p>
 
-              <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); if (canStep5Verify) setStep(6); }}>
+              <form className="space-y-5" onSubmit={handleStep5Submit}>
                 <FileField
                   label="Government ID (front)"
                   required
@@ -523,7 +1068,7 @@ export default function Register() {
                   accept="image/*"
                 />
 
-                {accountType === "studio" ? (
+                {accountType === "studio" && (
                   <FileField
                     label="Business permit / DTI registration"
                     required
@@ -532,30 +1077,76 @@ export default function Register() {
                     onChange={setBusinessPermit}
                     accept="image/*,application/pdf"
                   />
-                ) : (
-                  <Field
-                    label="Proof-of-work portfolio"
-                    required
-                    hint="Upload at least 3 sample photos of your own work (or paste your portfolio/FB link in the next step)"
-                  >
-                    <label className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/30 transition-colors cursor-pointer block">
-                      <Upload className="w-7 h-7 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">
-                        {portfolioFiles.length > 0
-                          ? `${portfolioFiles.length} file${portfolioFiles.length > 1 ? "s" : ""} selected`
-                          : "Click to upload sample works"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">Minimum 3 photos, JPG/PNG up to 10MB each</p>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
+                )}
+
+                <Field label="Additional Proof / Documents" required hint="Please upload 2 to 6 files. Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-xl cursor-pointer bg-card hover:bg-muted/50 transition-colors">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-semibold text-primary">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or PDF (Max 2MB)</p>
+                      </div>
+                      <Input 
+                        type="file" 
+                        multiple 
                         className="hidden"
-                        onChange={(e) => setPortfolioFiles(Array.from(e.target.files || []))}
+                        onChange={(e) => {
+                          if (e.target.files) {
+                            handleAdditionalProofChange(Array.from(e.target.files));
+                          }
+                          e.target.value = '';
+                        }}
+                        accept="image/*,.pdf,.doc,.docx" 
                       />
                     </label>
-                  </Field>
-                )}
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs mt-3 mb-1">
+                    <span className={cn("font-medium", additionalProofValid ? "text-emerald-600" : "text-destructive")}>
+                      {additionalProof.length} / 6 files selected (minimum 2)
+                    </span>
+                  </div>
+
+                  {additionalProof.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {additionalProof.map((file, idx) => {
+                        const isImage = file.type.startsWith("image/");
+                        const previewUrl = isImage ? URL.createObjectURL(file) : null;
+
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-3 border border-border rounded-xl bg-card relative group shadow-sm">
+                            {isImage ? (
+                              <div className="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-muted">
+                                <img src={previewUrl!} alt="preview" className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-10 h-10 shrink-0 rounded-md bg-primary/10 flex items-center justify-center text-primary">
+                                <FileText className="w-5 h-5" />
+                              </div>
+                            )}
+                            
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate text-foreground">{file.name}</p>
+                              <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                            
+                            <button 
+                              type="button" 
+                              onClick={() => removeAdditionalProof(idx)}
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                              title="Remove file"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Field>
 
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground flex gap-2">
                   <Info className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
@@ -564,50 +1155,360 @@ export default function Register() {
                   </p>
                 </div>
 
-                <StepNav onBack={() => setStep(4)} nextLabel="Continue" disabled={!canStep5Verify} />
-              </form>
-            </div>
-          )}
-
-          {/* ===== Step 6: Profile preview ===== */}
-          {step === 6 && accountType !== "client" && (
-            <div>
-              <h2 className="text-2xl font-heading font-bold mb-1">Profile preview</h2>
-              <p className="text-muted-foreground mb-6">This is what clients will see on your public profile.</p>
-
-              <form className="space-y-5" onSubmit={handleFinalSubmit}>
-                <Field label={accountType === "studio" ? "Studio description" : "Short bio"} required hint="Minimum 20 characters">
-                  <Textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="What makes your work unique?" rows={3} maxLength={800} />
-                </Field>
-
-                {accountType === "freelancer" && (
-                  <Field label="Equipment / gear">
-                    <Textarea value={equipment} onChange={(e) => setEquipment(e.target.value)} placeholder="e.g. Sony A7 IV, 50mm f/1.4, Godox AD200…" rows={2} maxLength={400} />
-                  </Field>
+                {apiError && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Upload failed</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
+                  </div>
                 )}
 
-                <Field label="Social media & website" required hint="At least one link required — used for verification too">
-                  <div className="space-y-2">
-                    <IconInput icon={Facebook} value={facebook} onChange={setFacebook} placeholder="Facebook page URL" />
-                    <IconInput icon={Instagram} value={instagram} onChange={setInstagram} placeholder="Instagram handle or URL" />
-                    <IconInput icon={Globe} value={website} onChange={setWebsite} placeholder="Website (optional)" />
-                  </div>
-                </Field>
-
-                <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-500/5 dark:border-amber-500/20 p-3 text-xs text-amber-800 dark:text-amber-300 flex gap-2">
-                  <Clock className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p>After submitting, your account will be <strong>pending admin approval</strong>. You'll be able to access your dashboard once verified.</p>
-                </div>
-
-                <StepNav onBack={() => setStep(5)} nextLabel="Submit for approval" disabled={!canStep6} />
+                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={!canStep5Verify || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
 
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
-            <Link to="/login" className="text-primary font-medium hover:underline">Sign in</Link>
-          </p>
+          {/* ===== Step 6: Portfolio upload ===== */}
+          {step === 6 && accountType !== "client" && (
+            <div>
+              <h2 className="text-2xl font-heading font-bold mb-1 flex items-center gap-2">
+                <ImageIcon className="w-6 h-6 text-primary" /> Portfolio upload
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                Upload between 6 to 12 showcase items from your stunning portfolio. Real pictures under 5MB are preferred.
+              </p>
+
+              <form className="space-y-5" onSubmit={handleStep6Submit}>
+                <Field 
+                  label="Sample works gallery" 
+                  required 
+                  hint="Please upload at least 6 but no more than 12 images. Choose photos one by one or select multiple."
+                >
+                  <label className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/30 transition-colors cursor-pointer block bg-muted/20">
+                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2 animate-bounce" />
+                    <p className="text-sm font-semibold">Click to browse and add files</p>
+                    <p className="text-xs text-muted-foreground mt-1">Accepts JPG, PNG, WEBP (6 to 12 images, max 5MB per file)</p>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          handlePortfolioChange(Array.from(e.target.files));
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </Field>
+
+                {portfolioFiles.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className={cn("font-medium", portfolioFilesWithinLimits ? "text-emerald-600" : "text-destructive")}>
+                        {portfolioFiles.length} / 12 files selected (minimum 6)
+                      </span>
+                      {!portfolioFilesValidSizes && (
+                        <span className="text-destructive font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5" /> High-res assets exceed 5MB!
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 border border-border p-3 rounded-xl bg-card shadow-sm">
+                      {portfolioFiles.map((f, idx) => {
+                        const isSizeWarn = f.size > 5 * 1024 * 1024;
+                        return (
+                          <div key={idx} className={cn("relative aspect-square rounded-lg border overflow-hidden bg-muted group", isSizeWarn ? "border-destructive" : "border-border")}>
+                            {portfolioPreviews[idx] && (
+                              <img src={portfolioPreviews[idx]} alt="portfolio preview" className="w-full h-full object-cover" />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removePortfolioImage(idx)}
+                              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center transition-colors"
+                              title="Remove image"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            {isSizeWarn && (
+                              <div className="absolute inset-x-0 bottom-0 bg-destructive/90 text-white text-[9px] py-0.5 text-center font-medium flex items-center justify-center gap-0.5">
+                                <AlertCircle className="w-2.5 h-2.5" /> Over 5MB
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {apiError && (
+                  <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Upload failed</p>
+                      <p className="text-xs leading-relaxed">{apiError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <StepNav onBack={() => handleStepChange(5)} nextLabel="Continue to Profile Builder" disabled={!canStep6Portfolio || isLoading} isLoading={isLoading} />
+              </form>
+            </div>
+          )}
+
+          {/* ===== Step 7: Public Profile Redesign ===== */}
+          {step === 7 && accountType !== "client" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-heading font-bold mb-1">Public Profile Builder</h2>
+                <p className="text-muted-foreground">This is exactly how prospective clients in Sorsogon will see your public profile card.</p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <form className="lg:col-span-6 space-y-5" onSubmit={handleFinalSubmit}>
+                  
+                  <Field label="Brand bio/description" required hint="Tell clients who you are. Min 20 characters">
+                    <Textarea 
+                      value={bio} 
+                      onChange={(e) => setBio(e.target.value)} 
+                      placeholder="e.g. Capturing timeless moments across Sorsogon with cinematic flair and natural lightning..." 
+                      rows={3} 
+                      maxLength={800} 
+                    />
+                  </Field>
+
+                  <Field label="Your Photography Style" required hint="Select tags below or create custom ones that match your brand identity">
+                    <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-border bg-card mb-2">
+                      {PHOTOGRAPHY_STYLES.map((style) => {
+                        const active = photographyStyles.includes(style);
+                        return (
+                          <button
+                            key={style}
+                            type="button"
+                            onClick={() => toggleStyle(style)}
+                            className={cn(
+                              "px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200",
+                              active 
+                                ? "bg-primary/10 text-primary border-primary" 
+                                : "border-border text-muted-foreground hover:bg-muted"
+                            )}
+                          >
+                            {style}
+                          </button>
+                        );
+                      })}
+
+                      {photographyStyles.filter(s => !PHOTOGRAPHY_STYLES.includes(s)).map((style) => (
+                        <button
+                          key={style}
+                          type="button"
+                          onClick={() => toggleStyle(style)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium border bg-primary/10 text-primary border-primary flex items-center gap-1"
+                        >
+                          {style} <X className="w-3 h-3" />
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input
+                        value={customStyleInput}
+                        onChange={(e) => setCustomStyleInput(e.target.value)}
+                        placeholder="Add your own custom style (e.g., Neon Noir, High-Contrast)"
+                        maxLength={30}
+                        className="h-9 text-xs flex-1"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomStyle();
+                          }
+                        }}
+                      />
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={handleAddCustomStyle}
+                        className="h-9 px-3 text-xs flex shrink-0 items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Profile avatar" hint="PNG or JPG, max 5MB">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-muted border border-border overflow-hidden flex items-center justify-center shrink-0">
+                          {profilePreview ? (
+                            <img src={profilePreview} alt="Avatar" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-5 h-5 text-muted-foreground/50" />
+                          )}
+                        </div>
+                        <label className="cursor-pointer">
+                          <span className="text-xs text-primary font-semibold hover:underline">Upload photo</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => handleProfilePictureChange(e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+                    </Field>
+
+                    <Field label="Cover Banner" hint="Wide format cover preview, max 5MB">
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-10 rounded-md bg-muted border border-border overflow-hidden flex items-center justify-center shrink-0">
+                          {coverPreview ? (
+                            <img src={coverPreview} alt="Cover" className="w-full h-full object-cover" />
+                          ) : (
+                            <ImageIcon className="w-5 h-5 text-muted-foreground/50" />
+                          )}
+                        </div>
+                        <label className="cursor-pointer">
+                          <span className="text-xs text-primary font-semibold hover:underline">Upload cover</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => handleCoverPhotoChange(e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+                    </Field>
+                  </div>
+
+                  <Field label="Social profiles & website" required hint="At least one profile url required for live verification">
+                    <div className="space-y-2">
+                      <IconInput icon={Facebook} value={facebook} onChange={setFacebook} placeholder="Facebook Page URL" />
+                      <IconInput icon={Instagram} value={instagram} onChange={setInstagram} placeholder="Instagram handle or URL" />
+                      <IconInput icon={Globe} value={website} onChange={setWebsite} placeholder="Business Website link" />
+                    </div>
+                  </Field>
+
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-500/5 dark:border-amber-500/20 p-3 text-xs text-amber-800 dark:text-amber-300 flex gap-2">
+                    <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                    <p>Submitting launches your <strong>pending admin verification review</strong>. Admins cross-verify links in Sorsogon before system publication.</p>
+                  </div>
+
+                  {apiError && (
+                    <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-semibold text-xs uppercase tracking-wider mb-0.5">Submission failed</p>
+                        <p className="text-xs leading-relaxed">{apiError}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <StepNav onBack={() => handleStepChange(6)} nextLabel="Submit application" disabled={!canStep7Profile || isLoading} isLoading={isLoading} />
+                </form>
+
+                <div className="lg:col-span-6 bg-muted/40 p-6 rounded-2xl border border-border sticky top-6">
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider block mb-4 text-center">Live profile mockup card</span>
+                  
+                  <div className="bg-card border border-border rounded-xl overflow-hidden shadow-lg animate-fade-up">
+                    <div className="h-32 w-full bg-[#3a2215] relative overflow-hidden">
+                      {coverPreview ? (
+                        <img src={coverPreview} alt="Cover Banner" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-r from-amber-950 to-orange-950 opacity-90 flex items-center justify-center">
+                          <span className="text-[11px] text-white/30 uppercase font-mono tracking-widest">No Cover Photo Uploaded</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4 pt-0 relative space-y-4">
+                      <div className="w-16 h-16 rounded-full border-4 border-card bg-muted overflow-hidden absolute -top-8 left-4 shadow-md">
+                        {profilePreview ? (
+                          <img src={profilePreview} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-primary/10">
+                            <User className="w-6 h-6 text-primary" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pl-24 pt-1.5 flex justify-between items-start">
+                        <div>
+                          <h3 className="font-heading font-bold text-base leading-tight truncate max-w-[180px]">
+                            {businessName || name || "Brand / Studio Name"}
+                          </h3>
+                          <span className="text-[10px] text-primary font-semibold block capitalize">
+                            {accountType === "studio" ? "Photography Studio" : "Freelancer"}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          {facebook && <Facebook className="w-3.5 h-3.5 text-[#1877f2]" />}
+                          {instagram && <Instagram className="w-3.5 h-3.5 text-[#e1306c]" />}
+                          {website && <Globe className="w-3.5 h-3.5 text-muted-foreground" />}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 text-[11px] text-muted-foreground px-1">
+                        <MapPin className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{address || "Based in Bulan, Sorsogon"}</span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        {photographyStyles.length > 0 ? (
+                          photographyStyles.map((style) => (
+                            <span key={style} className="px-2 py-0.5 rounded-full bg-primary/5 text-primary text-[10px] font-medium border border-primary/20">
+                              {style}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground italic px-1">No photography style selected</span>
+                        )}
+                      </div>
+
+                      <div className="text-xs text-muted-foreground leading-relaxed px-1 line-clamp-3 italic">
+                        {bio ? `"${bio}"` : "Short creative description of your photography service goes here..."}
+                      </div>
+
+                      <div className="space-y-2 border-t border-border pt-3">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Showcase Gallery</span>
+                        <div className="grid grid-cols-6 gap-1">
+                          {portfolioPreviews.slice(0, 12).map((previewUrl, i) => (
+                            <div key={i} className="aspect-square rounded overflow-hidden bg-muted">
+                              <img src={previewUrl} alt="gallery thumbnail" className="w-full h-full object-cover" />
+                            </div>
+                          ))}
+                          {Array.from({ length: Math.max(0, 6 - portfolioPreviews.length) }).map((_, i) => (
+                            <div key={i} className="aspect-square rounded border border-dashed border-border bg-muted/20 flex items-center justify-center">
+                              <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/30" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 border-t border-border pt-3">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Service Packages</span>
+                        <div className="p-3 bg-muted/30 border border-dashed border-border rounded-lg text-center">
+                          <p className="text-[11px] font-medium text-muted-foreground">No custom tiers configured yet</p>
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">You can build drafts and publish custom rates instantly from your dashboard once approved!</p>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step !== 7 && (
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link to="/login" className="text-primary font-medium hover:underline">Sign in</Link>
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -630,22 +1531,22 @@ function BackLink() {
 
 function StepIndicator({ step, total }: { step: number; total: number }) {
   return (
-    <div className="flex items-center gap-2 mb-8">
+    <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 scrollbar-none">
       {Array.from({ length: total }).map((_, idx) => {
         const s = idx + 1;
         return (
-          <div key={s} className="flex items-center gap-2">
+          <div key={s} className="flex items-center gap-2 shrink-0">
             <div className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-colors",
               step >= s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
             )}>
               {s}
             </div>
-            {s < total && <div className={cn("w-6 h-0.5 rounded-full transition-colors", step > s ? "bg-primary" : "bg-border")} />}
+            {s < total && <div className={cn("w-4 h-0.5 rounded-full transition-colors", step > s ? "bg-primary" : "bg-border")} />}
           </div>
         );
       })}
-      <span className="text-xs text-muted-foreground ml-2">Step {step} of {total}</span>
+      <span className="text-xs text-muted-foreground ml-2 shrink-0">Step {step} of {total}</span>
     </div>
   );
 }
@@ -663,14 +1564,23 @@ function Field({ label, required, hint, children }: { label: string; required?: 
   );
 }
 
-function StepNav({ onBack, nextLabel, disabled }: { onBack: () => void; nextLabel: string; disabled?: boolean }) {
+function StepNav({ onBack, nextLabel, disabled, isLoading }: { onBack: () => void; nextLabel: string; disabled?: boolean; isLoading?: boolean }) {
   return (
     <div className="flex gap-3 pt-2">
-      <Button type="button" variant="outline" onClick={onBack} className="gap-1">
+      <Button type="button" variant="outline" onClick={onBack} className="gap-1" disabled={isLoading}>
         <ArrowLeft className="w-4 h-4" /> Back
       </Button>
-      <Button type="submit" className="flex-1" size="lg" disabled={disabled}>
-        {nextLabel} <ArrowRight className="w-4 h-4 ml-2" />
+      <Button type="submit" className="flex-1" size="lg" disabled={disabled || isLoading}>
+        {isLoading ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            Processing...
+          </span>
+        ) : (
+          <>
+            {nextLabel} <ArrowRight className="w-4 h-4 ml-2" />
+          </>
+        )}
       </Button>
     </div>
   );

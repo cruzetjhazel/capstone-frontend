@@ -1,103 +1,192 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { authService } from "@/services/authService";
-import type { ApiUser, UserRole } from "@/api/types/auth";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import api from "@/lib/api";
+import { AUTH_TOKEN_KEY } from "@/config/env";
 
-export type { UserRole };
+export type AccountType = "client" | "photographer" | "administrator";
+export type AccountStatus = "active" | "suspended" | "deactivated";
+export type ApplicationStatus = "draft" | "pending_review" | "revision_requested" | "approved" | "rejected";
+export type PhotographerType = "freelancer" | "studio";
 
-export interface RoleUser {
-  id: string | number;
+// Coarse role kept for backward compatibility with existing route guards.
+// Both freelancer and studio photographers currently share the "studio" dashboard route.
+export type Role = "client" | "studio" | "admin";
+
+export type PhotographerApplicationInfo = {
+  status: ApplicationStatus;
+  photographerType: PhotographerType;
+  businessName: string | null;
+  submittedAt: string | null;
+  revisionNotes: string | null;
+  rejectionReason: string | null;
+};
+
+export type User = {
+  id: string;
   name: string;
   email: string;
-  initials: string;
-  role: UserRole;
+  accountType: AccountType;
+  accountStatus: AccountStatus;
+  role: Role;
+  // Only populated for accountType === "photographer"
+  application: PhotographerApplicationInfo | null;
+};
+
+type RoleContextType = {
+  user: User | null;
+  role: Role | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<User>;
+  setUserFromRegistration: (rawUser: any, token?: string) => Promise<void>;
+  logout: () => void;
+  refreshApplication: () => Promise<void>;
+};
+
+const RoleContext = createContext<RoleContextType | undefined>(undefined);
+const USER_STORAGE_KEY = "app_user";
+
+export const getRoleDashboardPath = (role: string) => {
+  if (role === "admin") return "/admin";
+  if (role === "studio") return "/studio";
+  return "/dashboard";
+};
+
+/** Status-aware post-login/post-registration destination. Prefer this over getRoleDashboardPath. */
+export const getPostLoginPath = (user: User): string => {
+  if (user.accountType === "administrator") return "/admin";
+  if (user.accountType === "client") return "/dashboard";
+
+  // photographer
+  const status = user.application?.status;
+  if (status === "approved") return "/studio";
+  if (!status || status === "draft") return "/register?continue=true";
+  return "/photographer/status"; // pending_review, revision_requested, rejected
+};
+
+function deriveRole(accountType: AccountType): Role {
+  if (accountType === "administrator") return "admin";
+  if (accountType === "photographer") return "studio";
+  return "client";
 }
 
-function toRoleUser(user: ApiUser): RoleUser {
+async function fetchApplication(): Promise<PhotographerApplicationInfo | null> {
+  try {
+    const res = await api.get("/photographer/application");
+    const app = res.data?.data ?? res.data;
+    if (!app) return null;
+    return {
+      status: app.status,
+      photographerType: app.photographer_type,
+      businessName: app.business_name ?? null,
+      submittedAt: app.submitted_at ?? null,
+      revisionNotes: app.revision_notes ?? null,
+      rejectionReason: app.rejection_reason ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildUser(rawUser: any): Promise<User> {
+  const accountType = rawUser.account_type as AccountType;
+  const application = accountType === "photographer" ? await fetchApplication() : null;
+
   return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    initials: user.initials ?? user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
+    id: String(rawUser.id),
+    name: rawUser.name,
+    email: rawUser.email,
+    accountType,
+    accountStatus: rawUser.account_status as AccountStatus,
+    role: deriveRole(accountType),
+    application,
   };
 }
 
-interface RoleContextType {
-  user: RoleUser | null;
-  role: UserRole | null;
-  isLoading: boolean;
-  login: (email: string, password: string) => Promise<RoleUser>;
-  loginAsRole: (role: UserRole) => void;
-  logout: () => Promise<void>;
-}
-
-const RoleContext = createContext<RoleContextType>({
-  user: null,
-  role: null,
-  isLoading: true,
-  login: async () => ({} as RoleUser),
-  loginAsRole: () => {},
-  logout: async () => {},
-});
-
 export function RoleProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<RoleUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // On app load: if a token exists, ask the backend who we are (source of truth),
+  // rather than trusting whatever was last cached in localStorage.
   useEffect(() => {
-    authService.fetchCurrentUser()
-      .then((u) => setUser(u ? toRoleUser(u) : null))
-      .finally(() => setIsLoading(false));
-  }, []);
+    const bootstrap = async () => {
+      const token = localStorage.getItem(AUTH_TOKEN_KEY);
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
 
-  const login = useCallback(async (email: string, password: string): Promise<RoleUser> => {
-    const { user: apiUser } = await authService.login(email, password);
-    const roleUser = toRoleUser(apiUser);
-    setUser(roleUser);
-    return roleUser;
-  }, []);
-
-  /** Legacy mock login used by Register client flow — no UI change required. */
-  const loginAsRole = useCallback((role: UserRole) => {
-    const demos: Record<UserRole, RoleUser> = {
-      admin: { id: 4, name: "Alex Admin", email: "admin@example.com", initials: "AA", role: "admin" },
-      client: { id: 1, name: "Jane Client", email: "client@example.com", initials: "JC", role: "client" },
-      studio: { id: 3, name: "HH Production", email: "studio@example.com", initials: "HH", role: "studio" },
-      freelancer: { id: 2, name: "Marco Villanueva", email: "freelancer@example.com", initials: "MV", role: "freelancer" },
+      try {
+        const res = await api.get("/auth/me");
+        const rawUser = res.data?.data ?? res.data;
+        const nextUser = await buildUser(rawUser);
+        setUser(nextUser);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+      } catch {
+        // Token invalid/expired/account no longer active — clear stale session
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(USER_STORAGE_KEY);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setUser(demos[role]);
+
+    bootstrap();
   }, []);
 
-  const logout = useCallback(async () => {
-    await authService.logout();
+  const login = async (email: string, password: string): Promise<User> => {
+    // Throws on invalid credentials OR suspended/deactivated account —
+    // the backend enforces this in AuthController::login before issuing a token.
+    const res = await api.post("/auth/login", { email, password });
+    const payload = res.data?.data ?? res.data;
+
+    localStorage.setItem(AUTH_TOKEN_KEY, payload.token);
+
+    const nextUser = await buildUser(payload.user);
+    setUser(nextUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+    return nextUser;
+  };
+
+  const logout = () => {
+    api.post("/auth/logout").catch(() => {});
     setUser(null);
-  }, []);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+  };
+
+  // Takes the raw backend user object (as returned by UserResource) plus the
+  // token issued at registration, and builds a full User the same way login() does —
+  // so freshly registered accounts get accountType/accountStatus/application populated
+  // instead of a partial object.
+  const setUserFromRegistration = async (rawUser: any, token?: string) => {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    }
+    const nextUser = await buildUser(rawUser);
+    setUser(nextUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+  };
+
+  const refreshApplication = async () => {
+    if (!user || user.accountType !== "photographer") return;
+    const application = await fetchApplication();
+    const nextUser = { ...user, application };
+    setUser(nextUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+  };
 
   return (
-    <RoleContext.Provider value={{ user, role: user?.role ?? null, isLoading, login, loginAsRole, logout }}>
+    <RoleContext.Provider
+      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication }}
+    >
       {children}
     </RoleContext.Provider>
   );
 }
 
-export function useRole() {
-  return useContext(RoleContext);
-}
-
-export function getRoleDashboardPath(role: UserRole): string {
-  switch (role) {
-    case "admin": return "/admin";
-    case "studio":
-    case "freelancer": return "/studio";
-    case "client": return "/dashboard";
-  }
-}
-
-export function getRoleLabel(role: UserRole): string {
-  switch (role) {
-    case "admin": return "Admin";
-    case "studio": return "Photography Studio";
-    case "freelancer": return "Freelance Photographer";
-    case "client": return "Client";
-  }
-}
+export const useRole = () => {
+  const context = useContext(RoleContext);
+  if (!context) throw new Error("useRole must be used within a RoleProvider");
+  return context;
+};

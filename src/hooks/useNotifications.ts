@@ -3,8 +3,10 @@ import { notificationService } from "@/services/notificationService";
 
 export function useNotifications(userEmail?: string) {
   return useQuery({
+    // userEmail only scopes the cache key per signed-in user; the backend
+    // itself scopes the list to the authenticated user via Sanctum.
     queryKey: ["notifications", userEmail],
-    queryFn: () => notificationService.list(userEmail),
+    queryFn: () => notificationService.list(),
     staleTime: 15_000,
     refetchInterval: 20_000,
   });
@@ -20,11 +22,7 @@ export function useNotificationActions(userEmail?: string) {
       invalidate();
     },
     markAllRead: async () => {
-      if (userEmail) await notificationService.markAllRead(userEmail);
-      invalidate();
-    },
-    delete: async (id: string) => {
-      await notificationService.delete(id);
+      await notificationService.markAllRead();
       invalidate();
     },
   };
@@ -33,7 +31,7 @@ export function useNotificationActions(userEmail?: string) {
 export function useMarkAllNotificationsRead(userEmail?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => notificationService.markAllRead(userEmail!),
+    mutationFn: () => notificationService.markAllRead(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications", userEmail] }),
   });
 }

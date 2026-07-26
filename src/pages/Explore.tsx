@@ -14,62 +14,89 @@ import {
   formatPrice,
 } from "@/data/photographers";
 
+// Generic terms from the SearchBar that shouldn't trigger strict location filtering
+const GENERIC_LOCATIONS = [
+  "anywhere in bulan",
+  "at my location",
+  "event venue",
+  "outdoor location",
+  "photographer's studio"
+];
+
 export default function Explore() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawService = searchParams.get("service") || "All";
-  const initialService = serviceFilters.includes(rawService) ? rawService : "All";
+
+  // 1. PERFECT SYNC: Read state strictly from the URL. No useState required for filters.
+  const activeService = searchParams.get("service") || "All";
   const urlDate = searchParams.get("date") || "";
   const urlTime = searchParams.get("time") || "";
   const urlLocation = searchParams.get("location") || "";
-  const urlType = searchParams.get("type") || "All";
-  const urlPriceIdx = Number(searchParams.get("price") || 0);
-  const urlRatingIdx = Number(searchParams.get("rating") || 0);
-  const urlSort = (searchParams.get("sort") as "rating" | "price-low" | "price-high" | "reviews") || "rating";
+  const activeType = searchParams.get("type") || "All";
+  const activePriceIdx = Number(searchParams.get("price") || 0);
+  const activeRatingIdx = Number(searchParams.get("rating") || 0);
+  const sortBy = (searchParams.get("sort") as "rating" | "price-low" | "price-high" | "reviews") || "rating";
 
-  const [activeService, setActiveService] = useState(initialService);
-  const [activeType, setActiveType] = useState(typeFilters.includes(urlType) ? urlType : "All");
-  const [activePriceIdx, setActivePriceIdx] = useState(Number.isFinite(urlPriceIdx) ? urlPriceIdx : 0);
-  const [activeRatingIdx, setActiveRatingIdx] = useState(Number.isFinite(urlRatingIdx) ? urlRatingIdx : 0);
-  const [sortBy, setSortBy] = useState<"rating" | "price-low" | "price-high" | "reviews">(urlSort);
   const [showFilters, setShowFilters] = useState(false);
-  const [filterLoading, setFilterLoading] = useState(true);
+  const [filterLoading, setFilterLoading] = useState(false);
   const { data: allPhotographers = [], isLoading: dataLoading } = usePhotographers();
   const loading = dataLoading || filterLoading;
 
-  // Persist all filter state into the URL for shareable/bookmarkable results.
-  useEffect(() => {
+  // 2. HELPER FUNCTION: Updates the URL instantly when a filter chip is clicked
+  const setParam = (key: string, value: string, defaultValue: string = "") => {
     const params = new URLSearchParams(searchParams);
-    const set = (k: string, v: string, def = "") => (v && v !== def ? params.set(k, v) : params.delete(k));
-    set("service", activeService, "All");
-    set("type", activeType, "All");
-    set("price", String(activePriceIdx), "0");
-    set("rating", String(activeRatingIdx), "0");
-    set("sort", sortBy, "rating");
+    if (value && value !== defaultValue) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
     setSearchParams(params, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy]);
+  };
 
-  // Simulate a fetch on filter/sort change so the UI shows a proper loading state.
+  // Simulate a quick loading skeleton when filters change for better UX
   useEffect(() => {
     setFilterLoading(true);
-    const t = setTimeout(() => setFilterLoading(false), 350);
+    const t = setTimeout(() => setFilterLoading(false), 300);
     return () => clearTimeout(t);
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy]);
+  }, [searchParams]);
 
-
+  // 3. SMART FILTERING: Handles fuzzy matching so the SearchBar never breaks
   const filtered = useMemo(() => {
     const pf = priceFilters[activePriceIdx];
     const rf = ratingFilters[activeRatingIdx];
+    
     const results = allPhotographers.filter((s) => {
-      if (activeService !== "All" && !s.services.includes(activeService)) return false;
+      // Smart Service Match (Case insensitive, partial match)
+      if (activeService !== "All") {
+        const hasService = s.services.some(svc => 
+          svc.toLowerCase().includes(activeService.toLowerCase()) || 
+          activeService.toLowerCase().includes(svc.toLowerCase())
+        );
+        if (!hasService) return false;
+      }
+
+      // Exact Type Match
       if (activeType !== "All" && s.type !== activeType) return false;
+      
+      // Price & Rating Math
       if (pf.min > 0 || pf.max < Infinity) {
         if (s.priceMin > pf.max || s.priceMax < pf.min) return false;
       }
       if (rf.min > 0 && s.rating < rf.min) return false;
+
+      // Smart Location Match (Ignores generic terms, matches specific ones)
+      if (urlLocation) {
+        const query = urlLocation.toLowerCase().trim();
+        if (!GENERIC_LOCATIONS.includes(query)) {
+          if (!s.location.toLowerCase().includes(query)) {
+            return false;
+          }
+        }
+      }
+
       return true;
     });
 
+    // Sorting logic
     switch (sortBy) {
       case "rating": results.sort((a, b) => b.rating - a.rating); break;
       case "price-low": results.sort((a, b) => a.priceMin - b.priceMin); break;
@@ -77,7 +104,7 @@ export default function Explore() {
       case "reviews": results.sort((a, b) => b.reviews - a.reviews); break;
     }
     return results;
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, allPhotographers]);
+  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, allPhotographers]);
 
   const activeFilterCount = [
     activeService !== "All",
@@ -87,10 +114,13 @@ export default function Explore() {
   ].filter(Boolean).length;
 
   const clearAll = () => {
-    setActiveService("All");
-    setActiveType("All");
-    setActivePriceIdx(0);
-    setActiveRatingIdx(0);
+    const params = new URLSearchParams(searchParams);
+    params.delete("service");
+    params.delete("type");
+    params.delete("price");
+    params.delete("rating");
+    // We intentionally don't delete date/location so the user's primary search remains
+    setSearchParams(params, { replace: true });
   };
 
   const ChipRow = <T extends string>({
@@ -131,23 +161,22 @@ export default function Explore() {
     <div className="min-h-screen bg-background">
       <MarketingNavbar solid />
 
-      {/* Search + filters header — compact */}
+      {/* Search + filters header */}
       <section className="pt-20 sm:pt-24 pb-4 px-4 sm:px-6 border-b border-border bg-card">
         <div className="max-w-[1400px] mx-auto flex flex-col items-center text-center gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-heading font-bold">Explore photographers</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Browse studios in Bulan, Sorsogon
-              {urlDate && <> · <span className="text-foreground font-medium">{urlDate}</span></>}
-              {urlTime && <> at <span className="text-foreground font-medium">{urlTime}</span></>}
-              {urlLocation && <> · <span className="text-foreground font-medium">{urlLocation}</span></>}
+            <p className="text-xs text-muted-foreground mt-0.5 flex flex-wrap justify-center items-center gap-1">
+              <span>Browse studios in {urlLocation && !GENERIC_LOCATIONS.includes(urlLocation.toLowerCase()) ? urlLocation : "Bulan, Sorsogon"}</span>
+              {urlDate && <span>· <span className="text-foreground font-medium">{urlDate}</span></span>}
+              {urlTime && <span>at <span className="text-foreground font-medium">{urlTime}</span></span>}
             </p>
           </div>
 
           <div className="w-full flex flex-wrap items-center justify-center gap-2">
             <SearchBar
               variant="compact"
-              initialService={rawService !== "All" ? rawService : ""}
+              initialService={activeService !== "All" ? activeService : ""}
               initialDate={urlDate}
               initialLocation={urlLocation}
             />
@@ -170,7 +199,7 @@ export default function Explore() {
 
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                onChange={(e) => setParam("sort", e.target.value, "rating")}
                 className="h-9 px-3 rounded-full border border-border bg-transparent text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer text-sm"
               >
                 <option value="rating">Top Rated</option>
@@ -180,29 +209,30 @@ export default function Explore() {
               </select>
 
               {activeFilterCount > 0 && (
-                <button onClick={clearAll} className="text-primary hover:underline text-sm">
+                <button onClick={clearAll} className="text-primary hover:underline text-sm font-medium">
                   Reset
                 </button>
               )}
             </div>
           </div>
 
+          {/* Expanded Filters */}
           {showFilters && (
-            <div className="w-full max-w-4xl mx-auto text-left bg-background border border-border rounded-2xl p-4 grid gap-4 sm:grid-cols-2 animate-fade-in">
-              <ChipRow label="Service" options={serviceFilters} active={activeService} onSelect={setActiveService} />
-              <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={setActiveType} />
+            <div className="w-full max-w-4xl mx-auto text-left bg-background border border-border rounded-2xl p-4 grid gap-4 sm:grid-cols-2 animate-fade-in shadow-sm mt-2">
+              <ChipRow label="Service" options={serviceFilters} active={activeService} onSelect={(v) => setParam("service", v, "All")} />
+              <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
               <ChipRow
                 label="Price Range"
                 options={priceFilters.map((_, i) => String(i))}
                 active={String(activePriceIdx)}
-                onSelect={(v) => setActivePriceIdx(Number(v))}
+                onSelect={(v) => setParam("price", v, "0")}
                 labelOf={(v) => priceFilters[Number(v)].label}
               />
               <ChipRow
                 label="Rating"
                 options={ratingFilters.map((_, i) => String(i))}
                 active={String(activeRatingIdx)}
-                onSelect={(v) => setActiveRatingIdx(Number(v))}
+                onSelect={(v) => setParam("rating", v, "0")}
                 labelOf={(v) =>
                   ratingFilters[Number(v)].label === "Any Rating"
                     ? ratingFilters[Number(v)].label
@@ -215,7 +245,7 @@ export default function Explore() {
       </section>
 
       <main className="max-w-[1400px] mx-auto p-4 sm:p-6">
-        {/* Results heading */}
+        {/* Results Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg sm:text-xl font-heading font-bold">
@@ -223,7 +253,7 @@ export default function Explore() {
               {activeType !== "All" ? activeType + "s" : "Photographers & Studios"}
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              {loading ? "Searching…" : `Showing ${filtered.length} of ${allPhotographers.length} results in Bulan, Sorsogon`}
+              {loading ? "Searching…" : `Showing ${filtered.length} of ${allPhotographers.length} results`}
             </p>
           </div>
         </div>
@@ -234,7 +264,7 @@ export default function Explore() {
             {activeService !== "All" && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {activeService}
-                <button onClick={() => setActiveService("All")} aria-label="Remove service filter">
+                <button onClick={() => setParam("service", "All", "All")} aria-label="Remove service filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -242,7 +272,7 @@ export default function Explore() {
             {activeType !== "All" && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {activeType}
-                <button onClick={() => setActiveType("All")} aria-label="Remove type filter">
+                <button onClick={() => setParam("type", "All", "All")} aria-label="Remove type filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -250,7 +280,7 @@ export default function Explore() {
             {activePriceIdx !== 0 && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {priceFilters[activePriceIdx].label}
-                <button onClick={() => setActivePriceIdx(0)} aria-label="Remove price filter">
+                <button onClick={() => setParam("price", "0", "0")} aria-label="Remove price filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -258,7 +288,7 @@ export default function Explore() {
             {activeRatingIdx !== 0 && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 ★ {ratingFilters[activeRatingIdx].label}
-                <button onClick={() => setActiveRatingIdx(0)} aria-label="Remove rating filter">
+                <button onClick={() => setParam("rating", "0", "0")} aria-label="Remove rating filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -289,11 +319,11 @@ export default function Explore() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20">
+          <div className="text-center py-20 bg-card rounded-2xl border border-border/50">
             <Camera className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-            <h3 className="font-heading font-semibold mb-1">No results found</h3>
-            <p className="text-sm text-muted-foreground mb-4">Try adjusting your filters or search query</p>
-            <Button variant="outline" onClick={clearAll}>Clear all filters</Button>
+            <h3 className="font-heading font-semibold mb-1 text-lg">No results found</h3>
+            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">We couldn't find any photographers matching your exact search criteria. Try removing some filters.</p>
+            <Button variant="outline" onClick={clearAll} className="rounded-full">Clear all filters</Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -309,23 +339,24 @@ export default function Explore() {
                     {s.type}
                   </span>
                   {s.rating >= 4.9 && (
-                    <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-accent/20 text-accent text-xs font-medium">
+                    <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-accent/20 text-accent text-xs font-medium flex items-center gap-1">
                       Top Rated
                     </span>
                   )}
                 </div>
                 <div className="p-5">
                   <div className="flex items-start justify-between mb-1">
-                    <h3 className="font-heading font-semibold text-sm">{s.name}</h3>
-                    <div className="flex items-center gap-1">
+                    <h3 className="font-heading font-semibold text-sm truncate pr-2">{s.name}</h3>
+                    <div className="flex items-center gap-1 shrink-0">
                       <Star className="w-3.5 h-3.5 fill-accent text-accent" />
                       <span className="text-xs font-semibold">{s.rating}</span>
                       <span className="text-xs text-muted-foreground">({s.reviews})</span>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mb-1">{s.specialty}</p>
+                  <p className="text-xs text-muted-foreground mb-1 line-clamp-1">{s.specialty}</p>
                   <div className="flex items-center gap-1 text-xs text-muted-foreground mb-3">
-                    <MapPin className="w-3 h-3" />{s.location}
+                    <MapPin className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{s.location}</span>
                   </div>
                   <div className="flex flex-wrap gap-1 mb-3">
                     {s.services.slice(0, 3).map((svc) => (
@@ -335,7 +366,7 @@ export default function Explore() {
                       <span className="px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground">+{s.services.length - 3}</span>
                     )}
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between pt-2 border-t border-border/50">
                     <span className="text-sm font-semibold text-primary">{formatPrice(s.priceMin)}–{formatPrice(s.priceMax)}</span>
                     <Button size="sm" className="text-xs h-8">View Profile</Button>
                   </div>

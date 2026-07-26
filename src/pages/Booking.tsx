@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, ArrowRight, Check, Camera, AlertCircle, Calendar as CalendarIcon,
-  ChevronLeft, Sparkles, Wallet, Wand2, Package as PackageIcon, Info, Clock,
+  ArrowLeft, ArrowRight, Check, AlertCircle, Calendar as CalendarIcon,
+  ChevronLeft, Sparkles, Wallet, Wand2, Package as PackageIcon, Info, Clock, MapPin,
+  LogIn, Lock, Loader2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +13,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
-  addOns, eventTypes,
-  formatPrice, defaultCustomRates, type Photographer, type CustomRates,
+  addOns, formatPrice, defaultCustomRates, type Photographer, type CustomRates,
 } from "@/data/photographers";
 import { usePhotographer, usePhotographers } from "@/hooks/usePhotographers";
-import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast"; // Replaced with react-hot-toast
 import { useRole } from "@/contexts/RoleContext";
-import { LogIn, Lock } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 
 const steps = ["Date & Time", "Event Info", "Package", "Add-ons", "Payment", "Review"];
@@ -28,10 +27,21 @@ const suggestedTimes = [
   "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
 ];
 
+// Strictly mapped to SRS Section 7.11
+const systemEventTypes = [
+  "Wedding", "Birthday", "Prenup", "Graduation", 
+  "Portrait", "Corporate Event", "Product Photography", 
+  "Family Event", "Other"
+];
+
+// Strictly mapped to SRS Section 7.12
+const locationTypes = [
+  "Studio", "Client Location", "Outdoor Location", "Other"
+];
+
 const paymentOptions = [
-  { id: "downpayment", label: "Downpayment (30%)", percent: 0.3, description: "Pay 30% now, balance on event day" },
-  { id: "half",        label: "Half Payment (50%)", percent: 0.5, description: "Pay half now, half on event day" },
-  { id: "full",        label: "Full Payment (100%)", percent: 1,  description: "Pay the full amount now" },
+  { id: "half", label: "Half Payment (50%)", percent: 0.5, description: "Pay half online via Xendit now, balance onsite" },
+  { id: "full", label: "Full Payment (100%)", percent: 1, description: "Pay the full amount online via Xendit now" },
 ];
 
 interface CustomBuild {
@@ -64,7 +74,6 @@ export default function Booking() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { user } = useRole();
 
   const { data: photographer, isLoading: loadingPhotographer } = usePhotographer(id);
@@ -82,17 +91,27 @@ export default function Booking() {
 
   // Date & event details
   const [date, setDate] = useState<Date | undefined>();
-  const [startTime, setStartTime] = useState("");   // HTML time input → "HH:MM" (24h)
+  const [startTime, setStartTime] = useState("");   
+  
   const [eventType, setEventType] = useState("");
-  const [eventLocation, setEventLocation] = useState("");
+  const [specificEventType, setSpecificEventType] = useState(""); 
+  
+  // Refined Location State (Section 7.12)
+  const [locationType, setLocationType] = useState("");
+  const [eventAddress, setEventAddress] = useState("");
+  
   const [guestCount, setGuestCount] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [contactName, setContactName] = useState("");
+  const [contactName, setContactName] = useState(user?.name || "");
   const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
+  const [contactEmail, setContactEmail] = useState(user?.email || "");
 
-  const [paymentOption, setPaymentOption] = useState("downpayment");
+  const [paymentOption, setPaymentOption] = useState("half");
+
+  // Modal & Submission States
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const p = photographer;
   const pkg = p && selectedPkg >= 0 ? p.packages[selectedPkg] ?? null : null;
@@ -101,7 +120,6 @@ export default function Booking() {
     ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
     : "";
 
-  // Each booked slot now means "this photographer is busy that whole day".
   const bookedDates = useMemo(() => {
     if (!p) return [];
     return p.bookedSlots.map((s) => {
@@ -143,7 +161,6 @@ export default function Booking() {
     setSelectedAddOns((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]);
   };
 
-  // === Pricing ===
   const customPrice = calculateCustomPrice(customBuild, rates);
   const packagePrice = packageMode === "fixed" ? (pkg?.price ?? 0) : customPrice;
   const packageName  = packageMode === "fixed" ? (pkg?.name ?? "—") : "Custom Package";
@@ -156,7 +173,6 @@ export default function Booking() {
   const dueNow = Math.round(subtotal * selectedPayment.percent);
   const balance = subtotal - dueNow;
 
-  // ---- Validation per step (with messages) ----
   type StepValidation = { ok: boolean; reason?: string };
   const validateStep = (s: number): StepValidation => {
     switch (s) {
@@ -167,11 +183,21 @@ export default function Booking() {
         return { ok: true };
       case 1:
         if (!eventType) return { ok: false, reason: "Please choose an event type." };
-        if (!eventLocation.trim()) return { ok: false, reason: "Please enter the event location/venue." };
+        if (eventType === "Other" && !specificEventType.trim()) return { ok: false, reason: "Please specify the event type." };
+        
+        // Location Validation per SRS Section 7.12
+        if (!locationType) return { ok: false, reason: "Please select a location type." };
+        if ((locationType === "Client Location" || locationType === "Outdoor Location") && !eventAddress.trim()) {
+          return { ok: false, reason: "Please provide the full event address for your selected location type." };
+        }
+        
         if (!contactName.trim() || !contactPhone.trim() || !contactEmail.trim())
           return { ok: false, reason: "Please complete your contact details (name, phone, email)." };
-        if (!/^\S+@\S+\.\S+$/.test(contactEmail))
+        
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(contactEmail.trim()))
           return { ok: false, reason: "Please enter a valid email address." };
+        
         return { ok: true };
       case 2:
         if (packageMode === "fixed" && !pkg) return { ok: false, reason: "Please select a package to continue." };
@@ -184,40 +210,80 @@ export default function Booking() {
       default: return { ok: true };
     }
   };
+  
   const currentValidation = validateStep(step);
 
   const handleNext = () => {
     const v = validateStep(step);
-    if (!v.ok) { toast({ title: "Can't continue yet", description: v.reason }); return; }
+    if (!v.ok) { 
+      toast.error(v.reason || "Please complete the required fields."); 
+      return; 
+    }
+    
+    if (step === 1) {
+      setEventAddress(eventAddress.trim());
+      setContactName(contactName.trim());
+      setContactPhone(contactPhone.trim());
+      setContactEmail(contactEmail.trim());
+      if (eventType === "Other") setSpecificEventType(specificEventType.trim());
+    }
+    
     setStep(step + 1);
   };
 
-  const handleConfirm = async () => {
+  const handleOpenConfirm = () => {
     for (let i = 0; i <= 5; i++) {
       const v = validateStep(i);
-      if (!v.ok) { toast({ title: "Can't confirm yet", description: v.reason }); setStep(i); return; }
+      if (!v.ok) { 
+        toast.error(v.reason || "Please complete the required fields."); 
+        setStep(i); 
+        return; 
+      }
     }
-    const bookingId = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
-    const record = {
-      id: bookingId,
-      clientEmail: user?.email ?? contactEmail,
-      photographerId: p.id,
-      photographerName: p.name,
-      photographerAvatar: p.avatar,
-      eventType, date: dateStr, startTime, eventLocation, guestCount, notes,
-      contactName, contactPhone, contactEmail,
-      packageName, packagePrice, packagePhotos,
-      addOns: selectedAddOns.map((i) => addOns[i]),
-      subtotal, dueNow, balance,
-      paymentOption: selectedPayment.label,
-      status: "pending" as const,
-      createdAt: new Date().toISOString(),
-    };
-    await bookingService.create(record);
-    navigate(`/booking-sent/${bookingId}`);
+    setIsConfirmModalOpen(true);
   };
 
-  // Pretty-print 24h "14:30" → "2:30 PM"
+  const handleFinalSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const bookingId = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
+      const finalEventType = eventType === "Other" ? specificEventType : eventType;
+      
+      const record = {
+        id: bookingId,
+        clientEmail: user?.email ?? contactEmail.trim(),
+        photographerId: p.id,
+        photographerName: p.name,
+        photographerAvatar: p.avatar,
+        eventType: finalEventType, 
+        date: dateStr, 
+        startTime, 
+        locationType,
+        eventAddress: eventAddress.trim(), 
+        guestCount, 
+        notes: notes.trim(),
+        contactName: contactName.trim(), 
+        contactPhone: contactPhone.trim(), 
+        contactEmail: contactEmail.trim(),
+        packageName, packagePrice, packagePhotos,
+        addOns: selectedAddOns.map((i) => addOns[i]),
+        subtotal, dueNow, balance,
+        paymentOption: selectedPayment.label,
+        status: "pending" as const, // Maps to initial pending state requiring approval
+        createdAt: new Date().toISOString(),
+      };
+      await bookingService.create(record);
+      toast.success("Booking request submitted successfully!");
+      setIsConfirmModalOpen(false);
+      navigate(`/booking-sent/${bookingId}`);
+    } catch (error) {
+      console.error("Submission failed", error);
+      toast.error("There was an error submitting your request. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const prettyTime = (t: string) => {
     if (!t) return "";
     const [hh, mm] = t.split(":").map(Number);
@@ -228,7 +294,6 @@ export default function Booking() {
 
   return (
     <div className="min-h-screen bg-background relative">
-      {/* Sign-in overlay for non-logged-in clients */}
       {!user && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-md bg-background/60 animate-fade-in">
           <div className="bg-card border border-border rounded-2xl shadow-2xl p-8 max-w-sm mx-4 text-center">
@@ -253,7 +318,6 @@ export default function Booking() {
           </div>
         </div>
       )}
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between px-6 h-16">
           <button onClick={() => step > 0 ? setStep(step - 1) : navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -268,7 +332,6 @@ export default function Booking() {
       </header>
 
       <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Step indicator */}
         <div className="flex items-center justify-center gap-2 mb-6 flex-wrap">
           {steps.map((s, i) => (
             <div key={s} className="flex items-center gap-2">
@@ -289,7 +352,6 @@ export default function Booking() {
           ))}
         </div>
 
-        {/* Inline guidance banner */}
         {!currentValidation.ok && (
           <div className="mb-5 p-3 rounded-xl bg-accent/10 border border-accent/30 flex items-start gap-2 animate-fade-in">
             <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
@@ -305,7 +367,7 @@ export default function Booking() {
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Pick Your Event Date</h3>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Photographers cover your event from your start time onward — no per-hour booking. First, let's check the date is open.
+                  Let's check if the date is open. The system will automatically calculate your end time based on the package duration and buffer time.
                 </p>
 
                 <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
@@ -325,6 +387,8 @@ export default function Booking() {
                     modifiers={{ booked: bookedDates }}
                     modifiersClassNames={{ booked: "!bg-destructive/20 !text-destructive line-through" }}
                     className="rounded-xl border pointer-events-auto"
+                    showOutsideDays
+                    showNavigation
                   />
                 </div>
 
@@ -343,7 +407,6 @@ export default function Booking() {
                         <Clock className="w-4 h-4 text-primary" />
                         <p className="font-medium text-sm">Choose Start Time *</p>
                       </div>
-                      <p className="text-xs text-muted-foreground mb-4">Coverage runs from this time until your event ends — no per-hour charges.</p>
 
                       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
                         {suggestedTimes.map((t) => (
@@ -421,19 +484,52 @@ export default function Booking() {
                   <select
                     id="eventType"
                     value={eventType}
-                    onChange={(e) => setEventType(e.target.value)}
+                    onChange={(e) => {
+                      setEventType(e.target.value);
+                      if (e.target.value !== "Other") setSpecificEventType("");
+                    }}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="">Select event type…</option>
-                    {eventTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    {systemEventTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
+                  
+                  {eventType === "Other" && (
+                    <div className="mt-3 animate-fade-in space-y-2">
+                      <Label htmlFor="specificEventType" className="text-xs text-muted-foreground">Please specify your event *</Label>
+                      <Input 
+                        id="specificEventType" 
+                        placeholder="e.g. Sweet 16, Reunion..."
+                        value={specificEventType} 
+                        onChange={(e) => setSpecificEventType(e.target.value)} 
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="location">Event Location / Venue *</Label>
-                  <Input id="location" placeholder="e.g. Bulan Municipal Hall, Zone 5"
-                    value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} />
+                  <Label htmlFor="locationType">Location Type *</Label>
+                  <select
+                    id="locationType"
+                    value={locationType}
+                    onChange={(e) => setLocationType(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select location setting…</option>
+                    {locationTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
+
+                {(locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") && (
+                  <div className="space-y-2 animate-fade-in">
+                    <Label htmlFor="address">Event Address *</Label>
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                      <Input id="address" className="pl-9" placeholder="Enter complete venue or location address"
+                        value={eventAddress} onChange={(e) => setEventAddress(e.target.value)} />
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="guestCount">Estimated Guests <span className="text-muted-foreground font-normal">(optional)</span></Label>
@@ -654,7 +750,9 @@ export default function Booking() {
             {step === 4 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Payment Option</h3>
-                <p className="text-sm text-muted-foreground mb-5">Pick how much you'd like to pay now. You'll review everything in the next step.</p>
+                <p className="text-sm text-muted-foreground mb-5">
+                  Payments are processed securely via Xendit upon booking approval. Pick how much you'd like to pay upfront.
+                </p>
                 <div className="space-y-3">
                   {paymentOptions.map((opt) => {
                     const due = Math.round(subtotal * opt.percent);
@@ -677,9 +775,9 @@ export default function Booking() {
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-xs text-muted-foreground">Due now</p>
+                            <p className="text-xs text-muted-foreground">Due online later</p>
                             <p className="font-heading font-bold text-primary">{formatPrice(due)}</p>
-                            {remaining > 0 && <p className="text-[11px] text-muted-foreground mt-0.5">+ {formatPrice(remaining)} balance</p>}
+                            {remaining > 0 && <p className="text-[11px] text-muted-foreground mt-0.5">+ {formatPrice(remaining)} balance onsite</p>}
                           </div>
                         </div>
                       </button>
@@ -703,10 +801,11 @@ export default function Booking() {
                     </div>
                   </div>
                   <div className="p-4 rounded-xl border border-border space-y-1">
-                    <p><span className="text-muted-foreground">Event:</span> {eventType}</p>
+                    <p><span className="text-muted-foreground">Event:</span> {eventType === "Other" ? specificEventType : eventType}</p>
                     <p><span className="text-muted-foreground">Date:</span> {date?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
                     <p><span className="text-muted-foreground">Start time:</span> {prettyTime(startTime)}</p>
-                    <p><span className="text-muted-foreground">Location:</span> {eventLocation}</p>
+                    <p><span className="text-muted-foreground">Setting:</span> {locationType}</p>
+                    {eventAddress && <p><span className="text-muted-foreground">Address:</span> {eventAddress}</p>}
                     {guestCount && <p><span className="text-muted-foreground">Guests:</span> ~{guestCount}</p>}
                   </div>
                   <div className="p-4 rounded-xl border border-border">
@@ -729,13 +828,20 @@ export default function Booking() {
                     )}
                   </div>
                   <div className="p-4 rounded-xl border border-border space-y-1">
-                    <p><span className="text-muted-foreground">Payment:</span> {selectedPayment.label}</p>
-                    <p><span className="text-muted-foreground">Due now:</span> {formatPrice(dueNow)}{balance > 0 && <> · <span className="text-muted-foreground">Balance:</span> {formatPrice(balance)}</>}</p>
+                    <p><span className="text-muted-foreground">Payment Plan:</span> {selectedPayment.label}</p>
+                    <p><span className="text-muted-foreground">Due if approved:</span> {formatPrice(dueNow)}{balance > 0 && <> · <span className="text-muted-foreground">Balance:</span> {formatPrice(balance)}</>}</p>
                   </div>
                   <div className="p-4 rounded-xl border border-border space-y-1">
                     <p><span className="text-muted-foreground">Contact:</span> {contactName} · {contactPhone}</p>
                     <p><span className="text-muted-foreground">Email:</span> {contactEmail}</p>
                     {notes && <p><span className="text-muted-foreground">Notes:</span> {notes}</p>}
+                  </div>
+                  
+                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2 mt-4">
+                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-xs text-primary/90">
+                      <strong>Note:</strong> By confirming, your requested time will be temporarily held for up to 24 hours while the professional reviews your request. You won't be charged until it is approved.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -749,7 +855,7 @@ export default function Booking() {
               <div className="space-y-3 text-sm">
                 {date && <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span className="font-medium">{date.toLocaleDateString()}</span></div>}
                 {startTime && <div className="flex justify-between"><span className="text-muted-foreground">Start time</span><span className="font-medium">{prettyTime(startTime)}</span></div>}
-                {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium">{eventType}</span></div>}
+                {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium">{eventType === "Other" && specificEventType ? specificEventType : eventType}</span></div>}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{packageMode === "fixed" ? (pkg ? `${pkg.name} Package` : "No package selected") : "Custom Package"}</span>
                   <span className="font-medium">{formatPrice(packagePrice)}</span>
@@ -769,7 +875,7 @@ export default function Booking() {
                 {step >= 4 && (
                   <>
                     <div className="flex justify-between items-center text-sm pt-2 border-t border-border/60">
-                      <span className="text-muted-foreground">Due now</span>
+                      <span className="text-muted-foreground">Online if approved</span>
                       <span className="font-semibold text-primary">{formatPrice(dueNow)}</span>
                     </div>
                     {balance > 0 && (
@@ -788,8 +894,8 @@ export default function Booking() {
                     Continue <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 ) : (
-                  <Button className="w-full" size="lg" onClick={handleConfirm}>
-                    Confirm Booking
+                  <Button className="w-full" size="lg" onClick={handleOpenConfirm}>
+                    Submit Booking Request
                   </Button>
                 )}
                 {step > 0 && (
@@ -799,12 +905,37 @@ export default function Booking() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground text-center mt-3">
-                Your payment is held safely — released to the photographer after confirmation.
+                No payment is required right now.
               </p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setIsConfirmModalOpen(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+              disabled={isSubmitting}
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-heading font-bold mb-2">Confirm Booking Request</h2>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              Are you sure you want to submit this booking request? Your requested time will be temporarily held for up to 24 hours while the professional reviews it.
+            </p>
+            <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsConfirmModalOpen(false)} disabled={isSubmitting}>Back</Button>
+              <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
+                {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

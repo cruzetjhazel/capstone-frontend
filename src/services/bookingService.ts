@@ -1,115 +1,156 @@
-import { env } from "@/config/env";
-import { bookingApi, buildPaymentFormData } from "@/api/bookings";
-import type { BookingPaymentInfo, SubmitPaymentPayload } from "@/api/types/booking";
 import type { BookingRecord, BookingStatus } from "@/data/mockBookings";
-import {
-  mockGetBooking,
-  mockListBookings,
-  mockSaveBooking,
-  mockUpdateBooking,
-} from "@/data/mockBookings";
-import { mockGetApprovedProfile } from "@/data/mockProfiles";
-import { notificationService } from "@/services/notificationService";
-import { formatPrice } from "@/data/photographers";
 
-export type { BookingRecord, BookingStatus };
+const API_BASE = "http://127.0.0.1:8000/api";
+
+type SnapshotComponent = {
+  type: string;
+  label: string;
+  price_addition: number | string;
+};
+
+type RawBooking = {
+  id: number;
+  client: { id: number; name: string };
+  photographer: { id: number; name: string };
+  is_custom_package: boolean;
+  package_snapshot: {
+    name?: string;
+    description?: string;
+    included_items?: string[];
+    price?: number | string;
+  } | null;
+  custom_package_snapshot: {
+    base_fee?: number | string;
+    components?: SnapshotComponent[];
+  } | null;
+  event_type: string;
+  event_date: string;
+  start_time: string;
+  event_address: string | null;
+  guest_count: number | null;
+  subtotal: string;
+  total_price: string;
+  status: "pending" | "confirmed" | "rejected" | "cancelled" | "completed";
+  cancellation_requested_at: string | null;
+  cancellation_decision: "approved" | "rejected" | null;
+  remaining_balance: number;
+  created_at: string;
+};
+
+function mapStatus(status: RawBooking["status"]): BookingStatus {
+  switch (status) {
+    case "confirmed":
+      return "approved";
+    case "rejected":
+      return "cancelled";
+    default:
+      return status as BookingStatus;
+  }
+}
+
+// Best-effort mapping from custom_package_snapshot.components (type/label/price_addition)
+// into the keyed shape ClientBookingDetails.tsx reads (customBuild.editedPhotos, etc).
+// The backend's exact `type` string values weren't confirmed against
+// CustomPackageComponentType's enum cases — if a key below doesn't match a
+// real value, that line just falls back to the UI's own existing defaults
+// ("Standard", "1", etc.) rather than breaking anything.
+function findComponent(components: SnapshotComponent[] | undefined, typeCandidates: string[]) {
+  if (!components) return undefined;
+  const match = components.find((c) => typeCandidates.includes(c.type));
+  if (!match) return undefined;
+  return { label: match.label, price: Number(match.price_addition) };
+}
+
+function toBookingRecord(raw: RawBooking): BookingRecord {
+  const components = raw.custom_package_snapshot?.components;
+
+  return {
+    id: String(raw.id),
+    photographerId: String(raw.photographer.id),
+    photographerName: raw.photographer.name,
+    photographerAvatar: raw.photographer.name.slice(0, 2).toUpperCase(),
+    eventType: raw.event_type,
+    date: raw.event_date,
+    startTime: raw.start_time,
+    eventLocation: raw.event_address ?? "",
+    guestCount: raw.guest_count != null ? String(raw.guest_count) : "",
+    notes: "",
+    contactName: raw.client.name,
+    contactPhone: "",
+    contactEmail: "",
+    packageName: raw.package_snapshot?.name ?? "Custom Package",
+    packagePrice: Number(raw.subtotal),
+    packagePhotos: 0, // no dedicated backend field — Package model has no photo-count column
+    addOns: [],
+    subtotal: Number(raw.subtotal),
+    dueNow: raw.remaining_balance,
+    balance: raw.remaining_balance,
+    paymentOption: "",
+    status: mapStatus(raw.status),
+    createdAt: raw.created_at,
+    serviceStatus: "not_started",
+    hasReviewed: false,
+    // Extra fields ClientBookingDetails.tsx reads via (booking as any):
+    packageType: raw.is_custom_package ? "custom" : "standard",
+    customBuild: raw.is_custom_package
+      ? {
+          baseFee: Number(raw.custom_package_snapshot?.base_fee ?? 0),
+          editedPhotos: findComponent(components, ["edited_photos", "editing"]),
+          photographers: findComponent(components, ["photographers", "additional_photographer"]),
+          delivery: findComponent(components, ["delivery"]),
+          rawFiles: findComponent(components, ["raw_files", "rawFiles"]),
+          secondLocation: findComponent(components, ["second_location", "secondLocation"]),
+        }
+      : undefined,
+    hasActiveRequest: !!raw.cancellation_requested_at && !raw.cancellation_decision,
+  } as BookingRecord;
+}
+
+async function apiRequest<T>(path: string): Promise<T> {
+  const token = localStorage.getItem("app_token");
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  } catch {
+    throw new Error("Unable to connect to the server. Please check your connection and try again.");
+  }
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json.message || `Request failed (${response.status}).`);
+  return json.data as T;
+}
 
 export const bookingService = {
-  async list(clientEmail?: string): Promise<BookingRecord[]> {
-    if (env.useMockApi) {
-      return mockListBookings(clientEmail);
-    }
-    const { data } = await bookingApi.list(clientEmail);
-    return data as BookingRecord[];
+  list: async (_clientEmail?: string): Promise<BookingRecord[]> => {
+    // clientEmail is unused now — the backend scopes bookings to the
+    // authenticated user via the Bearer token, not an email filter.
+    const raw = await apiRequest<RawBooking[]>("/client/bookings");
+    return raw.map(toBookingRecord);
   },
 
-  async getById(id: string): Promise<BookingRecord | undefined> {
-    if (env.useMockApi) {
-      return mockGetBooking(id);
-    }
-    try {
-      const { data } = await bookingApi.getById(id);
-      return data as BookingRecord;
-    } catch {
-      return undefined;
-    }
+  getById: async (id: string): Promise<BookingRecord | undefined> => {
+    const raw = await apiRequest<RawBooking>(`/client/bookings/${id}`);
+    return toBookingRecord(raw);
   },
 
-  async create(booking: BookingRecord): Promise<BookingRecord> {
-    if (env.useMockApi) {
-      return mockSaveBooking(booking);
-    }
-    const { data } = await bookingApi.create(booking as unknown as Record<string, unknown>);
-    return data as BookingRecord;
+  create: async (_booking: BookingRecord): Promise<BookingRecord> => {
+    // Genuinely not possible with this input type: BookingRecord carries
+    // display fields (packageName, addOns as {name, price, description}),
+    // not the backend IDs (photographer_id, package_id, add_on_ids)
+    // CreateBookingRequest actually requires. Whatever calls this needs
+    // to pass those raw IDs directly, not a BookingRecord.
+    throw new Error("create() needs real backend IDs (photographer_id, package_id, add_on_ids) — BookingRecord doesn't carry them.");
   },
 
-  async update(id: string, patch: Partial<BookingRecord>): Promise<BookingRecord | undefined> {
-    if (env.useMockApi) {
-      return mockUpdateBooking(id, patch);
-    }
-    const { data } = await bookingApi.update(id, patch);
-    return data as BookingRecord;
-  },
-
-  /** Studio approves booking — triggers balance-due notification. */
-  async approve(id: string): Promise<BookingRecord | undefined> {
-    const booking = env.useMockApi
-      ? mockUpdateBooking(id, { status: "approved" })
-      : (await bookingApi.approve(id)).data as BookingRecord;
-
-    if (booking) {
-      await notificationService.notifyBookingApproved(booking);
-    }
-    return booking;
-  },
-
-  async getStudioPaymentInfo(studioId: string, amountDue?: number): Promise<BookingPaymentInfo | null> {
-    if (env.useMockApi) {
-      const studio = mockGetApprovedProfile(studioId);
-      if (!studio) return null;
-      return {
-        merchant_name: studio.name,
-        merchant_qr: studio.gcashQR ?? `GCASH-${studioId}`,
-        gcash_name: studio.gcashName,
-        gcash_number: studio.gcashNumber,
-        amount_due: amountDue ?? 0,
-      };
-    }
-    try {
-      const { data } = await bookingApi.getStudioPaymentInfo(studioId);
-      return { ...data, amount_due: amountDue ?? data.amount_due };
-    } catch {
-      return null;
-    }
-  },
-
-  async submitPayment(bookingId: string, payload: SubmitPaymentPayload) {
-    if (env.useMockApi) {
-      const receipt = {
-        receipt_no: `RCPT-${Math.floor(100000 + Math.random() * 900000)}`,
-        ref_code: payload.reference_code,
-        amount_paid: payload.amount_paid,
-        sender_name: payload.sender_name,
-        paid_at: payload.paid_at,
-        merchant_name: "",
-        merchant_qr: "",
-        verified_at: new Date().toISOString(),
-        receiptNo: `RCPT-${Math.floor(100000 + Math.random() * 900000)}`,
-        refCode: payload.reference_code,
-        amountPaid: payload.amount_paid,
-        senderName: payload.sender_name,
-        paidAt: payload.paid_at,
-        verifiedAt: new Date().toISOString(),
-      };
-      mockUpdateBooking(bookingId, { status: "paid", receipt });
-      return { verified: true, booking_id: bookingId };
-    }
-    const formData = buildPaymentFormData(payload);
-    const { data } = await bookingApi.submitPayment(bookingId, formData);
-    return data;
-  },
-
-  formatBalanceMessage(booking: BookingRecord): string {
-    return `${booking.photographerName} approved ${booking.id} (${booking.eventType} · ${booking.date}). Please settle your balance of ${formatPrice(booking.dueNow)} to lock the date.`;
+  approve: async (_id: string): Promise<void> => {
+    // Not a client-side action — only photographers accept bookings,
+    // via POST /api/photographer/bookings/{id}/accept.
+    throw new Error("approve() is a photographer action, not available to clients.");
   },
 };
+
+export type { BookingRecord };

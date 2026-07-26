@@ -1,14 +1,17 @@
-import { DollarSign, CalendarDays, Star, Eye, ArrowUpRight, ArrowDownRight, Users } from "lucide-react";
+import { useState } from "react";
+import { DollarSign, CalendarDays, Star, Eye, ArrowUpRight, ArrowDownRight, Users, Download, X, Loader2 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { Button } from "@/components/ui/button";
+import toast from "react-hot-toast";
 
 const monthly = [
-  { month: "Oct", revenue: 2400, bookings: 6 },
-  { month: "Nov", revenue: 3100, bookings: 8 },
-  { month: "Dec", revenue: 4800, bookings: 12 },
-  { month: "Jan", revenue: 3600, bookings: 9 },
-  { month: "Feb", revenue: 5200, bookings: 14 },
-  { month: "Mar", revenue: 6100, bookings: 17 },
+  { month: "Oct", revenue: 24000, bookings: 6 },
+  { month: "Nov", revenue: 31000, bookings: 8 },
+  { month: "Dec", revenue: 48000, bookings: 12 },
+  { month: "Jan", revenue: 36000, bookings: 9 },
+  { month: "Feb", revenue: 52000, bookings: 14 },
+  { month: "Mar", revenue: 61000, bookings: 17 },
 ];
 
 const serviceMix = [
@@ -20,26 +23,48 @@ const serviceMix = [
 ];
 
 const topClients = [
-  { name: "Emily Watson", bookings: 4, spent: 3200 },
-  { name: "David Kim", bookings: 3, spent: 2100 },
-  { name: "Sarah Chen", bookings: 2, spent: 1800 },
-  { name: "Tom Brennan", bookings: 2, spent: 1200 },
+  { name: "Emily Watson", bookings: 4, spent: 32000 },
+  { name: "David Kim", bookings: 3, spent: 21000 },
+  { name: "Sarah Chen", bookings: 2, spent: 18000 },
+  { name: "Tom Brennan", bookings: 2, spent: 12000 },
 ];
 
 const kpis = [
-  { label: "Total Revenue", value: "$6,100", change: "+17%", up: true, icon: DollarSign },
+  { label: "Total Revenue", value: "₱61,000", change: "+17%", up: true, icon: DollarSign },
   { label: "Bookings (Mar)", value: "17", change: "+3", up: true, icon: CalendarDays },
   { label: "Avg Rating", value: "4.9", change: "+0.1", up: true, icon: Star },
   { label: "Profile Views", value: "1,284", change: "-4%", up: false, icon: Eye },
 ];
 
+const formatPHP = (value: number) => `₱${value.toLocaleString()}`;
+
 export default function StudioAnalytics() {
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportConfirm = async () => {
+    setIsExporting(true);
+    try {
+      // Simulate API call for generating the report
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      toast.success("Analytics report exported successfully!");
+      setShowExportModal(false);
+    } catch (error) {
+      toast.error("Failed to export analytics report.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-8 animate-fade-up">
-        <div>
-          <h1 className="text-2xl font-heading font-bold">Analytics</h1>
-          <p className="text-muted-foreground mt-1">Track your performance and growth.</p>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-heading font-bold">Analytics</h1>
+            <p className="text-muted-foreground mt-1">Track your performance and business growth.</p>
+          </div>
+
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -69,8 +94,11 @@ export default function StudioAnalytics() {
               <AreaChart data={monthly}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(25, 10%, 90%)" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13 }} />
+                <YAxis tickFormatter={(val) => `₱${val / 1000}k`} tick={{ fontSize: 12 }} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: 8, fontSize: 13 }} 
+                  formatter={(value: number) => [formatPHP(value), "Revenue"]}
+                />
                 <Area type="monotone" dataKey="revenue" stroke="hsl(25, 55%, 35%)" fill="hsl(25, 55%, 35%)" fillOpacity={0.15} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -83,7 +111,7 @@ export default function StudioAnalytics() {
                 <Pie data={serviceMix} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3}>
                   {serviceMix.map((e, i) => <Cell key={i} fill={e.color} />)}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value: number) => [`${value}%`, "Share"]} />
               </PieChart>
             </ResponsiveContainer>
             <div className="mt-4 space-y-2">
@@ -129,13 +157,46 @@ export default function StudioAnalytics() {
                       <p className="text-xs text-muted-foreground">{c.bookings} bookings</p>
                     </div>
                   </div>
-                  <p className="text-sm font-semibold">${c.spent.toLocaleString()}</p>
+                  <p className="text-sm font-semibold">{formatPHP(c.spent)}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Export */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setShowExportModal(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+              disabled={isExporting}
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-heading font-bold mb-2">Export Analytics</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Are you sure you want to export your analytics report? The data will be downloaded as a CSV file to your device.
+            </p>
+            <div className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button variant="outline" onClick={() => setShowExportModal(false)} disabled={isExporting}>
+                Cancel
+              </Button>
+              <Button onClick={handleExportConfirm} disabled={isExporting}>
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Exporting...
+                  </>
+                ) : (
+                  "Confirm Export"
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Menu, X, LayoutDashboard, Settings, LogOut } from "lucide-react";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -80,7 +80,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
                   )}
                 >
                   <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
-                    {user.initials}
+                    {getInitials(user.name)}
                   </div>
                   <span className="text-sm font-medium">{user.name.split(" ")[0]}</span>
                 </button>

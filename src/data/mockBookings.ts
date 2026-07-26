@@ -1,11 +1,23 @@
-import type { BookingReceipt } from "@/api/types/booking";
+// src/data/mockBookings.ts
 
 export type BookingStatus = "pending" | "approved" | "paid" | "completed" | "cancelled";
+
+// New: track where the creative production is at!
+export type ServiceStatus = "not_started" | "ongoing" | "for_client_review" | "completed";
 
 export interface BookingAddOn {
   name: string;
   price: number;
   description: string;
+}
+
+export interface RequestRecord {
+  status: "none" | "pending" | "approved" | "rejected";
+  details?: string;
+  requestedAt?: string;
+  // Specific to reschedule
+  date?: string;
+  startTime?: string;
 }
 
 export interface BookingRecord {
@@ -15,7 +27,7 @@ export interface BookingRecord {
   photographerName: string;
   photographerAvatar: string;
   eventType: string;
-  date: string;
+  date: string; // "YYYY-MM-DD"
   startTime: string;
   eventLocation: string;
   guestCount: string;
@@ -33,9 +45,19 @@ export interface BookingRecord {
   paymentOption: string;
   status: BookingStatus;
   createdAt: string;
-  receipt?: BookingReceipt & { receiptNo?: string; refCode?: string; amountPaid?: number; senderName?: string; paidAt?: string; merchantName?: string; merchantQR?: string; verifiedAt?: string };
+  
+  // New State & Request management properties
+  serviceStatus: ServiceStatus; 
+  hasReviewed?: boolean;
+  cancellationRequest?: RequestRecord;
+  rescheduleRequest?: RequestRecord;
+  modificationRequest?: RequestRecord;
+  revisionRequest?: RequestRecord;
+
+  receipt?: any;
 }
 
+// Update seed data with future events & varying service statuses for testing
 let bookings: BookingRecord[] = [
   {
     id: "BK-1042",
@@ -44,8 +66,8 @@ let bookings: BookingRecord[] = [
     photographerName: "HH Production",
     photographerAvatar: "HH",
     eventType: "Wedding",
-    date: "2026-04-20",
-    startTime: "9:00 AM",
+    date: "2026-10-20", // Moved to a future date so it can be rescheduled!
+    startTime: "09:00",
     eventLocation: "St. Anthony Church, Bulan",
     guestCount: "150",
     notes: "",
@@ -60,9 +82,37 @@ let bookings: BookingRecord[] = [
     dueNow: 4500,
     balance: 10500,
     paymentOption: "Downpayment (30%)",
-    status: "approved",
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    status: "approved", // Approved status allows "Pay Now" and "Reschedule"
+    serviceStatus: "not_started",
+    createdAt: new Date().toISOString(),
   },
+  {
+    id: "BK-1043",
+    clientEmail: "client@example.com",
+    photographerId: "1",
+    photographerName: "HH Production",
+    photographerAvatar: "HH",
+    eventType: "Debut",
+    date: "2026-07-10", // Completed Event
+    startTime: "16:00",
+    eventLocation: "Bulan Sorsogon Civic Center",
+    guestCount: "100",
+    notes: "Please capture creative group poses.",
+    contactName: "Jane Client",
+    contactPhone: "+63 912 345 6789",
+    contactEmail: "client@example.com",
+    packageName: "Standard",
+    packagePrice: 8000,
+    packagePhotos: 250,
+    addOns: [],
+    subtotal: 8000,
+    dueNow: 2400,
+    balance: 5600,
+    paymentOption: "Downpayment (30%)",
+    status: "paid",
+    serviceStatus: "for_client_review", // Trigger revision option!
+    createdAt: new Date().toISOString(),
+  }
 ];
 
 export function mockListBookings(clientEmail?: string): BookingRecord[] {
@@ -87,8 +137,4 @@ export function mockUpdateBooking(id: string, patch: Partial<BookingRecord>): Bo
     return updated;
   });
   return updated;
-}
-
-export function mockClearBookings() {
-  bookings = [];
 }
