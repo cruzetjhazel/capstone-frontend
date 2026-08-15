@@ -1,6 +1,7 @@
 export type { Photographer, Package, Review, BookedSlot, CustomRates } from "@/data/photographers";
 
 export interface PhotographerListParams {
+  status?: "approved" | "pending" | "rejected" | "suspended";
   service?: string;
   type?: string;
   price_min?: number;

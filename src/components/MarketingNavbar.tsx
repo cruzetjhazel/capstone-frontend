@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X, LayoutDashboard, Settings, LogOut } from "lucide-react";
 import Logo from "@/components/Logo";
+import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
@@ -13,6 +14,7 @@ import {
 const navLinks = [
   { label: "Home", to: "/" },
   { label: "Explore", to: "/explore" },
+  { label: "About", to: "/about" },
 ];
 
 interface Props {
@@ -52,18 +54,23 @@ export default function MarketingNavbar({ solid = false }: Props) {
 
         <nav className="hidden md:flex items-center gap-6 lg:gap-10">
           {navLinks.map((l) => (
-            <Link
+            <NavLink
               key={l.label}
               to={l.to}
+              end={l.to === "/"}
               className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                "relative px-4 py-2 rounded-lg text-sm font-medium transition-colors",
                 onDark
                   ? "text-white/80 hover:text-white hover:bg-white/10"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
+              activeClassName={cn(
+                "after:content-[''] after:absolute after:left-4 after:right-4 after:-bottom-0.5 after:h-[1.5px] after:rounded-full",
+                onDark ? "!text-white after:bg-white" : "!text-foreground after:bg-foreground"
+              )}
             >
               {l.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
 

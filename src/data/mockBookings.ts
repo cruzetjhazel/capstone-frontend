@@ -1,6 +1,11 @@
 // src/data/mockBookings.ts
 
-export type BookingStatus = "pending" | "approved" | "paid" | "completed" | "cancelled";
+// Kept in sync with the real backend BookingStatus enum (see
+// AcceptBookingAction/RejectBookingAction/ExpireStaleBookingHoldsAction on
+// the API side) — this used to drift ("approved"/"paid" were never real
+// statuses the API returns), which meant bookingService.ts's `as BookingStatus`
+// cast on live API responses was silently unchecked. Fixed to match.
+export type BookingStatus = "pending" | "accepted" | "confirmed" | "rejected" | "cancelled" | "completed" | "expired";
 
 // New: track where the creative production is at!
 export type ServiceStatus = "not_started" | "ongoing" | "for_client_review" | "completed";
@@ -82,7 +87,7 @@ let bookings: BookingRecord[] = [
     dueNow: 4500,
     balance: 10500,
     paymentOption: "Downpayment (30%)",
-    status: "approved", // Approved status allows "Pay Now" and "Reschedule"
+    status: "accepted", // Accepted status allows "Pay Now" and "Reschedule"
     serviceStatus: "not_started",
     createdAt: new Date().toISOString(),
   },
@@ -109,7 +114,7 @@ let bookings: BookingRecord[] = [
     dueNow: 2400,
     balance: 5600,
     paymentOption: "Downpayment (30%)",
-    status: "paid",
+    status: "confirmed",
     serviceStatus: "for_client_review", // Trigger revision option!
     createdAt: new Date().toISOString(),
   }

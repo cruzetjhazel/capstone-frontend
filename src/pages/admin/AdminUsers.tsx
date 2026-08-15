@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import toast from "react-hot-toast";
+import api, { getApiErrorMessage } from "@/lib/api";
 
 type UserRole = "client" | "studio" | "freelancer" | "admin";
 type AccountStatus = "active" | "suspended" | "deactivated";
@@ -27,14 +28,22 @@ interface UserRecord {
   phone: string;
   role: UserRole;
   joined: string;
-  lastLogin: string;
-  bookings: number;
-  totalServices?: number;
   status: AccountStatus;
   applicationStatus: ApplicationStatus;
   avatarColor: string;
-  recentActivity: string;
 }
+
+type RawUser = {
+  id: number | string;
+  name: string;
+  email: string;
+  phone_number: string | null;
+  account_type: "client" | "photographer" | "administrator";
+  account_status: AccountStatus;
+  created_at: string;
+  application_status: string | null;
+  photographer_type: "freelancer" | "studio" | null;
+};
 
 const avatarColors = [
   "bg-primary/15 text-primary",
@@ -45,18 +54,43 @@ const avatarColors = [
   "bg-destructive/15 text-destructive",
 ];
 
-const initialUsers: UserRecord[] = [
-  { id: "1", name: "Emily Watson", email: "emily@mail.com", phone: "+63 912 345 6789", role: "client", joined: "Mar 18, 2026", lastLogin: "Just now", bookings: 3, status: "active", applicationStatus: "N/A", avatarColor: avatarColors[0], recentActivity: "Booked Rivera Studio for a Wedding" },
-  { id: "2", name: "Rivera Studio", email: "marcus@rivera.com", phone: "+63 998 765 4321", role: "studio", joined: "Feb 5, 2026", lastLogin: "2 hours ago", bookings: 23, totalServices: 8, status: "active", applicationStatus: "Approved", avatarColor: avatarColors[1], recentActivity: "Updated service package pricing" },
-  { id: "3", name: "David Kim", email: "david@mail.com", phone: "+63 945 123 9876", role: "freelancer", joined: "Mar 12, 2026", lastLogin: "1 day ago", bookings: 1, totalServices: 3, status: "active", applicationStatus: "Pending Review", avatarColor: avatarColors[2], recentActivity: "Uploaded new portfolio images" },
-  { id: "5", name: "Sarah Chen", email: "sarah@mail.com", phone: "+63 922 444 5555", role: "client", joined: "Mar 1, 2026", lastLogin: "1 week ago", bookings: 2, status: "suspended", applicationStatus: "N/A", avatarColor: avatarColors[5], recentActivity: "Multiple canceled bookings detected" },
-  { id: "6", name: "Alex Morgan", email: "alex@snapbook.com", phone: "+63 911 111 2222", role: "admin", joined: "Jan 1, 2025", lastLogin: "5 mins ago", bookings: 0, status: "active", applicationStatus: "N/A", avatarColor: avatarColors[1], recentActivity: "Approved Rivera Studio's ID documents" },
-  { id: "7", name: "Juan Dela Cruz", email: "juan@mail.com", phone: "+63 911 222 3333", role: "client", joined: "Apr 2, 2026", lastLogin: "2 days ago", bookings: 0, status: "active", applicationStatus: "N/A", avatarColor: avatarColors[3], recentActivity: "Signed up" },
-  { id: "8", name: "LensCrafters Bulan", email: "contact@lensbulan.com", phone: "+63 944 555 6666", role: "studio", joined: "Mar 20, 2026", lastLogin: "3 hours ago", bookings: 5, totalServices: 4, status: "active", applicationStatus: "Approved", avatarColor: avatarColors[4], recentActivity: "Completed a booking" },
-  { id: "9", name: "Maria Clara", email: "maria@mail.com", phone: "+63 977 888 9999", role: "freelancer", joined: "May 1, 2026", lastLogin: "10 mins ago", bookings: 4, totalServices: 2, status: "active", applicationStatus: "Revision Requested", avatarColor: avatarColors[0], recentActivity: "Updated verification documents" },
-  { id: "10", name: "John Doe", email: "john.doe@mail.com", phone: "+63 999 000 1111", role: "client", joined: "May 15, 2026", lastLogin: "1 month ago", bookings: 1, status: "deactivated", applicationStatus: "N/A", avatarColor: avatarColors[5], recentActivity: "Account deactivated by user" },
-  { id: "11", name: "Sorsogon Shooters", email: "hello@sorsogonshooters.ph", phone: "+63 912 987 6543", role: "studio", joined: "Jan 10, 2026", lastLogin: "1 hour ago", bookings: 45, totalServices: 10, status: "active", applicationStatus: "Approved", avatarColor: avatarColors[2], recentActivity: "Added new team member" },
-];
+const APP_STATUS_MAP: Record<string, ApplicationStatus> = {
+  approved: "Approved",
+  pending_review: "Pending Review",
+  revision_requested: "Revision Requested",
+  rejected: "Rejected",
+  draft: "Draft",
+};
+
+function mapRole(accountType: RawUser["account_type"], photographerType: RawUser["photographer_type"]): UserRole {
+  if (accountType === "administrator") return "admin";
+  if (accountType === "client") return "client";
+  return photographerType === "studio" ? "studio" : "freelancer";
+}
+
+function toUserRecord(raw: RawUser, colorIdx: number): UserRecord {
+  return {
+    id: String(raw.id),
+    name: raw.name,
+    email: raw.email,
+    phone: raw.phone_number ?? "—",
+    role: mapRole(raw.account_type, raw.photographer_type),
+    joined: new Date(raw.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    status: raw.account_status,
+    applicationStatus: raw.application_status ? (APP_STATUS_MAP[raw.application_status] ?? "N/A") : "N/A",
+    avatarColor: avatarColors[colorIdx % avatarColors.length],
+  };
+}
+
+// The backend can only filter by account_type (client/photographer/administrator),
+// not the freelancer/studio split — that's derived client-side per-row from
+// photographer_type after fetching, since it isn't a separate account_type.
+function roleToAccountType(role: string): string | null {
+  if (role === "client") return "client";
+  if (role === "admin") return "administrator";
+  if (role === "freelancer" || role === "studio") return "photographer";
+  return null;
+}
 
 const roleConfig: Record<UserRole, { icon: typeof User; label: string; className: string }> = {
   client: { icon: User, label: "Client", className: "bg-accent/10 text-accent" },
@@ -88,36 +122,65 @@ const tabRoleMap: Record<string, UserRole | null> = {
 const ITEMS_PER_PAGE = 8;
 
 export default function AdminUsers() {
-  const [users, setUsers] = useState<UserRecord[]>(initialUsers);
-  const [activeTab, setActiveTab] = useState("All");
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<typeof tabs[number]>("All");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
   const [viewUser, setViewUser] = useState<UserRecord | null>(null);
-  
-  const [confirmAction, setConfirmAction] = useState<{ 
-    user: UserRecord; 
-    type: 'suspend' | 'deactivate' | 'reactivate'
-  } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ user: UserRecord; type: "suspend" | "reactivate" } | null>(null);
   const [actionReason, setActionReason] = useState("");
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
 
+  const fetchUsers = async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const effectiveRole = roleFilter !== "all" ? roleFilter : tabRoleMap[activeTab];
+      const params: Record<string, string> = {};
+      const accountType = effectiveRole ? roleToAccountType(effectiveRole) : null;
+      if (accountType) params.account_type = accountType;
+      if (statusFilter !== "all") params.account_status = statusFilter;
+      if (search.trim()) params.search = search.trim();
+
+      const res = await api.get("/admin/users", { params });
+      // Defensive unwrap — paginator envelope shape not yet confirmed against
+      // a live response; adjust here if the Network tab shows a different shape.
+      const body = res.data;
+      const list: RawUser[] =
+        body?.data?.data?.data ?? body?.data?.data ?? body?.data ?? [];
+
+      setUsers(list.map((raw, i) => toUserRecord(raw, i)));
+    } catch (err) {
+      setLoadError(getApiErrorMessage(err, "Failed to load users."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, roleFilter, statusFilter, search]);
+
+  // Freelancer/studio split and current page slicing happen client-side on
+  // the fetched batch — the backend query above already narrowed by
+  // account_type/status/search, this just refines the photographer split.
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       const tabRole = tabRoleMap[activeTab];
       if (tabRole && u.role !== tabRole) return false;
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
-      if (statusFilter !== "all" && u.status !== statusFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        if (!u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
-      }
       return true;
     });
-  }, [users, activeTab, roleFilter, statusFilter, search]);
+  }, [users, activeTab, roleFilter]);
 
-  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE));
   const paginatedUsers = filteredUsers.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const resetFilters = () => {
@@ -126,52 +189,48 @@ export default function AdminUsers() {
     setStatusFilter("all");
     setActiveTab("All");
     setCurrentPage(1);
-    toast.success("Filters reset successfully");
   };
 
-  const executeConfirmAction = () => {
+  const executeConfirmAction = async () => {
     if (!confirmAction) return;
-    
-    if ((confirmAction.type === 'suspend' || confirmAction.type === 'deactivate') && !actionReason.trim()) {
-      toast.error("Please provide a reason for this audit trail.");
+    if (confirmAction.type === "suspend" && !actionReason.trim()) {
+      toast.error("Please provide a reason.");
       return;
     }
 
-    setUsers((prev) => prev.map((u) => {
-      if (u.id === confirmAction.user.id) {
-        switch (confirmAction.type) {
-          case 'suspend': return { ...u, status: "suspended" };
-          case 'deactivate': return { ...u, status: "deactivated" };
-          case 'reactivate': return { ...u, status: "active" };
-          default: return u;
-        }
-      }
-      return u;
-    }));
-    
-    const actionPastTense = confirmAction.type === 'suspend' ? 'suspended' : confirmAction.type === 'deactivate' ? 'deactivated' : 'reactivated';
-    toast.success(`Account for ${confirmAction.user.name} has been ${actionPastTense}.`);
-    
-    setConfirmAction(null);
-    setActionReason("");
+    setIsProcessingAction(true);
+    try {
+      const endpoint = confirmAction.type === "suspend" ? "suspend" : "reactivate";
+      await api.post(`/admin/users/${confirmAction.user.id}/${endpoint}`, { reason: actionReason || undefined });
+
+      const newStatus: AccountStatus = confirmAction.type === "suspend" ? "suspended" : "active";
+      setUsers((prev) => prev.map((u) => (u.id === confirmAction.user.id ? { ...u, status: newStatus } : u)));
+
+      const verb = confirmAction.type === "suspend" ? "suspended" : "reactivated";
+      toast.success(`Account for ${confirmAction.user.name} has been ${verb}.`);
+      setConfirmAction(null);
+      setActionReason("");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update account status."));
+    } finally {
+      setIsProcessingAction(false);
+    }
   };
 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 
   const getActionConfig = (type: string) => {
-    switch(type) {
-      case 'suspend': return { title: 'Suspend User Account?', btnText: 'Suspend Account', variant: 'destructive' as const };
-      case 'deactivate': return { title: 'Deactivate User Account?', btnText: 'Deactivate Account', variant: 'destructive' as const };
-      case 'reactivate': return { title: 'Reactivate User Account?', btnText: 'Reactivate Account', variant: 'default' as const };
-      default: return { title: 'Confirm Action', btnText: 'Confirm', variant: 'default' as const };
+    switch (type) {
+      case "suspend": return { title: "Suspend User Account?", btnText: "Suspend Account", variant: "destructive" as const };
+      case "reactivate": return { title: "Reactivate User Account?", btnText: "Reactivate Account", variant: "default" as const };
+      default: return { title: "Confirm Action", btnText: "Confirm", variant: "default" as const };
     }
   };
 
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
-        
-        {/* Header & Stats Overview */}
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold font-heading text-foreground">User Management</h1>
@@ -179,7 +238,6 @@ export default function AdminUsers() {
           </div>
         </div>
 
-        {/* Filter Section */}
         <div className="bg-card rounded-2xl border border-border/50 p-5 card-shadow space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
@@ -191,7 +249,7 @@ export default function AdminUsers() {
                 onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
               />
             </div>
-            
+
             <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
               <SelectTrigger className="w-full sm:w-[150px] h-11 rounded-xl bg-muted/50 border-border/50">
                 <SelectValue placeholder="All Roles" />
@@ -240,7 +298,6 @@ export default function AdminUsers() {
           </div>
         </div>
 
-        {/* User List Table */}
         <div className="bg-card rounded-2xl border border-border/40 card-shadow overflow-hidden flex flex-col">
           <div className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-widest border-b border-border/30">
             <span>User</span>
@@ -252,122 +309,104 @@ export default function AdminUsers() {
             <span className="text-center">Actions</span>
           </div>
 
-          <div className="flex-1 divide-y divide-border/20">
-            {paginatedUsers.map((u) => {
-              const rc = roleConfig[u.role];
-              const AppStatusIcon = appStatusConfig[u.applicationStatus].icon;
-              return (
-                <div key={u.id} className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${u.avatarColor} relative`}>
-                      {getInitials(u.name)}
+          {isLoading ? (
+            <div className="p-12 text-center text-muted-foreground text-sm">Loading users…</div>
+          ) : loadError ? (
+            <div className="p-12 text-center text-destructive text-sm">{loadError}</div>
+          ) : (
+            <div className="flex-1 divide-y divide-border/20">
+              {paginatedUsers.map((u) => {
+                const rc = roleConfig[u.role];
+                const AppStatusIcon = appStatusConfig[u.applicationStatus].icon;
+                return (
+                  <div key={u.id} className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${u.avatarColor} relative`}>
+                        {getInitials(u.name)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{u.name}</p>
+                        <p className="text-xs text-muted-foreground">{u.phone}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">{u.name}</p>
-                      <p className="text-xs text-muted-foreground">{u.phone}</p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${rc.className}`}>
-                      {rc.label}
-                    </span>
-                  </div>
-
-                  <div className="truncate text-sm text-muted-foreground">
-                    {u.email}
-                  </div>
-
-                  <div>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${statusConfig[u.status]}`}>
-                      {u.status}
-                    </span>
-                  </div>
-
-                  <div>
-                    {u.role === 'freelancer' || u.role === 'studio' ? (
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${appStatusConfig[u.applicationStatus].className}`}>
-                        <AppStatusIcon className="w-3 h-3" />
-                        {appStatusConfig[u.applicationStatus].label}
+                    <div className="flex items-center">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${rc.className}`}>
+                        {rc.label}
                       </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground pl-2">—</span>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="text-sm text-muted-foreground truncate">
-                    {u.joined}
-                  </div>
+                    <div className="truncate text-sm text-muted-foreground">{u.email}</div>
 
-                  {/* Actions Dropdown */}
-                  <div className="flex items-center justify-center gap-1">
-                    <button 
-                      onClick={() => setViewUser(u)} 
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors" 
-                      title="View Details"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    
-                    {u.role !== 'admin' && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button 
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors" 
-                            title="More Actions"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48 rounded-xl">
-                          {u.status === 'active' ? (
-                            <>
-                              <DropdownMenuItem className="cursor-pointer text-amber-600 focus:text-amber-700" onClick={() => setConfirmAction({ user: u, type: 'suspend' })}>
+                    <div>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${statusConfig[u.status]}`}>
+                        {u.status}
+                      </span>
+                    </div>
+
+                    <div>
+                      {u.role === "freelancer" || u.role === "studio" ? (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${appStatusConfig[u.applicationStatus].className}`}>
+                          <AppStatusIcon className="w-3 h-3" />
+                          {appStatusConfig[u.applicationStatus].label}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground pl-2">—</span>
+                      )}
+                    </div>
+
+                    <div className="text-sm text-muted-foreground truncate">{u.joined}</div>
+
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setViewUser(u)} className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors" title="View Details">
+                        <Eye className="w-4 h-4" />
+                      </button>
+
+                      {u.role !== "admin" && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors" title="More Actions">
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 rounded-xl">
+                            {u.status === "active" ? (
+                              <DropdownMenuItem className="cursor-pointer text-amber-600 focus:text-amber-700" onClick={() => setConfirmAction({ user: u, type: "suspend" })}>
                                 Suspend Account
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => setConfirmAction({ user: u, type: 'deactivate' })}>
-                                Deactivate Account
+                            ) : (
+                              <DropdownMenuItem className="cursor-pointer text-emerald-600 focus:text-emerald-700" onClick={() => setConfirmAction({ user: u, type: "reactivate" })}>
+                                Reactivate Account
                               </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <DropdownMenuItem className="cursor-pointer text-emerald-600 focus:text-emerald-700" onClick={() => setConfirmAction({ user: u, type: 'reactivate' })}>
-                              Reactivate Account
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-            
-            {paginatedUsers.length === 0 && (
-              <div className="p-12 text-center text-muted-foreground">
-                No user accounts found matching your selected filters.
-              </div>
-            )}
-          </div>
+                );
+              })}
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
+              {paginatedUsers.length === 0 && (
+                <div className="p-12 text-center text-muted-foreground">
+                  No user accounts found matching your selected filters.
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isLoading && !loadError && totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border/30 bg-muted/10">
               <span className="text-xs text-muted-foreground">
                 Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} users
               </span>
-              
+
               <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="h-8 rounded-lg px-2"
-                >
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 rounded-lg px-2">
                   <ChevronLeft className="w-4 h-4" />
                   <span className="sr-only">Previous</span>
                 </Button>
-                
+
                 <div className="flex items-center gap-1 mx-1">
                   {Array.from({ length: totalPages }).map((_, i) => {
                     const page = i + 1;
@@ -376,9 +415,7 @@ export default function AdminUsers() {
                         key={page}
                         onClick={() => setCurrentPage(page)}
                         className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors flex items-center justify-center ${
-                          currentPage === page 
-                            ? "bg-primary text-primary-foreground shadow-sm" 
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          currentPage === page ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         }`}
                       >
                         {page}
@@ -387,13 +424,7 @@ export default function AdminUsers() {
                   })}
                 </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="h-8 rounded-lg px-2"
-                >
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 rounded-lg px-2">
                   <ChevronRight className="w-4 h-4" />
                   <span className="sr-only">Next</span>
                 </Button>
@@ -403,72 +434,59 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      {/* Confirmation Modal */}
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-card border border-border/50 rounded-2xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200 m-4 relative flex flex-col">
-            <button 
-              onClick={() => { setConfirmAction(null); setActionReason(""); }}
-              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors z-10"
-            >
+            <button onClick={() => { setConfirmAction(null); setActionReason(""); }} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors z-10">
               <X className="w-5 h-5" />
             </button>
-            
-            <h3 className="text-xl font-heading font-bold text-foreground mb-2">
-              {getActionConfig(confirmAction.type).title}
-            </h3>
-            
+
+            <h3 className="text-xl font-heading font-bold text-foreground mb-2">{getActionConfig(confirmAction.type).title}</h3>
+
             <p className="text-sm text-muted-foreground mb-6">
-              {confirmAction.type === 'suspend' && `Suspending ${confirmAction.user.name} will block access to logins and receiving new booking requests until reactivated.`}
-              {confirmAction.type === 'deactivate' && `Deactivating this account will hide public profiles and services from the marketplace while retaining historical records.`}
-              {confirmAction.type === 'reactivate' && `This will restore full platform and operational access for ${confirmAction.user.name}.`}
+              {confirmAction.type === "suspend" && `Suspending ${confirmAction.user.name} will block access to logins and receiving new booking requests until reactivated.`}
+              {confirmAction.type === "reactivate" && `This will restore full platform and operational access for ${confirmAction.user.name}.`}
             </p>
-            
-            {(confirmAction.type === 'suspend' || confirmAction.type === 'deactivate') && (
+
+            {confirmAction.type === "suspend" && (
               <div className="space-y-3 mb-6">
                 <label className="text-sm font-semibold">Reason for Action <span className="text-destructive">*</span></label>
-                <Textarea 
+                <Textarea
                   placeholder="e.g., Policy violation, fraudulent activity, dispute pending..."
                   value={actionReason}
                   onChange={(e) => setActionReason(e.target.value)}
                   className="resize-none h-24 rounded-xl bg-muted/50 border-border/50"
                 />
-                <p className="text-xs text-muted-foreground">This reason will be logged permanently in administrative audit logs.</p>
               </div>
             )}
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-2">
-              <Button variant="outline" onClick={() => { setConfirmAction(null); setActionReason(""); }} className="rounded-xl px-6">
+              <Button variant="outline" onClick={() => { setConfirmAction(null); setActionReason(""); }} className="rounded-xl px-6" disabled={isProcessingAction}>
                 Cancel
               </Button>
-              <Button variant={getActionConfig(confirmAction.type).variant} onClick={executeConfirmAction} className="rounded-xl px-6">
-                {getActionConfig(confirmAction.type).btnText}
+              <Button variant={getActionConfig(confirmAction.type).variant} onClick={executeConfirmAction} className="rounded-xl px-6" disabled={isProcessingAction}>
+                {isProcessingAction ? "Working…" : getActionConfig(confirmAction.type).btnText}
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* User Details Modal */}
       {viewUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-card border border-border/50 rounded-2xl shadow-xl w-full max-w-lg p-6 animate-in zoom-in-95 duration-200 m-4 relative flex flex-col max-h-[90vh] overflow-y-auto">
-            <button 
-              onClick={() => setViewUser(null)}
-              className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors z-10"
-            >
+            <button onClick={() => setViewUser(null)} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors z-10">
               <X className="w-5 h-5" />
             </button>
-            
+
             <h3 className="text-lg font-heading font-bold text-foreground mb-6">User Profile Overview</h3>
-            
-            {/* User Header */}
+
             <div className="flex flex-col items-center text-center mb-6">
               <div className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold mb-3 shadow-sm border-2 border-border/50 ${viewUser.avatarColor}`}>
                 {getInitials(viewUser.name)}
               </div>
               <h2 className="text-xl font-bold">{viewUser.name}</h2>
-              
+
               <div className="flex items-center gap-2 mt-2 flex-wrap justify-center">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${roleConfig[viewUser.role].className}`}>
                   {roleConfig[viewUser.role].label}
@@ -476,7 +494,7 @@ export default function AdminUsers() {
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${statusConfig[viewUser.status]}`}>
                   Account: {viewUser.status}
                 </span>
-                {(viewUser.role === 'freelancer' || viewUser.role === 'studio') && (
+                {(viewUser.role === "freelancer" || viewUser.role === "studio") && (
                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${appStatusConfig[viewUser.applicationStatus].className}`}>
                     App: {viewUser.applicationStatus}
                   </span>
@@ -484,50 +502,30 @@ export default function AdminUsers() {
               </div>
             </div>
 
-            {/* Profile Grid */}
             <div className="space-y-4 text-sm bg-muted/20 p-5 rounded-xl border border-border/50">
               <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
                 <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Mail className="w-4 h-4"/> Email</span>
                 <span className="col-span-2 font-medium truncate">{viewUser.email}</span>
               </div>
-              
+
               <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
                 <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Phone className="w-4 h-4"/> Phone</span>
                 <span className="col-span-2 font-medium">{viewUser.phone}</span>
               </div>
-              
+
               <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
                 <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Calendar className="w-4 h-4"/> Registered</span>
                 <span className="col-span-2 font-medium">{viewUser.joined}</span>
               </div>
-              
-              <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
-                <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Clock className="w-4 h-4"/> Last Active</span>
-                <span className="col-span-2 font-medium">{viewUser.lastLogin}</span>
-              </div>
-              
-              {viewUser.role === 'client' ? (
-                <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
-                  <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Calendar className="w-4 h-4"/> Total Bookings</span>
-                  <span className="col-span-2 font-medium">{viewUser.bookings}</span>
-                </div>
-              ) : viewUser.role !== 'admin' ? (
-                <div className="grid grid-cols-3 gap-2 border-b border-border/50 pb-3 items-center">
-                  <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Aperture className="w-4 h-4"/> Active Packages</span>
-                  <span className="col-span-2 font-medium">{viewUser.totalServices || 0}</span>
-                </div>
-              ) : null}
 
               <div className="grid grid-cols-3 gap-2 pt-1">
-                <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Activity className="w-4 h-4 text-primary"/> Recent Activity</span>
-                <span className="col-span-2 text-foreground">{viewUser.recentActivity}</span>
+                <span className="text-muted-foreground font-medium flex items-center gap-1.5"><Activity className="w-4 h-4 text-primary"/> Activity</span>
+                <span className="col-span-2 text-muted-foreground text-xs">Not tracked yet — no activity/session data endpoint exists for this view.</span>
               </div>
             </div>
 
             <div className="mt-6 flex justify-end">
-              <Button onClick={() => setViewUser(null)} className="w-full sm:w-auto">
-                Close
-              </Button>
+              <Button onClick={() => setViewUser(null)} className="w-full sm:w-auto">Close</Button>
             </div>
           </div>
         </div>

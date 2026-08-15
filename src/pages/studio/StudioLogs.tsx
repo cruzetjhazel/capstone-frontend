@@ -1,72 +1,29 @@
 import { useState, useMemo } from "react";
-import toast, { Toaster } from "react-hot-toast";
+import { useActivityLogs } from "@/hooks/useActivityLogs";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { 
-  Search, Calendar, DollarSign, Package, Download, 
-  Users, CheckCircle, Info, X 
+import {
+  Search, Calendar, DollarSign, Package, Download,
+  Users, CheckCircle, X, HelpCircle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-
-// Mock Data Structure reflecting System Requirements
-const mockLogs = [
-  {
-    id: "log-1",
-    category: "bookings",
-    title: "Booking Accepted",
-    description: "Wedding Booking #BK-1023 accepted. Waiting for Client Xendit payment.",
-    time: "2:43 PM",
-    date: new Date().toISOString(),
-  },
-  {
-    id: "log-2",
-    category: "payments",
-    title: "Payment Recorded",
-    description: "Remaining balance of ₱5,000 recorded as Onsite Payment for Booking #BK-1020.",
-    time: "11:15 AM",
-    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "log-3",
-    category: "packages",
-    title: "Package Archived",
-    description: "Basic Portrait Package was archived. Historical bookings remain unaffected.",
-    time: "9:30 AM",
-    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "log-4",
-    category: "clients",
-    title: "Walk-in Client Added",
-    description: "Walk-in Client record created for offline booking.",
-    time: "4:00 PM",
-    date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "log-5",
-    category: "payments",
-    title: "Automatic Payment Matched",
-    description: "Xendit Reference #TXN-9981 matched successfully to Booking #BK-1024.",
-    time: "1:20 PM",
-    date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+import { useToast } from "@/hooks/use-toast";
 
 export default function ActivityLogs() {
+  const { toast } = useToast();
+  const { data: logs = [], isLoading, error, refetch } = useActivityLogs();
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  
-  // Modal State
+
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  // Filtering Logic
   const filteredLogs = useMemo(() => {
-    return mockLogs.filter((log) => {
+    return logs.filter((log) => {
       const searchLower = searchQuery.toLowerCase();
-      const matchesSearch = 
-        log.title.toLowerCase().includes(searchLower) || 
+      const matchesSearch =
+        log.title.toLowerCase().includes(searchLower) ||
         log.description.toLowerCase().includes(searchLower);
 
       const matchesCategory = categoryFilter === "all" || log.category === categoryFilter;
@@ -84,24 +41,37 @@ export default function ActivityLogs() {
 
       return matchesSearch && matchesCategory && matchesDate;
     });
-  }, [searchQuery, categoryFilter, dateFilter]);
+  }, [logs, searchQuery, categoryFilter, dateFilter]);
 
-  // Handle Export Action
   const handleExportConfirm = () => {
     setIsExportModalOpen(false);
-    
-    // Simulate a brief delay for processing
-    const processingToast = toast.loading("Generating CSV export...");
-    
-    setTimeout(() => {
-      toast.success("Activity logs exported successfully!", {
-        id: processingToast,
-        duration: 3000,
-      });
-    }, 1500);
+
+    const header = "Date,Time,Category,Title,Description,Performed By\n";
+    const rows = filteredLogs.map((log) => {
+      const d = new Date(log.date);
+      const cells = [
+        d.toLocaleDateString("en-US"),
+        d.toLocaleTimeString("en-US"),
+        log.category,
+        log.title,
+        log.description,
+        log.causerName ?? "",
+      ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`);
+      return cells.join(",");
+    });
+    const csv = header + rows.join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `activity-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast({ title: "Export complete", description: `${filteredLogs.length} record(s) exported.` });
   };
 
-  // Helper to render the correct icon based on category
   const renderIcon = (category: string) => {
     switch (category) {
       case "bookings":
@@ -129,16 +99,18 @@ export default function ActivityLogs() {
           </div>
         );
       default:
-        return null;
+        return (
+          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+            <HelpCircle className="w-4 h-4 text-muted-foreground" />
+          </div>
+        );
     }
   };
 
   return (
     <DashboardLayout>
-      <Toaster position="top-right" />
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-up">
-        
-        {/* Header & Controls */}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-heading font-bold">System Activity</h1>
@@ -148,26 +120,17 @@ export default function ActivityLogs() {
           </div>
         </div>
 
-        {/* System Requirement Notice */}
-        <div className="flex items-start gap-3 bg-muted/30 border border-border/50 p-4 rounded-lg">
-          <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <strong>System Notice:</strong> As per platform requirements, activity logs are permanently recorded to maintain historical accuracy and accountability. Logs cannot be modified or deleted by Professionals or Clients.
-          </p>
-        </div>
-
-        {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 bg-card p-2 rounded-lg border border-border/50 card-shadow">
           <div className="relative w-full sm:w-64">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input 
-              placeholder="Search activity..." 
-              className="h-9 pl-9 text-xs border-none bg-muted/50 focus-visible:ring-1" 
+            <Input
+              placeholder="Search activity..."
+              className="h-9 pl-9 text-xs border-none bg-muted/50 focus-visible:ring-1"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          
+
           <Select value={dateFilter} onValueChange={setDateFilter}>
             <SelectTrigger className="w-[130px] h-9 text-xs border-none bg-muted/50">
               <SelectValue placeholder="Date" />
@@ -179,7 +142,7 @@ export default function ActivityLogs() {
               <SelectItem value="month">This Month</SelectItem>
             </SelectContent>
           </Select>
-          
+
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="w-[140px] h-9 text-xs border-none bg-muted/50">
               <SelectValue placeholder="Category" />
@@ -192,72 +155,90 @@ export default function ActivityLogs() {
               <SelectItem value="clients">Clients</SelectItem>
             </SelectContent>
           </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto text-xs gap-1.5"
+            disabled={filteredLogs.length === 0}
+            onClick={() => setIsExportModalOpen(true)}
+          >
+            <Download className="w-3.5 h-3.5" /> Export
+          </Button>
         </div>
 
-        {/* Activity Feed */}
-        <div className="bg-card rounded-xl border border-border/50 overflow-hidden card-shadow">
-          <div className="divide-y divide-border">
-            
-            {filteredLogs.length > 0 ? (
-              filteredLogs.map((log) => (
-                <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-muted/30 transition-colors">
-                  {renderIcon(log.category)}
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm text-foreground">{log.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{log.description}</p>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-[11px] font-medium text-foreground whitespace-nowrap">{log.time}</span>
-                    <span className="text-[10px] text-muted-foreground/70 whitespace-nowrap mt-0.5">
-                      {new Date(log.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="p-12 text-center flex flex-col items-center justify-center text-muted-foreground">
-                <Search className="w-8 h-8 opacity-20 mb-3" />
-                <p className="text-sm font-medium">No activity logs found.</p>
-                <p className="text-xs opacity-70 mt-1">Try adjusting your search or filter settings.</p>
-              </div>
-            )}
+        {isLoading && (
+          <div className="text-center py-16 text-sm text-muted-foreground animate-pulse">Loading activity...</div>
+        )}
 
+        {!isLoading && error && (
+          <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-center justify-between gap-3">
+            <span>Unable to load activity logs.</span>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
           </div>
-          
-          {filteredLogs.length > 0 && (
-            <div className="p-3 border-t border-border bg-muted/10 text-center">
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-foreground">
-                Load Older Activities
-              </Button>
+        )}
+
+        {!isLoading && !error && (
+          <div className="bg-card rounded-xl border border-border/50 overflow-hidden card-shadow">
+            <div className="divide-y divide-border">
+
+              {filteredLogs.length > 0 ? (
+                filteredLogs.map((log) => (
+                  <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-muted/30 transition-colors">
+                    {renderIcon(log.category)}
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm text-foreground">{log.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{log.description}</p>
+                      {log.causerName && (
+                        <p className="text-[10px] text-muted-foreground/70 mt-1">by {log.causerName}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[11px] font-medium text-foreground whitespace-nowrap">
+                        {new Date(log.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/70 whitespace-nowrap mt-0.5">
+                        {new Date(log.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-12 text-center flex flex-col items-center justify-center text-muted-foreground">
+                  <Search className="w-8 h-8 opacity-20 mb-3" />
+                  <p className="text-sm font-medium">No activity logs found.</p>
+                  <p className="text-xs opacity-70 mt-1">Try adjusting your search or filter settings.</p>
+                </div>
+              )}
+
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
       </div>
 
-      {/* OVERLAY: Confirmation Modal for Export */}
       {isExportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-card w-full max-w-sm p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col relative text-center space-y-4">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => setIsExportModalOpen(false)} 
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsExportModalOpen(false)}
               className="absolute right-4 top-4 h-6 w-6 rounded-full text-muted-foreground hover:bg-muted"
             >
               <X className="w-4 h-4" />
             </Button>
-            
+
             <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-1">
               <Download className="w-6 h-6 text-primary" />
             </div>
-            
+
             <h3 className="text-lg font-bold font-heading text-foreground">Export Activity Logs</h3>
-            
+
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Are you sure you want to export your filtered activity logs? A CSV file containing <span className="font-bold text-foreground">{filteredLogs.length}</span> records will be generated and downloaded to your device.
+              A CSV file containing <span className="font-bold text-foreground">{filteredLogs.length}</span> records will be generated and downloaded to your device.
             </p>
-            
+
             <div className="flex items-center gap-3 w-full mt-4">
               <Button variant="outline" className="flex-1" onClick={() => setIsExportModalOpen(false)}>
                 Cancel

@@ -10,7 +10,7 @@ import {
   Calendar, Clock, CreditCard, User, Aperture, FileText, Activity, AlertCircle,
   CalendarDays, CheckCircle2, CheckCircle, XCircle, Receipt, Check, X, Ban, MapPin, Users
 } from "lucide-react";
-import { toast } from "sonner";
+import toast from "react-hot-toast";
 
 // --- Types Aligned with System Requirements ---
 type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Rejected" | "Cancelled" | "Completed";

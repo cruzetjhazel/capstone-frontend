@@ -1,4 +1,10 @@
 export interface Package {
+  // Real backend package id (from the photographer's Package model). Needed
+  // by Booking.tsx to (a) query real availability for the correct package
+  // and (b) submit package_id on booking creation. Optional here only
+  // because this interface still doubles as the shape for mock/demo
+  // photographers below, which have no backend row to point to.
+  id?: number;
   name: string;
   price: number;
   hours: number;
@@ -34,6 +40,11 @@ export interface CustomRates {
   deliveryTiers: { id: string; label: string; price: number }[];
   rawFiles: number;
   secondLocation: number;
+  // `type`/`tierName` are additive and optional — confirmed against
+  // PublicCustomPackageComponentResource.php, which sends both. Not consumed by
+  // any renderer yet, but kept here so the data survives until the "Build Your
+  // Own" calculator is updated to actually group by tier instead of flattening.
+  extras?: { id: string; label: string; price: number; type?: "flat_option" | "tier_option"; tierName?: string | null }[];
 }
 
 export const defaultCustomRates: CustomRates = {
@@ -64,6 +75,9 @@ export interface Photographer {
   name: string;
   type: "Studio" | "Freelancer";
   specialty: string;
+  styles?: string[];
+  avatarUrl?: string;
+  coverUrl?: string;
   rating: number;
   reviews: number;
   priceMin: number;
@@ -154,50 +168,27 @@ export const allPhotographers: Photographer[] = [
       { name: "Standard", price: 5000, hours: 3, photos: 100, description: "Great for graduation & creative shoots", inclusions: ["Up to 3 hours coverage", "100 edited photos", "3 outfit changes", "2 locations"] },
       { name: "Premium", price: 10000, hours: 6, photos: 250, description: "Full creative session", inclusions: ["Up to 6 hours coverage", "250 edited photos", "Unlimited outfits", "Multiple locations"] },
     ],
-    bookedSlots: [{ date: "2026-04-18", startTime: "10:00 AM", eventType: "Graduation" }],
-    reviewList: [{ id: "r1", name: "Carlo Mendoza", avatar: "CM", rating: 5, date: "March 2026", text: "Amazing graduation photos!" }],
-    portfolio: ["from-secondary/10 to-primary/10", "from-primary/10 to-accent/10", "from-accent/10 to-secondary/10", "from-primary/5 to-secondary/5", "from-accent/5 to-primary/5", "from-secondary/5 to-accent/5"],
-    customRates: studioRates,
-  },
-  {
-    id: "3",
-    name: "CJ Creatives",
-    type: "Studio",
-    specialty: "Events & Lifestyle",
-    rating: 4.8,
-    reviews: 82,
-    priceMin: 2000,
-    priceMax: 8000,
-    location: "Bulan, Sorsogon",
-    avatar: "CJ",
-    services: ["Events", "Couples", "Lifestyle"],
-    about: "CJ Creatives focuses on candid, natural moments.",
-    packages: [
-      { name: "Basic", price: 2000, hours: 2, photos: 40, description: "Small gatherings", inclusions: ["Up to 2 hours", "40 edited photos", "Online gallery"] },
-      { name: "Standard", price: 5000, hours: 4, photos: 150, description: "Medium events", inclusions: ["Up to 4 hours", "150 edited photos", "2 photographers"] },
-      { name: "Premium", price: 8000, hours: 8, photos: 350, description: "Full event documentation", inclusions: ["Full-event coverage", "350 edited photos", "2 photographers", "Highlight video"] },
-    ],
-    bookedSlots: [{ date: "2026-04-19", startTime: "11:00 AM", eventType: "Couples Shoot" }],
-    reviewList: [{ id: "r1", name: "Liza Garcia", avatar: "LG", rating: 5, date: "March 2026", text: "Loved our couple shoot!" }],
-    portfolio: ["from-accent/10 to-primary/10", "from-primary/10 to-secondary/10", "from-secondary/10 to-accent/10", "from-accent/5 to-secondary/5", "from-primary/5 to-accent/5", "from-secondary/5 to-primary/5"],
+    bookedSlots: [{ date: "2026-04-15", startTime: "10:00 AM", eventType: "Portrait" }],
+    reviewList: [{ id: "r1", name: "Liza Cruz", avatar: "LC", rating: 5, date: "March 2026", text: "Amazing creative direction!" }],
+    portfolio: ["from-primary/10 to-secondary/10","from-secondary/10 to-accent/10","from-accent/10 to-primary/10","from-primary/5 to-accent/5","from-secondary/5 to-primary/5","from-accent/5 to-secondary/5"],
     customRates: studioRates,
   },
   {
     id: "4",
-    name: "Golden Frame",
+    name: "Corporate Focus Studio",
     type: "Studio",
-    specialty: "Corporate & Branding",
-    rating: 4.7,
-    reviews: 63,
+    specialty: "Corporate & Events",
+    rating: 4.8,
+    reviews: 76,
     priceMin: 5000,
     priceMax: 20000,
     location: "Zone 3, Bulan Sorsogon",
-    avatar: "GF",
-    services: ["Corporate", "Product", "Events"],
-    about: "Premium corporate and branding photography.",
+    avatar: "CF",
+    services: ["Corporate", "Events"],
+    about: "Corporate Focus Studio specializes in professional business and corporate event documentation.",
     packages: [
-      { name: "Basic", price: 5000, hours: 2, photos: 30, description: "Quick corporate headshots", inclusions: ["Up to 2 hours", "30 edited photos", "White background setup"] },
-      { name: "Business", price: 12000, hours: 5, photos: 100, description: "Full branding package", inclusions: ["Up to 5 hours", "100 edited photos", "Multiple setups"] },
+      { name: "Basic", price: 5000, hours: 3, photos: 100, description: "Essential corporate coverage", inclusions: ["Up to 3 hours", "100 edited photos"] },
+      { name: "Standard", price: 12000, hours: 5, photos: 200, description: "Full event coverage", inclusions: ["Up to 5 hours coverage", "200 edited photos", "Video highlights"] },
       { name: "Enterprise", price: 20000, hours: 8, photos: 300, description: "Complete corporate documentation", inclusions: ["Full-day coverage", "300 edited photos", "Video highlights"] },
     ],
     bookedSlots: [{ date: "2026-04-28", startTime: "9:00 AM", eventType: "Corporate Event" }],

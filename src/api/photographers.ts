@@ -10,4 +10,10 @@ export const photographerApi = {
 
   featured: () =>
     api.get<Photographer[]>("/photographers/featured"),
+
+  // Was missing entirely — photographerService.ts's getById() already called this,
+  // but the error was silently swallowed by its try/catch, so the "Build Your Own"
+  // calculator section on the public profile never received real base fee / tier data.
+  getCustomPackage: (id: string) =>
+    api.get(`/photographers/${id}/custom-package`),
 };

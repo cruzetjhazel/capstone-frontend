@@ -1,22 +1,26 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, ArrowRight, Camera, CreditCard } from "lucide-react";
+import { CheckCircle2, ArrowRight, Camera, CreditCard, Download, Printer, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatPrice } from "@/data/photographers";
 import { useBooking } from "@/hooks/useBookings";
-import toast from "react-hot-toast";
+import { usePaymentsForBooking } from "@/hooks/useClientPayments";
+
+const formatPrice = (price: number) => {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    maximumFractionDigits: 0,
+  }).format(price);
+};
 
 export default function BookingReceipt() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: b, isLoading } = useBooking(id);
+  const { data: booking, isLoading: loadingBooking } = useBooking(id);
+  const { data: payments = [], isLoading: loadingPayments } = usePaymentsForBooking(id);
   const receiptRef = useRef<HTMLDivElement>(null);
-  
-  useEffect(() => {
-    if (b?.receipt) {
-      toast.success("Payment record loaded successfully.", { id: "receipt-load" });
-    }
-  }, [b]);
+
+  const isLoading = loadingBooking || loadingPayments;
 
   if (isLoading) {
     return (
@@ -26,35 +30,99 @@ export default function BookingReceipt() {
     );
   }
 
-  if (!b || !b.receipt) {
+  if (!booking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-3">Transaction record not available.</p>
+          <p className="text-sm text-muted-foreground mb-3">Booking not found.</p>
           <Link to="/dashboard"><Button>Go to Bookings</Button></Link>
         </div>
       </div>
     );
   }
 
-  const r = b.receipt;
-  const receiptNo = r.receiptNo ?? r.receipt_no ?? "—";
-  const refCode = r.refCode ?? r.ref_code ?? "—";
-  const amountPaid = r.amountPaid ?? r.amount_paid ?? 0;
-  const paidAt = r.paidAt ?? r.paid_at ?? "—";
-  const verifiedAt = r.verifiedAt ?? r.verified_at ?? new Date().toISOString();
-  const remainingBalance = Math.max(0, b.subtotal - amountPaid);
+  // Only payments the backend has actually verified/matched count as "paid"
+  // for receipt purposes — a submitted-but-unverified GCash reference isn't
+  // a completed transaction yet.
+  const verifiedPayments = payments.filter((p) => !!p.verifiedAt);
+
+  if (verifiedPayments.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-6">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground mb-1">No verified payment on record yet for this booking.</p>
+          <p className="text-xs text-muted-foreground/70 mb-4">
+            A receipt appears here automatically once your payment reference has been matched and verified.
+          </p>
+          <Link to={`/booking/${booking.id}/details`}><Button variant="outline">Back to Booking</Button></Link>
+        </div>
+      </div>
+    );
+  }
+
+  const onlinePayment = verifiedPayments.find((p) => p.type !== "onsite") ?? verifiedPayments[0];
+  const onsitePayment = verifiedPayments.find((p) => p.type === "onsite") ?? null;
+
+  const totalPrice = (booking as any).totalPrice ?? booking.subtotal;
+  const isHalfPlan = onlinePayment.plan === "half";
+  const totalPaidSoFar = verifiedPayments.reduce((sum, p) => sum + p.amount, 0);
+  const remainingOnsiteBalance = Math.max(0, totalPrice - totalPaidSoFar);
+  const isFullySettled = remainingOnsiteBalance <= 0;
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadText = () => {
+    const lines = [
+      "BULAN PHOTOGRAPHY BOOKING — OFFICIAL RECEIPT",
+      "----------------------------------------------",
+      `Booking ID: ${booking.id}`,
+      `Photographer: ${booking.photographerName}`,
+      `Event: ${booking.eventType}`,
+      `Date: ${booking.date}`,
+      `Time: ${booking.startTime}`,
+      `Location: ${booking.eventLocation}`,
+      "",
+      `Package: ${booking.packageName} — ${formatPrice(booking.subtotal)}`,
+      ...booking.addOns.map((a: any) => `  + ${a.name} — ${formatPrice(a.price)}`),
+      `Total Booking Amount: ${formatPrice(totalPrice)}`,
+      "",
+      `Payment Plan: ${isHalfPlan ? "Half Payment" : "Full Payment"}`,
+      `Online Payment: ${formatPrice(onlinePayment.amount)} (Ref: ${onlinePayment.referenceNumber ?? "—"}, verified ${onlinePayment.verifiedAt ? new Date(onlinePayment.verifiedAt).toLocaleString() : "—"})`,
+      ...(onsitePayment ? [`Onsite Payment: ${formatPrice(onsitePayment.amount)} (recorded ${new Date(onsitePayment.createdAt).toLocaleString()})`] : []),
+      "",
+      isFullySettled
+        ? "Status: FULLY PAID"
+        : `Status: HALF PAID — Remaining balance of ${formatPrice(remainingOnsiteBalance)} due onsite`,
+    ];
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `receipt-${booking.id}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="min-h-screen bg-background py-12 px-6">
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white; }
+        }
+      `}</style>
       <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
-        <div className="text-center">
+        <div className="text-center no-print">
           <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
             <CheckCircle2 className="w-9 h-9 text-emerald-600 dark:text-emerald-400" />
           </div>
           <h1 className="text-2xl font-heading font-bold text-foreground">Payment Confirmed</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Your payment was successfully processed and matched. Here is your transaction record from {b.photographerName}.
+            Here is your transaction record from {booking.photographerName}.
           </p>
         </div>
 
@@ -67,52 +135,70 @@ export default function BookingReceipt() {
             <p className="text-xs text-muted-foreground uppercase tracking-widest">Official Booking Record</p>
           </div>
 
-          <Line k="Record No." v={receiptNo} />
-          <Line k="Booking ID" v={b.id} />
-          <Line k="Studio/Pro" v={b.photographerName} />
-          <Line k="Verified On" v={new Date(verifiedAt).toLocaleString()} />
+          <Line k="Booking ID" v={booking.id} />
+          <Line k="Studio/Pro" v={booking.photographerName} />
+          <Line k="Verified On" v={onlinePayment.verifiedAt ? new Date(onlinePayment.verifiedAt).toLocaleString() : "—"} />
 
           <div className="border-t border-border pt-3 space-y-1">
-            <Line k="Customer" v={b.contactName} />
-            <Line k="Email" v={b.contactEmail} />
+            <Line k="Event Type" v={booking.eventType} />
+            <Line k="Date" v={booking.date} />
+            <Line k="Start Time" v={booking.startTime} />
+            <Line k="Location" v={booking.eventLocation} />
           </div>
 
           <div className="border-t border-border pt-3 space-y-1">
-            <Line k="Event Type" v={b.eventType} />
-            <Line k="Date" v={b.date} />
-            <Line k="Start Time" v={b.startTime} />
-            <Line k="Location" v={b.eventLocation} />
+            <Line k={booking.packageName} v={formatPrice(booking.subtotal)} />
+            {(booking.addOns ?? []).map((a: any) => <Line key={a.name} k={`+ ${a.name}`} v={formatPrice(a.price)} />)}
           </div>
 
           <div className="border-t border-border pt-3 space-y-1">
-            <Line k={b.packageName} v={formatPrice(b.packagePrice)} />
-            {b.addOns.map((a) => <Line key={a.name} k={`+ ${a.name}`} v={formatPrice(a.price)} />)}
-          </div>
-
-          <div className="border-t border-border pt-3 space-y-1">
-            <Line k="Total Amount" v={formatPrice(b.subtotal)} bold />
+            <Line k="Total Booking Amount" v={formatPrice(totalPrice)} bold />
             <div className="flex justify-between gap-3 text-primary font-bold bg-primary/5 p-1 rounded">
               <span className="flex items-center gap-1.5"><CreditCard className="w-4 h-4"/> Paid Online</span>
-              <span>{formatPrice(amountPaid)}</span>
+              <span>{formatPrice(onlinePayment.amount)}</span>
             </div>
-            <Line k="Onsite Balance" v={formatPrice(remainingBalance)} bold={remainingBalance > 0} />
+            {onsitePayment && (
+              <div className="flex justify-between gap-3 text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-500/5 p-1 rounded">
+                <span>Paid Onsite</span>
+                <span>{formatPrice(onsitePayment.amount)}</span>
+              </div>
+            )}
+            <Line
+              k={isFullySettled ? "Balance" : "Remaining Balance (Due Onsite)"}
+              v={formatPrice(remainingOnsiteBalance)}
+              bold={!isFullySettled}
+            />
+          </div>
+
+          <div className="border-t border-border pt-3">
+            <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${
+              isFullySettled ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+            }`}>
+              {isHalfPlan ? "Half Payment Plan" : "Full Payment Plan"} — {isFullySettled ? "Fully Paid" : "Balance Due Onsite"}
+            </span>
           </div>
 
           <div className="border-t border-border pt-3 space-y-1 text-xs text-muted-foreground">
-            <Line k="Reference ID" v={refCode} />
-            <Line k="Paid At" v={paidAt} />
-            <Line k="Payment Method" v="GCash (Direct)" />
+            <Line k="Reference No." v={onlinePayment.referenceNumber ?? "—"} />
+            <Line k="Payment Date" v={onlinePayment.paymentDate} />
+            <Line k="Payment Method" v={onlinePayment.method || "GCash"} />
           </div>
-          
-          {remainingBalance > 0 && (
+
+          {!isFullySettled && (
             <div className="mt-4 p-3 bg-muted rounded-xl text-[11px] text-muted-foreground text-center leading-relaxed">
-              Note: A remaining balance of {formatPrice(remainingBalance)} is to be paid on-site directly to the professional.
+              Note: A remaining balance of {formatPrice(remainingOnsiteBalance)} is to be paid on-site directly to the professional.
             </div>
           )}
         </div>
 
-        <div className="flex justify-center pt-2">
-          <Button onClick={() => navigate("/dashboard")} className="gap-1.5 w-full sm:w-auto" size="lg">
+        <div className="flex flex-wrap justify-center gap-2 pt-2 no-print">
+          <Button variant="outline" onClick={handlePrint} className="gap-1.5">
+            <Printer className="w-4 h-4" /> Print / Save as PDF
+          </Button>
+          <Button variant="outline" onClick={handleDownloadText} className="gap-1.5">
+            <Download className="w-4 h-4" /> Download (.txt)
+          </Button>
+          <Button onClick={() => navigate("/dashboard")} className="gap-1.5">
             Return to Dashboard <ArrowRight className="w-4 h-4" />
           </Button>
         </div>

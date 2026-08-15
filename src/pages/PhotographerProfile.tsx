@@ -1,23 +1,68 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Sparkles
+  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { fetchPhotographer } from "@/services/photographerService";
-import { formatPrice, defaultSocials, type Photographer } from "@/data/photographers";
-import { useFavorites } from "@/contexts/FavoritesContext";
+import { formatPrice, type Photographer } from "@/data/photographers";
+import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/useFavorites";
+import { useRole } from "@/contexts/RoleContext";
+
+// Determines which package (if any) should show the "Most Popular" badge.
+// Prefers an explicit backend flag; falls back to a booking/selection count
+// if one exists, and only when there's a single clear winner. Returns -1
+// (no badge shown) rather than guessing — a package should never be labeled
+// "Most Popular" just because it happens to be second in the list.
+function getPopularPackageIndex(packages: any[] | undefined | null): number {
+  if (!Array.isArray(packages) || packages.length === 0) return -1;
+
+  const flaggedIndex = packages.findIndex((pkg) => pkg?.isPopular === true || pkg?.is_popular === true);
+  if (flaggedIndex !== -1) return flaggedIndex;
+
+  const scores = packages.map((pkg) =>
+    pkg?.bookingCount ?? pkg?.booking_count ?? pkg?.timesBooked ?? pkg?.times_booked
+    ?? pkg?.selectionCount ?? pkg?.selection_count ?? 0
+  );
+  const maxScore = Math.max(0, ...scores);
+  if (maxScore <= 0) return -1;
+  const topIndices = scores.reduce<number[]>((acc, s, i) => (s === maxScore ? [...acc, i] : acc), []);
+  return topIndices.length === 1 ? topIndices[0] : -1;
+}
 
 export default function PhotographerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [photographer, setPhotographer] = useState<Photographer | null | undefined>(undefined);
   
-  const { toggleFavorite, isFavorite } = useFavorites();
+  const { data: favoritePhotographers = [], isLoading: favoritesLoading } = useFavorites();
+  const addFavorite = useAddFavorite();
+  const removeFavorite = useRemoveFavorite();
+  const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
+  const { user, role } = useRole();
+
+  const handleBookClick = (e: React.MouseEvent) => {
+    if (!user) {
+      e.preventDefault();
+      toast.error("Please log in as a client to book this photographer.");
+      navigate("/login");
+      return;
+    }
+    if (role === "studio") {
+      e.preventDefault();
+      toast.error("Photographer accounts can't make bookings — log in with a client account instead.");
+      return;
+    }
+    if (role === "admin") {
+      e.preventDefault();
+      toast.error("Admin accounts can't make bookings.");
+      return;
+    }
+  };
   
   // Profile Report State
   const [showReportModal, setShowReportModal] = useState(false);
@@ -58,6 +103,7 @@ export default function PhotographerProfile() {
 
   const p = photographer;
   const isFav = isFavorite(p.id);
+  const popularPackageIndex = getPopularPackageIndex(p.packages);
 
   const handleReportSubmit = () => {
     toast.error("Report Sent", { 
@@ -85,12 +131,14 @@ export default function PhotographerProfile() {
               variant="outline" 
               size="icon"
               className="active:scale-75 transition-all duration-200"
+              disabled={favoritesLoading || addFavorite.isPending || removeFavorite.isPending}
               onClick={() => {
-                toggleFavorite(p.id);
-                if (!isFav) {
-                  toast.success(`${p.name} added to favorites!`);
-                } else {
+                if (isFav) {
+                  removeFavorite.mutate(p.id);
                   toast(`${p.name} removed from favorites.`);
+                } else {
+                  addFavorite.mutate(p.id);
+                  toast.success(`${p.name} added to favorites!`);
                 }
               }}
             >
@@ -100,7 +148,7 @@ export default function PhotographerProfile() {
                 }`} 
               />
             </Button>
-            <Link to={`/booking/${p.id}`}>
+            <Link to={`/booking/${p.id}`} onClick={handleBookClick}>
               <Button size="sm" className="font-medium">Book Now</Button>
             </Link>
           </div>
@@ -110,14 +158,24 @@ export default function PhotographerProfile() {
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-8 animate-fade-up">
         {/* Profile header */}
         <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
-          <div className="h-40 bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5" />
-          <div className="px-6 pb-6 -mt-12">
-            <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-              <div className="w-24 h-24 rounded-2xl bg-primary/10 border-4 border-card flex items-center justify-center text-primary font-heading text-2xl font-bold">
-                {p.avatar}
-              </div>
-              <div className="flex-1 sm:pb-1">
-                <div className="flex items-center gap-2">
+          <div className="h-40 relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5">
+            {p.coverUrl && (
+              <img src={p.coverUrl} alt={`${p.name} cover`} className="w-full h-full object-cover" />
+            )}
+            {/* Scrim starts dark at the bottom-left (where the avatar/name sit) and fades toward the top-right */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-black/55 via-black/10 to-transparent" />
+          </div>
+          <div className="px-6 pb-6 relative">
+            <div className="w-24 h-24 rounded-2xl bg-primary/10 border-4 border-card flex items-center justify-center text-primary font-heading text-2xl font-bold overflow-hidden absolute -top-12 left-6 shadow-md">
+              {p.avatarUrl ? (
+                <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
+              ) : (
+                p.avatar
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4 pl-28 pt-3">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-heading font-bold">{p.name}</h1>
                   <span className="px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">{p.type}</span>
                 </div>
@@ -126,13 +184,8 @@ export default function PhotographerProfile() {
                   <span className="flex items-center gap-1"><Camera className="w-3.5 h-3.5" /> {p.specialty}</span>
                   <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-accent text-accent" /> {p.rating} ({p.reviews} reviews)</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {p.services.map((svc) => (
-                    <span key={svc} className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{svc}</span>
-                  ))}
-                </div>
               </div>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <p className="text-sm text-muted-foreground">Starting at</p>
                 <p className="text-2xl font-heading font-bold text-primary">{formatPrice(p.priceMin)}</p>
               </div>
@@ -153,17 +206,27 @@ export default function PhotographerProfile() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground mr-1">Connect:</span>
-            {[
-              { url: p.socials?.facebook ?? defaultSocials.facebook, Icon: Facebook, label: "Facebook" },
-              { url: p.socials?.instagram ?? defaultSocials.instagram, Icon: Instagram, label: "Instagram" },
-              { url: p.socials?.website ?? defaultSocials.website, Icon: Globe, label: "Website" },
-            ].map(({ url, Icon, label }) => (
-              <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
-                className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
-                <Icon className="w-4 h-4" />
-              </a>
-            ))}
+            {(() => {
+              const socialLinks = [
+                { url: p.socials?.facebook, Icon: Facebook, label: "Facebook" },
+                { url: p.socials?.instagram, Icon: Instagram, label: "Instagram" },
+                { url: p.socials?.website, Icon: Globe, label: "Website" },
+              ].filter((s) => !!s.url) as { url: string; Icon: typeof Facebook; label: string }[];
+
+              if (socialLinks.length === 0) return null;
+
+              return (
+                <>
+                  <span className="text-xs text-muted-foreground mr-1">Connect:</span>
+                  {socialLinks.map(({ url, Icon, label }) => (
+                    <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
+                      className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
+                      <Icon className="w-4 h-4" />
+                    </a>
+                  ))}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -172,6 +235,22 @@ export default function PhotographerProfile() {
           <h2 className="font-heading font-semibold mb-3">About</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">{p.about}</p>
         </div>
+
+        {/* Photography Style */}
+        {p.styles && p.styles.length > 0 && (
+          <div className="bg-card rounded-xl card-shadow border border-border/50 p-6">
+            <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
+              <Palette className="w-4 h-4 text-primary" /> Photography Style
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {p.styles.map((style) => (
+                <span key={style} className="px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20">
+                  {style}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 bg-muted rounded-xl p-1">
@@ -195,17 +274,17 @@ export default function PhotographerProfile() {
         {/* Portfolio tab */}
         {activeTab === "portfolio" && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-fade-in">
-            {Array.from({ length: 12 }).map((_, i) => {
-              const color = p.portfolio[i % p.portfolio.length] || "from-muted to-muted";
-              return (
-                <div
-                  key={i}
-                  className={`aspect-[4/3] rounded-xl bg-gradient-to-br ${color} flex items-center justify-center`}
-                >
-                  <Camera className="w-8 h-8 text-muted-foreground/30" />
+            {p.portfolio.length > 0 ? (
+              p.portfolio.map((url, i) => (
+                <div key={i} className="aspect-[4/3] rounded-xl overflow-hidden bg-muted">
+                  <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-full object-cover" />
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              <div className="col-span-full py-12 text-center text-sm text-muted-foreground">
+                No portfolio photos yet.
+              </div>
+            )}
           </div>
         )}
 
@@ -223,17 +302,21 @@ export default function PhotographerProfile() {
               </div>
               
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {p.packages.map((pkg, i) => (
+                {(p.packages ?? []).length === 0 ? (
+                  <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    No fixed packages set up yet.
+                  </div>
+                ) : (p.packages ?? []).map((pkg, i) => (
                   <div
                     key={pkg.name}
                     className={cn(
                       "relative bg-card rounded-2xl border p-6 flex flex-col transition-all duration-300 hover:-translate-y-1",
-                      i === 1 
+                      i === popularPackageIndex
                         ? "border-primary shadow-lg shadow-primary/10 bg-gradient-to-b from-card to-primary/5" 
                         : "border-border/50 card-shadow hover:shadow-lg"
                     )}
                   >
-                    {i === 1 && (
+                    {i === popularPackageIndex && (
                       <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-bold px-4 py-1 rounded-full shadow-sm">
                         Most Popular
                       </span>
@@ -258,8 +341,8 @@ export default function PhotographerProfile() {
                     </div>
 
                     <div className="mt-8 pt-4 border-t border-border/50">
-                      <Link to={`/booking/${p.id}?package=${i}`} className="block">
-                        <Button className="w-full" variant={i === 1 ? "default" : "outline"} size="lg">
+                      <Link to={`/booking/${p.id}?package=${i}`} className="block" onClick={handleBookClick}>
+                        <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="lg">
                           Select Package
                         </Button>
                       </Link>
@@ -273,7 +356,7 @@ export default function PhotographerProfile() {
             <div>
               <div className="mb-6">
                 <h3 className="text-xl font-heading font-bold flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" /> Build Your Own
+                  <Wrench className="w-5 h-5 text-primary" /> Build Your Own
                 </h3>
                 <p className="text-sm text-muted-foreground mt-1">Need something specific? Create a tailored package.</p>
               </div>
@@ -303,7 +386,7 @@ export default function PhotographerProfile() {
                 </div>
 
                 <div className="w-full md:w-auto relative z-10 shrink-0">
-                  <Link to={`/booking/${p.id}?custom=true`} className="block">
+                  <Link to={`/booking/${p.id}?custom=true`} className="block" onClick={handleBookClick}>
                     <Button size="lg" className="w-full md:w-auto px-8 shadow-md">
                       Open Calculator
                     </Button>
@@ -361,7 +444,7 @@ export default function PhotographerProfile() {
             <h3 className="font-heading font-semibold">Ready to book {p.name}?</h3>
             <p className="text-sm text-muted-foreground mt-1">Choose a fixed package or build a custom package, then pick your preferred date.</p>
           </div>
-          <Link to={`/booking/${p.id}`}>
+          <Link to={`/booking/${p.id}`} onClick={handleBookClick}>
             <Button size="lg" className="font-medium w-full sm:w-auto">Book Now</Button>
           </Link>
         </div>

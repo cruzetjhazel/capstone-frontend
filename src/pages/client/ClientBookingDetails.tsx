@@ -2,9 +2,10 @@ import { useParams, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
-import { useBookings } from "@/hooks/useBookings";
+import { useBookings, useRequestBookingCancellation } from "@/hooks/useBookings";
 import { usePhotographers } from "@/hooks/usePhotographers";
-import toast from "react-hot-toast"; 
+import { usePaymentsForBooking } from "@/hooks/useClientPayments";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft, Shield,
@@ -13,6 +14,11 @@ import {
 import { useState, useMemo } from "react";
 
 type RequestType = "reschedule" | "cancel" | "modify" | null;
+
+// Backend doesn't support reschedule/modify requests yet — only cancellation
+// (App\Actions\Booking\RequestBookingCancellationAction). Flip this once those
+// endpoints ship; nothing else in this file needs to change.
+const RESCHEDULE_MODIFY_ENABLED = false;
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("en-PH", {
@@ -36,6 +42,9 @@ export default function BookingDetails() {
   const { user } = useRole();
   const { data: bookings = [] } = useBookings(user?.email);
   const { data: allPhotographers = [] } = usePhotographers();
+  const { data: payments = [] } = usePaymentsForBooking(id);
+  const { toast } = useToast();
+  const cancelMutation = useRequestBookingCancellation();
 
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [requestFormType, setRequestFormType] = useState<RequestType>(null);
@@ -43,14 +52,14 @@ export default function BookingDetails() {
   const [preferredDate, setPreferredDate] = useState("");
   const [modificationOption, setModificationOption] = useState("");
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const [localActiveRequest, setLocalActiveRequest] = useState(false);
 
   const booking: any = bookings.find((b) => String(b.id) === String(id));
   const photographer = booking ? allPhotographers.find((p) => String(p.id) === String(booking.photographerId)) : null;
 
-  // Modification Timing Rule: Up to 7 days before event date
+  const hasVerifiedPayment = payments.some((p) => !!p.verifiedAt);
+
+  // Modification Timing Rule: Up to 7 days before event date (reschedule/modify only —
+  // cancellation eligibility is a separate, backend-enforced rule, below).
   const canModifyOrReschedule = useMemo(() => {
     if (!booking?.date) return false;
     const eventDate = new Date(booking.date);
@@ -73,10 +82,17 @@ export default function BookingDetails() {
   }
 
   const isCustom = booking.packageType === "custom";
-  const remainingBalance = booking.status === "completed" ? 0 : booking.subtotal - booking.dueNow;
-  const showDirectContact = booking.status === "approved" || booking.status === "paid" || booking.status === "confirmed" || booking.status === "completed";
-  
-  const hasActiveRequest = booking.hasActiveRequest || localActiveRequest; 
+  // booking.dueNow already IS the remaining balance owed (bookingService maps it
+  // straight from raw.remaining_balance) — don't subtract it from subtotal again.
+  const remainingBalance = booking.status === "completed" ? 0 : booking.dueNow;
+  const amountPaid = Math.max(0, booking.subtotal - remainingBalance);
+  const showDirectContact = booking.status === "confirmed" || booking.status === "completed";
+
+  const hasActiveRequest = booking.hasActiveRequest;
+
+  // Matches RequestBookingCancellationAction: only pending/accepted bookings
+  // can have a cancellation requested.
+  const canRequestCancellation = booking.status === "pending" || booking.status === "accepted";
 
   const customBuild = booking.customBuild || {
     baseFee: 5000,
@@ -98,24 +114,36 @@ export default function BookingDetails() {
 
   const handleInitialSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsConfirming(true); 
+    setIsConfirming(true);
   };
 
   const handleFinalSubmit = async () => {
     if (!requestFormType) return;
-    setIsSubmitting(true);
+
+    if (requestFormType !== "cancel") {
+      toast({
+        title: "Not available yet",
+        description: "Reschedule and modification requests aren't available yet. Please contact the studio directly for now.",
+        variant: "destructive" as never,
+      });
+      return;
+    }
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setLocalActiveRequest(true);
-      toast.success(`Your ${requestFormType} request has been sent to the studio for review.`);
+      await cancelMutation.mutateAsync({ id: booking.id, reason });
+      toast({
+        title: "Cancellation requested",
+        description: "Your cancellation request has been sent to the studio for review.",
+      });
       setRequestModalOpen(false);
       setRequestFormType(null);
       setIsConfirming(false);
     } catch (error) {
-      console.error("Submission failed", error);
-      toast.error("There was an error submitting your request. Please try again.");
-    } finally {
-      setIsSubmitting(false);
+      toast({
+        title: "Something went wrong",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive" as never,
+      });
     }
   };
 
@@ -128,29 +156,33 @@ export default function BookingDetails() {
   };
 
   const getCurrentStepIndex = (b: any) => {
-    if (b.status === "completed") return 5; 
-    if (b.status === "ready") return 4;     
-    if (b.status === "editing") return 3;   
-    if ((b.status === "confirmed" || b.status === "paid") && isToday(b.date)) return 2;
-    if (b.status === "confirmed" || b.status === "paid") return 1; 
-    return 0; 
+    if (b.status === "completed") return 5;
+    if (b.serviceStatus === "ready") return 4;
+    if (b.serviceStatus === "editing") return 3;
+    if (b.status === "confirmed" && isToday(b.date)) return 2;
+    if (b.status === "confirmed") return 1;
+    return 0;
   };
 
   const currentStep = getCurrentStepIndex(booking);
 
-  // --- FIX: Safely parse fallback strings and enforce types to prevent runtime/TypeScript errors ---
   const fallbackName: string = typeof booking?.photographerName === "string" && booking.photographerName.trim() !== ""
-    ? booking.photographerName 
+    ? booking.photographerName
     : "studio";
 
-  const contactEmail: string = photographer?.email 
-    ? String(photographer.email)
+  // photographer?.email / .phone aren't confirmed to exist on the Photographer
+  // type returned by usePhotographers() — cast defensively until that type's
+  // real shape is confirmed (send usePhotographers.ts / its Photographer type
+  // to resolve this properly instead of casting).
+  const photographerAny = photographer as any;
+
+  const contactEmail: string = photographerAny?.email
+    ? String(photographerAny.email)
     : `contact@${fallbackName.toLowerCase().replace(/\s+/g, "")}.com`;
 
-  const contactPhone: string = photographer?.phone 
-    ? String(photographer.phone)
+  const contactPhone: string = photographerAny?.phone
+    ? String(photographerAny.phone)
     : "+63 917 123 4567";
-  // -----------------------------------------------------------------------------------------
 
   return (
     <DashboardLayout>
@@ -168,37 +200,46 @@ export default function BookingDetails() {
               <h1 className="text-lg font-bold font-heading -mt-1">ID: {booking.id}</h1>
             </div>
           </div>
-          
-          {hasActiveRequest ? (
-            <Button disabled variant="outline" className="text-xs text-amber-600 border-amber-200 bg-amber-50 gap-2">
-               <AlertCircle className="w-3.5 h-3.5" /> Request Pending
-            </Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              {booking.status === "pending" && <Button disabled variant="secondary" className="text-xs opacity-70">Waiting for Approval</Button>}
-              {booking.status === "accepted" && booking.dueNow === 0 && <Link to={`/booking/${booking.id}/pay`}><Button className="text-xs bg-primary">Pay Deposit</Button></Link>}
-              {(booking.status === "confirmed" || booking.status === "paid") && remainingBalance > 0 && <Link to={`/booking/${booking.id}/pay`}><Button className="text-xs bg-primary">Pay Remaining Balance</Button></Link>}
-              {booking.status === "completed" && <Button disabled variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Payment Complete</Button>}
-            </div>
-          )}
+
+          <div className="flex items-center gap-2">
+            {hasVerifiedPayment && (
+              <Link to={`/booking/${booking.id}/receipt`}>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  <Receipt className="w-3.5 h-3.5" /> View Receipt
+                </Button>
+              </Link>
+            )}
+
+            {hasActiveRequest ? (
+              <Button disabled variant="outline" className="text-xs text-amber-600 border-amber-200 bg-amber-50 gap-2">
+                 <AlertCircle className="w-3.5 h-3.5" /> Request Pending
+              </Button>
+            ) : (
+              <>
+                {booking.status === "pending" && <Button disabled variant="secondary" className="text-xs opacity-70">Waiting for Approval</Button>}
+                {booking.status === "accepted" && booking.paymentStatus === "pending" && <Link to={`/booking/${booking.id}/pay`}><Button className="text-xs bg-primary">Pay Now</Button></Link>}
+                {booking.status === "accepted" && booking.paymentStatus === "pending_verification" && <Button disabled variant="secondary" className="text-xs opacity-70">Payment Under Review</Button>}
+                {booking.status === "confirmed" && <Button disabled variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Payment Confirmed</Button>}
+                {booking.status === "completed" && <Button disabled variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Completed</Button>}
+              </>
+            )}
+          </div>
         </div>
 
         {/* The Tracking UI */}
         {booking.status !== 'cancelled' && booking.status !== 'rejected' && (
           <div className="bg-card rounded-2xl border border-border/50 p-6 sm:p-8 card-shadow mt-4">
             <h3 className="font-heading font-bold text-sm sm:text-base mb-8 text-center text-muted-foreground uppercase tracking-wider">Service Progress</h3>
-            
+
             <div className="relative w-full">
-              {/* Connecting Lines Container */}
               <div className="absolute top-4 sm:top-5 left-4 sm:left-5 right-4 sm:right-5">
                 <div className="h-[2px] w-full bg-muted rounded-full" />
-                <div 
-                  className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full" 
+                <div
+                  className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full"
                   style={{ width: `${(currentStep / (TRACKING_STEPS.length - 1)) * 100}%` }}
                 />
               </div>
 
-              {/* Steps Overlay */}
               <div className="relative z-10 flex items-center justify-between w-full">
                 {TRACKING_STEPS.map((step, idx) => {
                   const isCompleted = idx < currentStep;
@@ -208,8 +249,8 @@ export default function BookingDetails() {
                     <div key={idx} className="relative flex flex-col items-center group">
                       <div className={cn(
                         "w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold border-2 transition-colors duration-300 bg-card",
-                        isCompleted ? "border-primary bg-primary text-primary-foreground" : 
-                        isActive ? "border-primary text-primary ring-4 ring-primary/20" : 
+                        isCompleted ? "border-primary bg-primary text-primary-foreground" :
+                        isActive ? "border-primary text-primary ring-4 ring-primary/20" :
                         "border-muted text-muted-foreground"
                       )}>
                         {isCompleted ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : (idx + 1)}
@@ -225,7 +266,7 @@ export default function BookingDetails() {
                 })}
               </div>
             </div>
-            
+
             <div className="mt-10 sm:mt-12 text-center bg-muted/30 py-3 rounded-lg border border-border/50">
               <p className="text-xs sm:text-sm font-medium text-foreground">
                 Current Status: <span className="text-primary font-bold">{TRACKING_STEPS[currentStep].description}</span>
@@ -288,7 +329,7 @@ export default function BookingDetails() {
               <h3 className="text-sm font-heading font-semibold mb-4">
                 {isCustom ? "Your Customized Package" : "Package Snapshot Details"}
               </h3>
-              
+
               {isCustom ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
                   <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
@@ -337,11 +378,11 @@ export default function BookingDetails() {
             {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'rejected' && (
               <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6">
                 <h3 className="text-sm font-heading font-semibold mb-1">Booking Requests</h3>
-                
-                {!canModifyOrReschedule && (
-                  <div className="mb-4 mt-3 p-3 bg-destructive/10 text-destructive text-xs rounded-lg border border-destructive/20 flex items-start gap-2">
+
+                {!canRequestCancellation && (
+                  <div className="mb-4 mt-3 p-3 bg-muted text-muted-foreground text-xs rounded-lg border border-border flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <p>Modifications and rescheduling must be requested at least 7 days before the scheduled event date.</p>
+                    <p>Cancellation requests are only available before the studio confirms your booking.</p>
                   </div>
                 )}
 
@@ -359,13 +400,13 @@ export default function BookingDetails() {
                   <>
                     <p className="text-xs text-muted-foreground mb-4">Need to change something? Submit a request to the studio.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <Button onClick={() => handleOpenForm("reschedule")} disabled={!canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
+                      <Button onClick={() => handleOpenForm("reschedule")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
                         <CalendarPlus className="w-3.5 h-3.5" /> Request Reschedule
                       </Button>
-                      <Button onClick={() => handleOpenForm("cancel")} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30">
+                      <Button onClick={() => handleOpenForm("cancel")} disabled={!canRequestCancellation} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 disabled:opacity-50">
                         <FileX className="w-3.5 h-3.5" /> Request Cancellation
                       </Button>
-                      <Button onClick={() => handleOpenForm("modify")} disabled={!canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
+                      <Button onClick={() => handleOpenForm("modify")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
                         <Edit3 className="w-3.5 h-3.5" /> Modify Booking
                       </Button>
                     </div>
@@ -384,7 +425,7 @@ export default function BookingDetails() {
 
               <div className="bg-muted/10 border border-border/40 rounded-xl p-4 space-y-3">
                 <div className="pb-3 border-b border-dashed border-border/80 space-y-2">
-                  
+
                   {isCustom ? (
                     <>
                       <div className="flex justify-between items-end text-xs">
@@ -436,14 +477,14 @@ export default function BookingDetails() {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex justify-between items-center text-xs pt-1">
                   <span className="font-bold text-foreground">Package Total</span>
                   <span className="font-bold text-foreground">{formatPrice(booking.subtotal)}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-muted-foreground">Deposit Paid</span>
-                  <span className="font-medium text-foreground">{booking.status === 'confirmed' || booking.status === 'completed' ? formatPrice(booking.dueNow) : formatPrice(0)}</span>
+                  <span className="font-medium text-foreground">{(booking.status === 'confirmed' || booking.status === 'completed') ? formatPrice(amountPaid) : formatPrice(0)}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs pt-2 border-t border-border/50">
                   <span className="font-semibold text-foreground">Remaining Balance</span>
@@ -482,25 +523,25 @@ export default function BookingDetails() {
       {requestModalOpen && requestFormType && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
-            <button 
+            <button
               onClick={() => { setRequestModalOpen(false); setRequestFormType(null); setIsConfirming(false); }}
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-              disabled={isSubmitting}
+              disabled={cancelMutation.isPending}
             >
               <X className="w-5 h-5" />
             </button>
-            
+
             {isConfirming ? (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                 <h2 className="text-xl font-heading font-bold mb-2">Confirm Request</h2>
                 <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-                  Are you sure you want to submit this {requestFormType} request? 
+                  Are you sure you want to submit this {requestFormType} request?
                   The studio will be notified and this booking will be placed in a pending state until they review it.
                 </p>
                 <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={isSubmitting}>Back</Button>
-                  <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
-                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
+                  <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={cancelMutation.isPending}>Back</Button>
+                  <Button onClick={handleFinalSubmit} disabled={cancelMutation.isPending}>
+                    {cancelMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
                   </Button>
                 </div>
               </div>
@@ -531,7 +572,7 @@ export default function BookingDetails() {
                         <option value="time">Time</option>
                         <option value="addons">Add-ons</option>
                         <option value="contact">Contact Details</option>
-                        
+
                         {isCustom && (
                           <>
                             <option disabled>── Custom Adjustments ──</option>
@@ -542,7 +583,7 @@ export default function BookingDetails() {
                             <option value="photographers">Increase photographers</option>
                           </>
                         )}
-                        
+
                         {!isCustom && (
                           <>
                             <option disabled>── Event Adjustments ──</option>
@@ -552,7 +593,7 @@ export default function BookingDetails() {
                       </select>
                     </div>
                   )}
-                  
+
                   <div className="space-y-2">
                     <label className="text-xs font-semibold">Reason / Notes</label>
                     <textarea required placeholder="Please explain your request in detail..." value={reason} onChange={(e) => setReason(e.target.value)} className="flex min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none" />

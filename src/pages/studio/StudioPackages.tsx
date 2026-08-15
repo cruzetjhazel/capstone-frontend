@@ -1,270 +1,459 @@
-import { useState } from "react";
-import toast from "react-hot-toast";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { 
-  Plus, Archive, Sparkles, Wand2, Package, Save, Copy, 
-  FileBox, Eye, EyeOff, AlertTriangle, X, Info, RotateCcw, Trash2, CheckCircle 
+import {
+  Plus, Archive, Sparkles, Wand2, Package, Save, Copy,
+  Eye, EyeOff, AlertTriangle, X, Info, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
+import { getApiErrorMessage } from "@/lib/api";
+import {
+  usePhotographerPackages, useCreatePackage, useUpdatePackage, usePublishPackage,
+  useRevertPackageToDraft, useArchivePackage,
+} from "@/hooks/usePhotographerPackages";
+import type { PackageRecord, PackageInput } from "@/services/photographerPackageService";
+import {
+  usePhotographerAddOns, useCreateAddOn, useUpdateAddOn, useArchiveAddOn,
+} from "@/hooks/usePhotographerAddOns";
+import type { AddOnRecord, AddOnInput } from "@/services/photographerAddOnService";
+import {
+  useCustomPackageConfig, useCustomPackageComponents, useUpdateCustomPackageConfig,
+  useCreateCustomComponent, useUpdateCustomComponent, useArchiveCustomComponent,
+} from "@/hooks/usePhotographerCustomPackage";
+import type { CustomComponentType, CustomComponentRecord } from "@/services/photographerCustomPackageService";
 
-interface PackageItem {
-  id: string;
+const FLAT_OPTION_HINT = "Optional one-off extras clients can toggle on — e.g. \"Include RAW Files\", \"Second Location Coverage\", or anything else you offer.";
+const SUGGESTED_TIER_NAMES = ["Edited Photos", "Number of Photographers", "Delivery Speed"];
+
+// --- local draft shape for editable package cards ---
+interface PackageDraft {
   name: string;
   price: number;
   description: string;
-  inclusions: string;
-  status: "Active" | "Draft" | "Archived";
+  inclusionsText: string; // newline-separated, converted to/from included_items
+  durationMinutes: number;
+  bufferMinutes: number;
+}
+function draftFromPackage(p: PackageRecord): PackageDraft {
+  return {
+    name: p.name,
+    price: p.price,
+    description: p.description,
+    inclusionsText: p.includedItems.join("\n"),
+    durationMinutes: p.durationMinutes,
+    bufferMinutes: p.bufferMinutes,
+  };
+}
+function draftToInput(d: PackageDraft): PackageInput {
+  return {
+    name: d.name,
+    description: d.description || null,
+    included_items: d.inclusionsText.split("\n").map((s) => s.trim()).filter(Boolean),
+    price: Number(d.price),
+    duration_minutes: Number(d.durationMinutes),
+    buffer_minutes: Number(d.bufferMinutes) || 0,
+  };
 }
 
-interface AddonItem {
-  id: string;
+interface AddOnDraft {
   name: string;
   description: string;
   price: number;
-  enabled: boolean;
-  status: "Active" | "Archived";
 }
-
-const initialPackages: PackageItem[] = [
-  { 
-    id: "PK-1", 
-    name: "Basic Portrait Package", 
-    price: 3000, 
-    description: "Ideal for individual portrait sessions and small shoots", 
-    inclusions: "Up to 2 hours coverage\n50 edited photos\nOnline photo gallery\n1 Photographer", 
-    status: "Active" 
-  },
-  { 
-    id: "PK-2", 
-    name: "Standard Event Package", 
-    price: 7000, 
-    description: "Great for birthdays and medium-sized celebrations", 
-    inclusions: "Up to 5 hours coverage\n200 edited photos\n2 Photographers\nSame-day teaser photos", 
-    status: "Active" 
-  },
-  { 
-    id: "PK-3", 
-    name: "Grand Wedding Draft", 
-    price: 18000, 
-    description: "Full-day comprehensive wedding coverage", 
-    inclusions: "Full-day coverage (up to 10 hrs)\n500+ edited photos\n2 Photographers + 1 Videographer\nFree Prenup Session", 
-    status: "Draft" 
-  },
-];
-
-const initialAddons: AddonItem[] = [
-  { id: "AD-1", name: "Extra Coverage Hour", description: "Additional hour of photo coverage on location", price: 1500, enabled: true, status: "Active" },
-  { id: "AD-2", name: "Premium Photobook", description: "Hardcover 20-page high quality print photo album", price: 5000, enabled: true, status: "Active" },
-  { id: "AD-3", name: "Drone Aerial Photography", description: "Aerial photo & video footage by licensed operator", price: 3500, enabled: false, status: "Active" },
-];
+function draftFromAddOn(a: AddOnRecord): AddOnDraft {
+  return { name: a.name, description: a.description, price: a.price };
+}
 
 export default function StudioPackages() {
-  const [allowCustom, setAllowCustom] = useState(true);
-  const [packages, setPackages] = useState<PackageItem[]>(initialPackages);
-  const [addons, setAddons] = useState<AddonItem[]>(initialAddons);
+  const { toast } = useToast();
 
-  // Modal States
-  const [packageToArchive, setPackageToArchive] = useState<PackageItem | null>(null);
-  const [packageToDraft, setPackageToDraft] = useState<PackageItem | null>(null);
-  const [addonToArchive, setAddonToArchive] = useState<AddonItem | null>(null);
-  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
-  const [itemToDeletePermanently, setItemToDeletePermanently] = useState<{ id: string; type: "package" | "addon"; name: string } | null>(null);
+  // --- Packages ---
+  const { data: packages = [], isLoading: packagesLoading } = usePhotographerPackages();
+  const createPackage = useCreatePackage();
+  const updatePackage = useUpdatePackage();
+  const publishPackage = usePublishPackage();
+  const revertPackage = useRevertPackageToDraft();
+  const archivePackageMut = useArchivePackage();
+
+  const [packageDrafts, setPackageDrafts] = useState<Record<string, PackageDraft>>({});
+  useEffect(() => {
+    setPackageDrafts((prev) => {
+      const next = { ...prev };
+      for (const p of packages) {
+        if (!next[p.id]) next[p.id] = draftFromPackage(p);
+      }
+      return next;
+    });
+  }, [packages]);
+
+  const [packageToArchive, setPackageToArchive] = useState<PackageRecord | null>(null);
+  const [packageToDraft, setPackageToDraft] = useState<PackageRecord | null>(null);
+
+  // --- Add-ons ---
+  const { data: addons = [], isLoading: addonsLoading } = usePhotographerAddOns();
+  const createAddOn = useCreateAddOn();
+  const updateAddOn = useUpdateAddOn();
+  const archiveAddOnMut = useArchiveAddOn();
+
+  const [addonDrafts, setAddonDrafts] = useState<Record<string, AddOnDraft>>({});
+  useEffect(() => {
+    setAddonDrafts((prev) => {
+      const next = { ...prev };
+      for (const a of addons) {
+        if (!next[a.id]) next[a.id] = draftFromAddOn(a);
+      }
+      return next;
+    });
+  }, [addons]);
+
+  const [addonToArchive, setAddonToArchive] = useState<AddOnRecord | null>(null);
   const [isAddAddonOpen, setIsAddAddonOpen] = useState(false);
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  
-  // Custom Toggle Confirmation State
-  const [pendingCustomToggle, setPendingCustomToggle] = useState<boolean | null>(null);
-  const [isCustomToggleModalOpen, setIsCustomToggleModalOpen] = useState(false);
-
-  // New Add-on Form State
   const [newAddon, setNewAddon] = useState({ name: "", description: "", price: 1000 });
 
-  // Custom Package Calculator Rates
-  const [rates, setRates] = useState({
-    baseFee: 2000,
-    rawFiles: 1500,
-    secondLocation: 1000,
-    photoTiers: [
-      { label: "50 Photos included", price: 0 },
-      { label: "100 Photos included", price: 1000 },
-      { label: "200 Photos included", price: 2500 },
-    ],
-    deliveryTiers: [
-      { label: "Standard Delivery (2-3 weeks)", price: 0 },
-      { label: "Express Delivery (48 hours)", price: 3000 },
-    ]
+  // --- Custom package config + components ---
+  const { data: customConfig, isLoading: configLoading } = useCustomPackageConfig();
+  const { data: components = [], isLoading: componentsLoading } = useCustomPackageComponents();
+  const updateConfig = useUpdateCustomPackageConfig();
+  const createComponent = useCreateCustomComponent();
+  const updateComponentMut = useUpdateCustomComponent();
+  const archiveComponentMut = useArchiveCustomComponent();
+
+  const [configDraft, setConfigDraft] = useState<{ enabled: boolean; baseFee: number }>({ enabled: false, baseFee: 0 });
+  useEffect(() => {
+    if (customConfig) setConfigDraft({ enabled: customConfig.enabled, baseFee: customConfig.baseFee ?? 0 });
+  }, [customConfig]);
+
+  const [pendingCustomToggle, setPendingCustomToggle] = useState<boolean | null>(null);
+  // Naming + first option for a brand-new tier being created
+  const [newTierDraft, setNewTierDraft] = useState<{ tierName: string; options: { label: string; price: number }[] }>({
+    tierName: "",
+    options: [{ label: "", price: 0 }],
   });
+  // One draft per existing tier name, for adding its next option (max 4 total)
+  const [newOptionDrafts, setNewOptionDrafts] = useState<Record<string, { label: string; price: number }>>({});
+  const [newFlatDraft, setNewFlatDraft] = useState({ label: "", price: 0 });
 
-  // Calculate active packages count
-  const activePackagesCount = packages.filter(p => p.status === "Active").length;
+  const [componentEdits, setComponentEdits] = useState<Record<string, { label: string; price: number }>>({});
 
-  // Handlers for Custom Request Toggle
-  const handleCustomToggle = (checked: boolean) => {
-    setPendingCustomToggle(checked);
-    setIsCustomToggleModalOpen(true);
-  };
+  const visiblePackages = packages.filter((p) => p.status !== "archived");
+  const visibleAddons = addons.filter((a) => a.status !== "archived");
+  const activePackagesCount = packages.filter((p) => p.status === "published").length;
 
-  const confirmCustomToggle = () => {
-    if (pendingCustomToggle === null) return;
-    setAllowCustom(pendingCustomToggle);
-    setIsCustomToggleModalOpen(false);
-    
-    if (!pendingCustomToggle) {
-      toast("Custom package calculator disabled. Clients can only select fixed packages.", { icon: "⚠️" });
-    } else {
-      toast.success("Custom package calculator enabled for clients.");
-    }
-    setPendingCustomToggle(null);
-  };
+  const errToast = (err: unknown, fallback: string) =>
+    toast({ title: getApiErrorMessage(err, fallback), variant: "destructive" });
 
-  // Add Draft Package
-  const handleAddDraftPackage = () => {
-    const newPkg: PackageItem = {
-      id: `PK-${Date.now()}`,
-      name: "Untitled Package Draft",
-      price: 2500,
-      description: "Package short description...",
-      inclusions: "List inclusions here...",
-      status: "Draft"
-    };
-    setPackages([...packages, newPkg]);
-    toast.success("New draft package added. Edit details below.");
-  };
-
-  // Duplicate Package
-  const duplicatePackage = (pkg: PackageItem) => {
-    const duplicated: PackageItem = { 
-      ...pkg, 
-      id: `PK-${Date.now()}`, 
-      name: `${pkg.name} (Copy)`, 
-      status: "Draft" 
-    };
-    setPackages([...packages, duplicated]);
-    toast.success(`Duplicated "${pkg.name}" as a new draft.`);
-  };
-
-  // Toggle Publish / Draft
-  const handleStatusChangeClick = (pkg: PackageItem) => {
-    if (pkg.status === "Active") {
-      setPackageToDraft(pkg);
-    } else {
-      setPackages(packages.map(p => p.id === pkg.id ? { ...p, status: "Active" } : p));
-      toast.success(`"${pkg.name}" is now Published & visible to clients!`);
+  // --- Package handlers ---
+  const handleAddDraftPackage = async () => {
+    try {
+      await createPackage.mutateAsync({
+        name: "Untitled Package Draft",
+        description: "Package short description...",
+        included_items: [],
+        price: 2500,
+        duration_minutes: 60,
+        buffer_minutes: 0,
+      });
+      toast({ title: "New draft package added. Edit details below." });
+    } catch (err) {
+      errToast(err, "Couldn't create the package.");
     }
   };
 
-  const confirmRevertToDraft = () => {
-    if (!packageToDraft) return;
-    setPackages(packages.map(p => p.id === packageToDraft.id ? { ...p, status: "Draft" } : p));
-    toast.success(`"${packageToDraft.name}" moved to Drafts and hidden from new clients.`);
-    setPackageToDraft(null);
+  const duplicatePackage = async (pkg: PackageRecord) => {
+    const draft = packageDrafts[pkg.id] ?? draftFromPackage(pkg);
+    try {
+      await createPackage.mutateAsync({
+        ...draftToInput(draft),
+        name: `${draft.name} (Copy)`,
+      });
+      toast({ title: `Duplicated "${pkg.name}" as a new draft.` });
+    } catch (err) {
+      errToast(err, "Couldn't duplicate the package.");
+    }
   };
 
-  // Archiving Package
-  const confirmArchivePackage = () => {
-    if (!packageToArchive) return;
-    setPackages(packages.map(p => p.id === packageToArchive.id ? { ...p, status: "Archived" } : p));
-    toast.success(`"${packageToArchive.name}" has been moved to Archive.`);
-    setPackageToArchive(null);
-  };
-
-  // Add-on Creation & Archiving
-  const handleCreateAddon = () => {
-    if (!newAddon.name.trim()) {
-      toast.error("Please enter an add-on name.");
+  const savePackage = async (pkg: PackageRecord) => {
+    const draft = packageDrafts[pkg.id];
+    if (!draft) return;
+    if (!draft.name.trim() || !draft.durationMinutes) {
+      toast({ title: "Name and session duration are required.", variant: "destructive" });
       return;
     }
-    const addonObj: AddonItem = {
-      id: `AD-${Date.now()}`,
-      name: newAddon.name,
-      description: newAddon.description,
-      price: Number(newAddon.price),
-      enabled: true,
-      status: "Active"
-    };
-    setAddons([...addons, addonObj]);
-    setNewAddon({ name: "", description: "", price: 1000 });
-    setIsAddAddonOpen(false);
-    toast.success("Custom add-on created successfully!");
+    try {
+      await updatePackage.mutateAsync({ id: pkg.id, input: draftToInput(draft) });
+      toast({ title: `"${draft.name}" saved.` });
+    } catch (err) {
+      errToast(err, "Couldn't save the package.");
+    }
   };
 
-  const confirmArchiveAddon = () => {
+  const handleStatusChangeClick = async (pkg: PackageRecord) => {
+    try {
+      if (pkg.status === "published") {
+        setPackageToDraft(pkg);
+      } else {
+        await publishPackage.mutateAsync(pkg.id);
+        toast({ title: `"${pkg.name}" is now Published & visible to clients!` });
+      }
+    } catch (err) {
+      errToast(err, "Couldn't publish the package.");
+    }
+  };
+
+  const confirmRevertToDraft = async () => {
+    if (!packageToDraft) return;
+    try {
+      await revertPackage.mutateAsync(packageToDraft.id);
+      toast({ title: `"${packageToDraft.name}" moved to Drafts and hidden from new clients.` });
+    } catch (err) {
+      errToast(err, "Couldn't revert the package to draft.");
+    } finally {
+      setPackageToDraft(null);
+    }
+  };
+
+  const confirmArchivePackage = async () => {
+    if (!packageToArchive) return;
+    try {
+      await archivePackageMut.mutateAsync(packageToArchive.id);
+      toast({ title: `"${packageToArchive.name}" has been moved to Archive.` });
+    } catch (err) {
+      errToast(err, "Couldn't archive the package.");
+    } finally {
+      setPackageToArchive(null);
+    }
+  };
+
+  // --- Add-on handlers ---
+  const handleCreateAddon = async () => {
+    if (!newAddon.name.trim()) {
+      toast({ title: "Please enter an add-on name.", variant: "destructive" });
+      return;
+    }
+    try {
+      await createAddOn.mutateAsync({
+        name: newAddon.name,
+        description: newAddon.description || null,
+        price: Number(newAddon.price),
+      });
+      setNewAddon({ name: "", description: "", price: 1000 });
+      setIsAddAddonOpen(false);
+      toast({ title: "Custom add-on created successfully!" });
+    } catch (err) {
+      errToast(err, "Couldn't create the add-on.");
+    }
+  };
+
+  const saveAddOn = async (addon: AddOnRecord) => {
+    const draft = addonDrafts[addon.id];
+    if (!draft) return;
+    const input: AddOnInput = { name: draft.name, description: draft.description || null, price: Number(draft.price) };
+    try {
+      await updateAddOn.mutateAsync({ id: addon.id, input });
+      toast({ title: `Add-on "${draft.name}" saved.` });
+    } catch (err) {
+      errToast(err, "Couldn't save the add-on.");
+    }
+  };
+
+  const confirmArchiveAddon = async () => {
     if (!addonToArchive) return;
-    setAddons(addons.map(a => a.id === addonToArchive.id ? { ...a, status: "Archived" } : a));
-    toast.success(`Add-on "${addonToArchive.name}" archived.`);
-    setAddonToArchive(null);
-  };
-
-  // Restore & Delete from Archive
-  const restoreItem = (id: string, type: "package" | "addon") => {
-    if (type === "package") {
-      setPackages(packages.map(p => p.id === id ? { ...p, status: "Draft" } : p));
-      toast.success("Package restored as a Draft.");
-    } else {
-      setAddons(addons.map(a => a.id === id ? { ...a, status: "Active" } : a));
-      toast.success("Add-on restored to active list.");
+    try {
+      await archiveAddOnMut.mutateAsync(addonToArchive.id);
+      toast({ title: `Add-on "${addonToArchive.name}" archived.` });
+    } catch (err) {
+      errToast(err, "Couldn't archive the add-on.");
+    } finally {
+      setAddonToArchive(null);
     }
   };
 
-  const confirmPermanentDelete = () => {
-    if (!itemToDeletePermanently) return;
-    if (itemToDeletePermanently.type === "package") {
-      setPackages(packages.filter(p => p.id !== itemToDeletePermanently.id));
-    } else {
-      setAddons(addons.filter(a => a.id !== itemToDeletePermanently.id));
+  // --- Custom package config ---
+  const handleCustomToggle = (checked: boolean) => {
+    setPendingCustomToggle(checked);
+  };
+
+  const confirmCustomToggle = async () => {
+    if (pendingCustomToggle === null) return;
+    try {
+      await updateConfig.mutateAsync({
+        enabled: pendingCustomToggle,
+        base_fee: pendingCustomToggle ? Number(configDraft.baseFee) || 0 : null,
+      });
+      toast({
+        title: pendingCustomToggle
+          ? "Custom package calculator enabled for clients."
+          : "Custom package calculator disabled. Clients can only select fixed packages.",
+      });
+    } catch (err) {
+      errToast(err, "Couldn't update the custom package setting.");
+    } finally {
+      setPendingCustomToggle(null);
     }
-    toast.success(`Permanently deleted ${itemToDeletePermanently.name}.`);
-    setItemToDeletePermanently(null);
   };
 
-  // Save Config
-  const confirmSaveConfig = () => {
-    setIsSaveModalOpen(false);
-    toast.success("All package configurations, add-ons, and calculator rates saved!");
+  const saveBaseFee = async () => {
+    try {
+      await updateConfig.mutateAsync({ enabled: configDraft.enabled, base_fee: Number(configDraft.baseFee) || 0 });
+      toast({ title: "Base session fee saved." });
+    } catch (err) {
+      errToast(err, "Couldn't save the base fee.");
+    }
   };
 
-  const visiblePackages = packages.filter(p => p.status !== "Archived");
-  const visibleAddons = addons.filter(a => a.status !== "Archived");
-  const archivedPackages = packages.filter(p => p.status === "Archived");
-  const archivedAddons = addons.filter(a => a.status === "Archived");
+  // --- Custom package components ---
+  const tierGroups: Record<string, CustomComponentRecord[]> = {};
+  for (const c of components) {
+    if (c.type === "tier_option" && c.status !== "archived" && c.tierName) {
+      (tierGroups[c.tierName] ??= []).push(c);
+    }
+  }
+  const flatOptions = components.filter((c) => c.type === "flat_option" && c.status !== "archived");
+
+  const addOptionToTier = async (tierName: string) => {
+    const draft = newOptionDrafts[tierName];
+    if (!draft?.label.trim()) {
+      toast({ title: "Please enter a label for this option.", variant: "destructive" });
+      return;
+    }
+    if ((tierGroups[tierName]?.length ?? 0) >= 4) {
+      toast({ title: "Each tier can have at most 4 options.", variant: "destructive" });
+      return;
+    }
+    try {
+      await createComponent.mutateAsync({ type: "tier_option", tier_name: tierName, label: draft.label.trim(), price_addition: Number(draft.price) || 0 });
+      setNewOptionDrafts((prev) => ({ ...prev, [tierName]: { label: "", price: 0 } }));
+      toast({ title: "Option added." });
+    } catch (err) {
+      errToast(err, "Couldn't add this option.");
+    }
+  };
+
+  const addNewTierOptionRow = () => {
+    setNewTierDraft((prev) => (prev.options.length >= 4 ? prev : { ...prev, options: [...prev.options, { label: "", price: 0 }] }));
+  };
+
+  const removeNewTierOptionRow = (index: number) => {
+    setNewTierDraft((prev) => ({ ...prev, options: prev.options.filter((_, i) => i !== index) }));
+  };
+
+  const updateNewTierOption = (index: number, patch: Partial<{ label: string; price: number }>) => {
+    setNewTierDraft((prev) => ({ ...prev, options: prev.options.map((o, i) => (i === index ? { ...o, ...patch } : o)) }));
+  };
+
+  const addNewTier = async () => {
+    const name = newTierDraft.tierName.trim();
+    if (!name) {
+      toast({ title: "Please name this tier.", variant: "destructive" });
+      return;
+    }
+    if (tierGroups[name]) {
+      toast({ title: "A tier with this name already exists — add options to it below instead.", variant: "destructive" });
+      return;
+    }
+    const filledOptions = newTierDraft.options.filter((o) => o.label.trim());
+    if (filledOptions.length === 0) {
+      toast({ title: "Please add at least one option.", variant: "destructive" });
+      return;
+    }
+    try {
+      for (const opt of filledOptions) {
+        await createComponent.mutateAsync({ type: "tier_option", tier_name: name, label: opt.label.trim(), price_addition: Number(opt.price) || 0 });
+      }
+      setNewTierDraft({ tierName: "", options: [{ label: "", price: 0 }] });
+      toast({ title: `Tier "${name}" created with ${filledOptions.length} option${filledOptions.length > 1 ? "s" : ""}.` });
+    } catch (err) {
+      errToast(err, "Couldn't create this tier — some options may have been saved before the error.");
+    }
+  };
+
+  const addFlatOption = async () => {
+    if (!newFlatDraft.label.trim()) {
+      toast({ title: "Please enter a label for this add-on.", variant: "destructive" });
+      return;
+    }
+    try {
+      await createComponent.mutateAsync({ type: "flat_option", label: newFlatDraft.label.trim(), price_addition: Number(newFlatDraft.price) || 0 });
+      setNewFlatDraft({ label: "", price: 0 });
+      toast({ title: "Add-on added." });
+    } catch (err) {
+      errToast(err, "Couldn't add this add-on.");
+    }
+  };
+
+  const startEditComponent = (c: CustomComponentRecord) => {
+    setComponentEdits((prev) => ({ ...prev, [c.id]: { label: c.label, price: c.priceAddition } }));
+  };
+
+  const saveComponent = async (c: CustomComponentRecord) => {
+    const edit = componentEdits[c.id];
+    if (!edit) return;
+    try {
+      await updateComponentMut.mutateAsync({
+        id: c.id,
+        input: { type: c.type, tier_name: c.tierName, label: edit.label.trim(), price_addition: Number(edit.price) || 0 },
+      });
+      setComponentEdits((prev) => {
+        const next = { ...prev };
+        delete next[c.id];
+        return next;
+      });
+      toast({ title: "Tier updated." });
+    } catch (err) {
+      errToast(err, "Couldn't update this tier.");
+    }
+  };
+
+  const archiveComponent = async (c: CustomComponentRecord) => {
+    try {
+      await archiveComponentMut.mutateAsync(c.id);
+      toast({ title: `"${c.label}" archived.` });
+    } catch (err) {
+      errToast(err, "Couldn't archive this tier.");
+    }
+  };
+
+  const isLoading = packagesLoading || addonsLoading || configLoading || componentsLoading;
 
   return (
     <DashboardLayout>
       <div className="max-w-5xl mx-auto space-y-8 animate-fade-up pb-12">
-        
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-heading font-bold">Services & Packages</h1>
             <p className="text-sm text-muted-foreground mt-1">Configure your service catalogs, custom calculator rates, and optional add-ons.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button 
-              variant="outline" 
-              className="gap-2 h-9 text-xs"
-              onClick={() => setIsArchiveModalOpen(true)}
-            >
-              <FileBox className="w-4 h-4" /> 
-              View Archive ({archivedPackages.length + archivedAddons.length})
+          <Link to="/studio/archive">
+            <Button variant="outline" className="gap-2 h-9 text-xs">
+              <Archive className="w-4 h-4" />
+              Safe Archive
             </Button>
-            <Button onClick={() => setIsSaveModalOpen(true)} className="gap-2 h-9 text-xs bg-primary text-primary-foreground">
-              <Save className="w-4 h-4" /> Save All Changes
-            </Button>
-          </div>
+          </Link>
         </div>
 
+        {isLoading && (
+          <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" /> Loading your catalog...
+          </div>
+        )}
+
+        {!isLoading && (
+        <>
         {/* Bookability Status Banner Requirement */}
         {activePackagesCount < 1 && (
           <div className="p-4 rounded-xl border flex items-start gap-3 bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-300">
             <Info className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="text-xs leading-relaxed">
-              <strong>Bookability Requirement:</strong> To be bookable by clients online, your account must have an approved application, an active profile, at least 6–12 portfolio photos, and <strong>at least 1 Active package</strong>.
+              <strong>Bookability Requirement:</strong> To be bookable by clients online, your account must have an approved application, an active profile, at least 6–12 portfolio photos, and <strong>at least 1 Published package</strong>.
               <span className="block mt-1 font-semibold">
-                Current Active Packages: {activePackagesCount} ⚠️ Needs at least 1 Active package
+                Current Published Packages: {activePackagesCount} ⚠️ Needs at least 1 Published package
               </span>
             </div>
           </div>
@@ -278,7 +467,7 @@ export default function StudioPackages() {
               When enabled, clients can use your custom calculator to build a tailored photography session. When disabled, clients are limited to selecting fixed packages.
             </p>
           </div>
-          <Switch checked={allowCustom} onCheckedChange={handleCustomToggle} />
+          <Switch checked={configDraft.enabled} onCheckedChange={handleCustomToggle} />
         </section>
 
         {/* SECTION 1: FIXED PACKAGES */}
@@ -290,109 +479,148 @@ export default function StudioPackages() {
               </h3>
               <p className="text-xs text-muted-foreground">Add and configure predefined photography packages that clients can select directly.</p>
             </div>
-            <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" onClick={handleAddDraftPackage}>
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" onClick={handleAddDraftPackage} disabled={createPackage.isPending}>
               <Plus className="w-3.5 h-3.5" /> Add Draft Package
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {visiblePackages.map((pk) => (
-              <div 
-                key={pk.id} 
-                className={`rounded-xl border p-4 relative flex flex-col justify-between space-y-4 transition-all ${
-                  pk.status === "Draft" 
-                    ? "bg-card border-dashed border-border" 
-                    : "bg-muted/10 border-border hover:border-primary/40"
-                }`}
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between h-6">
-                    {pk.status === "Active" ? (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                        <Eye className="w-3 h-3"/> Active
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                        <EyeOff className="w-3 h-3"/> Draft
-                      </span>
-                    )}
+            {visiblePackages.map((pk) => {
+              const draft = packageDrafts[pk.id] ?? draftFromPackage(pk);
+              const setDraft = (patch: Partial<PackageDraft>) =>
+                setPackageDrafts((prev) => ({ ...prev, [pk.id]: { ...draft, ...patch } }));
+              const saving = updatePackage.isPending;
+
+              return (
+                <div
+                  key={pk.id}
+                  className={`rounded-xl border p-4 relative flex flex-col justify-between space-y-4 transition-all ${
+                    pk.status === "draft"
+                      ? "bg-card border-dashed border-border"
+                      : "bg-muted/10 border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between h-6">
+                      {pk.status === "published" ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                          <Eye className="w-3 h-3"/> Published
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                          <EyeOff className="w-3 h-3"/> Draft
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">Package Name</Label>
+                      <Input
+                        className="h-8 text-xs font-semibold"
+                        placeholder="Package name"
+                        value={draft.name}
+                        onChange={(e) => setDraft({ name: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Price (₱)</Label>
+                        <Input
+                          type="number"
+                          className="h-8 text-xs font-semibold"
+                          value={draft.price === 0 ? "" : draft.price}
+                          onChange={(e) => setDraft({ price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Duration (min)</Label>
+                        <Input
+                          type="number"
+                          className="h-8 text-xs font-semibold"
+                          value={draft.durationMinutes === 0 ? "" : draft.durationMinutes}
+                          onChange={(e) => setDraft({ durationMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">Buffer Time After Session (min)</Label>
+                      <Input
+                        type="number"
+                        className="h-8 text-xs"
+                        value={draft.bufferMinutes === 0 ? "" : draft.bufferMinutes}
+                        onChange={(e) => setDraft({ bufferMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">Short Description</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        placeholder="Short description"
+                        value={draft.description}
+                        onChange={(e) => setDraft({ description: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs">What's Included (One item per line)</Label>
+                      <Textarea
+                        rows={4}
+                        className="text-xs resize-none"
+                        placeholder="Inclusions list..."
+                        value={draft.inclusionsText}
+                        onChange={(e) => setDraft({ inclusionsText: e.target.value })}
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs">Package Name</Label>
-                    <Input 
-                      className="h-8 text-xs font-semibold" 
-                      placeholder="Package name" 
-                      value={pk.name}
-                      onChange={(e) => setPackages(packages.map((p) => p.id === pk.id ? { ...p, name: e.target.value } : p))} 
-                    />
-                  </div>
+                  {/* Card Actions */}
+                  <div className="border-t border-border/50 pt-4 mt-2 space-y-2">
+                    <Button
+                      variant="outline"
+                      className="w-full text-xs h-8 gap-1.5"
+                      onClick={() => savePackage(pk)}
+                      disabled={saving}
+                    >
+                      {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save Changes
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={pk.status === "published" ? "secondary" : "default"}
+                        className="flex-1 text-xs h-8"
+                        onClick={() => handleStatusChangeClick(pk)}
+                      >
+                        {pk.status === "published" ? "Revert to Draft" : "Publish Package"}
+                      </Button>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs">Price (₱)</Label>
-                    <Input 
-                      type="number" 
-                      className="h-8 text-xs font-semibold" 
-                      value={pk.price}
-                      onChange={(e) => setPackages(packages.map((p) => p.id === pk.id ? { ...p, price: Number(e.target.value) } : p))} 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs">Short Description</Label>
-                    <Input 
-                      className="h-8 text-xs" 
-                      placeholder="Short description" 
-                      value={pk.description}
-                      onChange={(e) => setPackages(packages.map((p) => p.id === pk.id ? { ...p, description: e.target.value } : p))} 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs">What's Included (One item per line)</Label>
-                    <Textarea 
-                      rows={4} 
-                      className="text-xs resize-none" 
-                      placeholder="Inclusions list..." 
-                      value={pk.inclusions}
-                      onChange={(e) => setPackages(packages.map((p) => p.id === pk.id ? { ...p, inclusions: e.target.value } : p))} 
-                    />
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() => duplicatePackage(pk)}
+                          title="Duplicate"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          onClick={() => setPackageToArchive(pk)}
+                          title="Archive"
+                        >
+                          <Archive className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                {/* Card Actions */}
-                <div className="border-t border-border/50 pt-4 mt-2 flex items-center gap-2">
-                  <Button 
-                    variant={pk.status === "Active" ? "secondary" : "default"} 
-                    className="flex-1 text-xs h-8" 
-                    onClick={() => handleStatusChangeClick(pk)}
-                  >
-                    {pk.status === "Active" ? "Revert to Draft" : "Publish Package"}
-                  </Button>
-                  
-                  <div className="flex items-center gap-1">
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
-                      className="h-8 w-8 text-muted-foreground hover:text-foreground" 
-                      onClick={() => duplicatePackage(pk)} 
-                      title="Duplicate"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10" 
-                      onClick={() => setPackageToArchive(pk)} 
-                      title="Archive"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -410,161 +638,261 @@ export default function StudioPackages() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {visibleAddons.map((a) => (
-              <div key={a.id} className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-muted/20">
-                <Switch 
-                  checked={a.enabled} 
-                  onCheckedChange={(v) => {
-                    setAddons(addons.map(item => item.id === a.id ? { ...item, enabled: v } : item));
-                    toast.success(`Add-on "${a.name}" ${v ? "enabled" : "disabled"}.`);
-                  }} 
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-xs text-foreground">{a.name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{a.description}</p>
+          <div className="grid grid-cols-1 gap-3">
+            {visibleAddons.map((a) => {
+              const draft = addonDrafts[a.id] ?? draftFromAddOn(a);
+              const setDraft = (patch: Partial<AddOnDraft>) =>
+                setAddonDrafts((prev) => ({ ...prev, [a.id]: { ...draft, ...patch } }));
+
+              return (
+                <div key={a.id} className="flex flex-wrap items-center gap-3 p-3.5 rounded-xl border border-border bg-muted/20">
+                  <div className="flex-1 min-w-[160px] space-y-1">
+                    <Input
+                      className="h-8 text-xs font-medium"
+                      value={draft.name}
+                      onChange={(e) => setDraft({ name: e.target.value })}
+                      placeholder="Add-on name"
+                    />
+                    <Input
+                      className="h-7 text-[11px] text-muted-foreground"
+                      value={draft.description}
+                      onChange={(e) => setDraft({ description: e.target.value })}
+                      placeholder="Short description"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-xs text-muted-foreground">₱</span>
+                    <Input
+                      type="number"
+                      className="w-20 h-8 text-xs"
+                      value={draft.price === 0 ? "" : draft.price}
+                      onChange={(e) => setDraft({ price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1"
+                    onClick={() => saveAddOn(a)}
+                    disabled={updateAddOn.isPending}
+                  >
+                    <Save className="w-3.5 h-3.5" /> Save
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive shrink-0 hover:bg-destructive/10"
+                    onClick={() => setAddonToArchive(a)}
+                    title="Archive Add-on"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-xs text-muted-foreground">₱</span>
-                  <Input 
-                    type="number" 
-                    className="w-20 h-8 text-xs" 
-                    value={a.price}
-                    onChange={(e) => setAddons(addons.map(item => item.id === a.id ? { ...item, price: Number(e.target.value) } : item))} 
-                  />
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 text-destructive shrink-0 hover:bg-destructive/10" 
-                  onClick={() => setAddonToArchive(a)}
-                  title="Archive Add-on"
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
         {/* SECTION 3: CUSTOM CALCULATOR RATES */}
-        {allowCustom && (
-          <section className="bg-card rounded-xl card-shadow border border-border/50 p-6 space-y-4 animate-fade-in">
+        {configDraft.enabled && (
+          <section className="bg-card rounded-xl card-shadow border border-border/50 p-6 space-y-5 animate-fade-in">
             <div className="space-y-1">
               <h3 className="font-heading font-semibold flex items-center gap-2">
                 <Wand2 className="w-4 h-4 text-primary" /> Build-Your-Own Package Calculator Rates
               </h3>
-              <p className="text-xs text-muted-foreground">Set up the baseline prices and tier pricing used when clients customize their requests.</p>
+              <p className="text-xs text-muted-foreground">Set up the base session fee and the tiers/add-ons used when clients customize their requests.</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5 flex-1 max-w-xs">
                 <Label className="text-xs">Base Session Fee (₱)</Label>
-                <Input 
-                  type="number" 
-                  className="h-9 text-xs" 
-                  value={rates.baseFee} 
-                  onChange={(e) => setRates({ ...rates, baseFee: Number(e.target.value) })} 
+                <Input
+                  type="number"
+                  className="h-9 text-xs"
+                  value={configDraft.baseFee === 0 ? "" : configDraft.baseFee}
+                  onChange={(e) => setConfigDraft((prev) => ({ ...prev, baseFee: e.target.value === "" ? 0 : Number(e.target.value) }))}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">RAW Files Add-on (₱)</Label>
-                <Input 
-                  type="number" 
-                  className="h-9 text-xs" 
-                  value={rates.rawFiles} 
-                  onChange={(e) => setRates({ ...rates, rawFiles: Number(e.target.value) })} 
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Second Location Fee (₱)</Label>
-                <Input 
-                  type="number" 
-                  className="h-9 text-xs" 
-                  value={rates.secondLocation} 
-                  onChange={(e) => setRates({ ...rates, secondLocation: Number(e.target.value) })} 
-                />
-              </div>
+              <Button size="sm" variant="outline" className="h-9 text-xs gap-1.5" onClick={saveBaseFee} disabled={updateConfig.isPending}>
+                <Save className="w-3.5 h-3.5" /> Save
+              </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-              <div>
-                <Label className="text-xs font-semibold">Photo Count Pricing Tiers</Label>
+            {/* Existing tier groups */}
+            {Object.entries(tierGroups).map(([tierName, options]) => (
+              <div key={tierName} className="pt-2 border-t border-border/50 first:border-t-0 first:pt-0">
+                <Label className="text-xs font-semibold">{tierName}</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">Clients pick one option from this tier. {options.length}/4 options.</p>
                 <div className="mt-2 space-y-2">
-                  {rates.photoTiers.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
-                      <span className="flex-1 text-muted-foreground">{t.label}</span>
-                      <span className="text-muted-foreground">+₱</span>
-                      <Input 
-                        type="number" 
-                        className="w-24 h-7 text-xs font-semibold" 
-                        value={t.price}
-                        onChange={(e) => setRates({
-                          ...rates,
-                          photoTiers: rates.photoTiers.map((p, j) => j === i ? { ...p, price: Number(e.target.value) } : p)
-                        })} 
+                  {options.map((c) => {
+                    const editing = componentEdits[c.id];
+                    return (
+                      <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
+                        {editing ? (
+                          <>
+                            <Input className="flex-1 h-7 text-xs" value={editing.label}
+                              onChange={(e) => setComponentEdits((prev) => ({ ...prev, [c.id]: { ...editing, label: e.target.value } }))} />
+                            <span className="text-muted-foreground">+₱</span>
+                            <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editing.price === 0 ? "" : editing.price}
+                              onChange={(e) => setComponentEdits((prev) => ({ ...prev, [c.id]: { ...editing, price: e.target.value === "" ? 0 : Number(e.target.value) } }))} />
+                            <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => saveComponent(c)} disabled={updateComponentMut.isPending}>Save</Button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEditComponent(c)}>{c.label}</span>
+                            <span className="font-semibold">+₱{c.priceAddition.toLocaleString()}</span>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveComponent(c)} title="Archive">
+                              <Archive className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {options.length < 4 && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-border text-xs">
+                      <Input
+                        className="flex-1 h-7 text-xs"
+                        placeholder="e.g. 100+ photos"
+                        value={newOptionDrafts[tierName]?.label ?? ""}
+                        onChange={(e) => setNewOptionDrafts((prev) => ({ ...prev, [tierName]: { label: e.target.value, price: prev[tierName]?.price ?? 0 } }))}
                       />
+                      <span className="text-muted-foreground">+₱</span>
+                      <Input
+                        type="number"
+                        className="w-24 h-7 text-xs"
+                        value={newOptionDrafts[tierName]?.price ? newOptionDrafts[tierName].price : ""}
+                        onChange={(e) => setNewOptionDrafts((prev) => ({ ...prev, [tierName]: { label: prev[tierName]?.label ?? "", price: e.target.value === "" ? 0 : Number(e.target.value) } }))}
+                      />
+                      <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => addOptionToTier(tierName)} disabled={createComponent.isPending}>
+                        <Plus className="w-3 h-3" /> Add Option
+                      </Button>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
+            ))}
 
-              <div>
-                <Label className="text-xs font-semibold">Delivery Duration Tiers</Label>
-                <div className="mt-2 space-y-2">
-                  {rates.deliveryTiers.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
-                      <span className="flex-1 text-muted-foreground">{t.label}</span>
-                      <span className="text-muted-foreground">+₱</span>
-                      <Input 
-                        type="number" 
-                        className="w-24 h-7 text-xs font-semibold" 
-                        value={t.price}
-                        onChange={(e) => setRates({
-                          ...rates,
-                          deliveryTiers: rates.deliveryTiers.map((p, j) => j === i ? { ...p, price: Number(e.target.value) } : p)
-                        })} 
-                      />
-                    </div>
+            {/* Create a new tier */}
+            <div className="pt-2 border-t border-border/50">
+              <Label className="text-xs font-semibold">Add a New Tier</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">
+                Name a category clients choose one option from, then add its first option. You can add up to 3 more after creating it. A few common ones to start with:
+              </p>
+              {SUGGESTED_TIER_NAMES.filter((name) => !tierGroups[name]).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {SUGGESTED_TIER_NAMES.filter((name) => !tierGroups[name]).map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className="text-[11px] px-2 py-1 rounded-full border border-border hover:border-primary/50 hover:bg-primary/5 text-muted-foreground transition-colors"
+                      onClick={() => setNewTierDraft((prev) => ({ ...prev, tierName: name }))}
+                    >
+                      + {name}
+                    </button>
                   ))}
+                </div>
+              )}
+              <div className="p-2.5 rounded-lg border border-dashed border-border space-y-2">
+                <Input
+                  className="h-7 text-xs max-w-xs"
+                  placeholder="Tier name, e.g. Album Style"
+                  value={newTierDraft.tierName}
+                  onChange={(e) => setNewTierDraft((prev) => ({ ...prev, tierName: e.target.value }))}
+                />
+                {newTierDraft.options.map((opt, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <Input
+                      className="flex-1 h-7 text-xs"
+                      placeholder={i === 0 ? "e.g. Leather Bound" : "Another option..."}
+                      value={opt.label}
+                      onChange={(e) => updateNewTierOption(i, { label: e.target.value })}
+                    />
+                    <span className="text-muted-foreground">+₱</span>
+                    <Input
+                      type="number"
+                      className="w-24 h-7 text-xs"
+                      value={opt.price === 0 ? "" : opt.price}
+                      onChange={(e) => updateNewTierOption(i, { price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    />
+                    {newTierDraft.options.length > 1 && (
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeNewTierOptionRow(i)} title="Remove option">
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={addNewTierOptionRow}
+                    disabled={newTierDraft.options.length >= 4}
+                  >
+                    <Plus className="w-3 h-3" /> Add Option ({newTierDraft.options.length}/4)
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={addNewTier} disabled={createComponent.isPending}>
+                    <Plus className="w-3 h-3" /> Create Tier
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Flat add-ons */}
+            <div className="pt-2 border-t border-border/50">
+              <Label className="text-xs font-semibold">Add-ons (RAW Files, Second Location, etc.)</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">{FLAT_OPTION_HINT}</p>
+              <div className="mt-2 space-y-2">
+                {flatOptions.map((c) => {
+                  const editing = componentEdits[c.id];
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
+                      {editing ? (
+                        <>
+                          <Input className="flex-1 h-7 text-xs" value={editing.label}
+                            onChange={(e) => setComponentEdits((prev) => ({ ...prev, [c.id]: { ...editing, label: e.target.value } }))} />
+                          <span className="text-muted-foreground">+₱</span>
+                          <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editing.price === 0 ? "" : editing.price}
+                            onChange={(e) => setComponentEdits((prev) => ({ ...prev, [c.id]: { ...editing, price: e.target.value === "" ? 0 : Number(e.target.value) } }))} />
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => saveComponent(c)} disabled={updateComponentMut.isPending}>Save</Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEditComponent(c)}>{c.label}</span>
+                          <span className="font-semibold">+₱{c.priceAddition.toLocaleString()}</span>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveComponent(c)} title="Archive">
+                            <Archive className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-border text-xs">
+                  <Input className="flex-1 h-7 text-xs" placeholder="e.g. Include RAW Files"
+                    value={newFlatDraft.label} onChange={(e) => setNewFlatDraft((prev) => ({ ...prev, label: e.target.value }))} />
+                  <span className="text-muted-foreground">+₱</span>
+                  <Input type="number" className="w-24 h-7 text-xs" value={newFlatDraft.price === 0 ? "" : newFlatDraft.price}
+                    onChange={(e) => setNewFlatDraft((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={addFlatOption} disabled={createComponent.isPending}>
+                    <Plus className="w-3 h-3" /> Add
+                  </Button>
                 </div>
               </div>
             </div>
           </section>
         )}
+        </>
+        )}
       </div>
 
-      {/* CONFIRM SAVE MODAL */}
-      {isSaveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-sm p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col space-y-4 relative">
-            <Button variant="ghost" size="icon" onClick={() => setIsSaveModalOpen(false)} className="absolute right-4 top-4 h-6 w-6 rounded-full">
-              <X className="w-4 h-4" />
-            </Button>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Save className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">Save Changes?</h3>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Are you sure you want to save all changes? This will update your live catalog, fixed packages, add-ons, and custom calculator rates for your clients.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setIsSaveModalOpen(false)}>Cancel</Button>
-              <Button variant="default" size="sm" onClick={confirmSaveConfig}>Yes, Save Changes</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* CONFIRM TOGGLE CUSTOM PACKAGE MODAL */}
-      {isCustomToggleModalOpen && (
+      {pendingCustomToggle !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-card w-full max-w-sm p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col space-y-4 relative">
-            <Button variant="ghost" size="icon" onClick={() => setIsCustomToggleModalOpen(false)} className="absolute right-4 top-4 h-6 w-6 rounded-full">
+            <Button variant="ghost" size="icon" onClick={() => setPendingCustomToggle(null)} className="absolute right-4 top-4 h-6 w-6 rounded-full">
               <X className="w-4 h-4" />
             </Button>
             <div className="flex items-center gap-3">
@@ -578,13 +906,13 @@ export default function StudioPackages() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {pendingCustomToggle 
+              {pendingCustomToggle
                 ? "Clients will be able to build their own tailored photography sessions using your custom calculator rates."
                 : "Clients will be restricted to selecting from your fixed packages only. The custom calculator will be hidden from your booking page."}
             </p>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setIsCustomToggleModalOpen(false)}>Cancel</Button>
-              <Button variant={pendingCustomToggle ? "default" : "destructive"} size="sm" onClick={confirmCustomToggle}>
+              <Button variant="outline" size="sm" onClick={() => setPendingCustomToggle(null)}>Cancel</Button>
+              <Button variant={pendingCustomToggle ? "default" : "destructive"} size="sm" onClick={confirmCustomToggle} disabled={updateConfig.isPending}>
                 {pendingCustomToggle ? "Enable Custom Packages" : "Disable Custom Packages"}
               </Button>
             </div>
@@ -613,7 +941,7 @@ export default function StudioPackages() {
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setPackageToDraft(null)}>Cancel</Button>
-              <Button variant="default" size="sm" onClick={confirmRevertToDraft}>Confirm & Hide</Button>
+              <Button variant="default" size="sm" onClick={confirmRevertToDraft} disabled={revertPackage.isPending}>Confirm & Hide</Button>
             </div>
           </div>
         </div>
@@ -640,7 +968,7 @@ export default function StudioPackages() {
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setPackageToArchive(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmArchivePackage}>Yes, Archive Package</Button>
+              <Button variant="destructive" size="sm" onClick={confirmArchivePackage} disabled={archivePackageMut.isPending}>Yes, Archive Package</Button>
             </div>
           </div>
         </div>
@@ -667,7 +995,7 @@ export default function StudioPackages() {
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setAddonToArchive(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmArchiveAddon}>Archive Add-on</Button>
+              <Button variant="destructive" size="sm" onClick={confirmArchiveAddon} disabled={archiveAddOnMut.isPending}>Archive Add-on</Button>
             </div>
           </div>
         </div>
@@ -684,120 +1012,32 @@ export default function StudioPackages() {
             <div className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Add-on Name</Label>
-                <Input 
-                  placeholder="e.g. Aerial Drone Coverage" 
-                  value={newAddon.name} 
-                  onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })} 
+                <Input
+                  placeholder="e.g. Aerial Drone Coverage"
+                  value={newAddon.name}
+                  onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Short Description</Label>
-                <Input 
-                  placeholder="Brief description..." 
-                  value={newAddon.description} 
-                  onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })} 
+                <Input
+                  placeholder="Brief description..."
+                  value={newAddon.description}
+                  onChange={(e) => setNewAddon({ ...newAddon, description: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Price (₱)</Label>
-                <Input 
-                  type="number" 
-                  value={newAddon.price} 
-                  onChange={(e) => setNewAddon({ ...newAddon, price: Number(e.target.value) })} 
+                <Input
+                  type="number"
+                  value={newAddon.price === 0 ? "" : newAddon.price}
+                  onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value === "" ? 0 : Number(e.target.value) })}
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setIsAddAddonOpen(false)}>Cancel</Button>
-              <Button variant="default" size="sm" onClick={handleCreateAddon}>Create Add-on</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ARCHIVE MANAGEMENT MODAL */}
-      {isArchiveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-2xl p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col space-y-4 relative max-h-[85vh] overflow-y-auto">
-            <Button variant="ghost" size="icon" onClick={() => setIsArchiveModalOpen(false)} className="absolute right-4 top-4 h-6 w-6 rounded-full">
-              <X className="w-4 h-4" />
-            </Button>
-
-            <div className="flex items-center gap-2">
-              <FileBox className="w-5 h-5 text-primary" />
-              <h3 className="font-bold text-lg">Archived Packages & Add-ons</h3>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Restore archived items back to active status or permanently delete items that have no conflicting historical bookings.
-            </p>
-
-            {/* Archived Packages List */}
-            <div className="space-y-3 pt-2">
-              <h4 className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Archived Packages</h4>
-              {archivedPackages.length > 0 ? (
-                archivedPackages.map((p) => (
-                  <div key={p.id} className="p-3 rounded-lg border bg-muted/20 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-xs text-foreground">{p.name}</p>
-                      <p className="text-[11px] text-muted-foreground">₱{p.price.toLocaleString()} • {p.description}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => restoreItem(p.id, "package")}>
-                        <RotateCcw className="w-3 h-3" /> Restore
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => setItemToDeletePermanently({ id: p.id, type: "package", name: p.name })}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground italic bg-muted/10 p-3 rounded-lg text-center">No archived packages.</p>
-              )}
-            </div>
-
-            {/* Archived Add-ons List */}
-            <div className="space-y-3 pt-2">
-              <h4 className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Archived Add-ons</h4>
-              {archivedAddons.length > 0 ? (
-                archivedAddons.map((a) => (
-                  <div key={a.id} className="p-3 rounded-lg border bg-muted/20 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-xs text-foreground">{a.name}</p>
-                      <p className="text-[11px] text-muted-foreground">₱{a.price.toLocaleString()} • {a.description}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => restoreItem(a.id, "addon")}>
-                        <RotateCcw className="w-3 h-3" /> Restore
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => setItemToDeletePermanently({ id: a.id, type: "addon", name: a.name })}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground italic bg-muted/10 p-3 rounded-lg text-center">No archived add-ons.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PERMANENT DELETE CONFIRMATION MODAL */}
-      {itemToDeletePermanently && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-sm p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col space-y-4 relative">
-            <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-            </div>
-            <h3 className="font-bold text-base">Permanently Delete Item?</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Are you sure you want to permanently delete <strong className="text-foreground">"{itemToDeletePermanently.name}"</strong>? This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setItemToDeletePermanently(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmPermanentDelete}>Permanently Delete</Button>
+              <Button variant="default" size="sm" onClick={handleCreateAddon} disabled={createAddOn.isPending}>Create Add-on</Button>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,52 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { useRole } from "@/contexts/RoleContext";
+import { reportService, getApiErrorMessage, type Report } from "@/services/reportService";
 import { 
   ClipboardList, Plus, Search, AlertCircle, 
-  CheckCircle2, Clock, MessageSquare, FileText, ChevronRight
+  CheckCircle2, Clock, MessageSquare, FileText, ChevronRight, Loader2
 } from "lucide-react";
-
-// Mock Data structure mirroring Laravel API reports response
-const MOCK_REPORTS = [
-  {
-    id: "RPT-2048",
-    status: "pending",
-    date: "July 18, 2026",
-    target: "booking",
-    referenceId: "BK-1042",
-    reason: "Payment Dispute",
-    details: "I was charged twice for this booking. Once upon confirmation, and again after the session ended.",
-    expectedOutcome: "Refund Request",
-    adminNotes: [],
-  },
-  {
-    id: "RPT-1933",
-    status: "reviewing",
-    date: "July 15, 2026",
-    target: "client",
-    referenceId: "USR-992",
-    reason: "Unresponsive",
-    details: "The client hasn't responded to any messages regarding setup requirements for the upcoming shoot date.",
-    expectedOutcome: "Investigate User",
-    adminNotes: [
-      { date: "July 16, 2026", note: "Reached out to the user via registered SMS & email. Awaiting 24-hour response window." }
-    ],
-  },
-  {
-    id: "RPT-1502",
-    status: "resolved",
-    date: "July 02, 2026",
-    target: "bug",
-    referenceId: "N/A",
-    reason: "App crash",
-    details: "When attempting to upload a portfolio image over 5MB, the UI crashes without presenting an error toast.",
-    expectedOutcome: "Other",
-    adminNotes: [
-      { date: "July 03, 2026", note: "Dev team identified file handler memory issue. Patch pending deployment." },
-      { date: "July 05, 2026", note: "Fix deployed and verified. Case closed." }
-    ],
-  }
-];
 
 const STATUS_CONFIG = {
   pending: { label: "Pending Review", color: "text-amber-600 bg-amber-500/10 border-amber-500/20", icon: Clock },
@@ -68,10 +27,36 @@ export default function MyReports() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedReport, setSelectedReport] = useState<typeof MOCK_REPORTS[0] | null>(null);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+
+  const [reports, setReports] = useState<Report[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const data = await reportService.list(role);
+        if (!cancelled) setReports(data);
+      } catch (err) {
+        if (!cancelled) setLoadError(getApiErrorMessage(err, "Couldn't load your reports."));
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
 
   // Filter Logic
-  const filteredReports = MOCK_REPORTS.filter((report) => {
+  const filteredReports = reports.filter((report) => {
     const matchesTab = activeTab === "all" || report.status === activeTab;
     const matchesSearch = report.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           report.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -137,7 +122,18 @@ export default function MyReports() {
 
         {/* Reports Container */}
         <div className="space-y-3">
-          {filteredReports.length === 0 ? (
+          {isLoading ? (
+            <div className="text-center py-16 bg-card rounded-2xl border border-border/50 border-dashed">
+              <Loader2 className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3 animate-spin" />
+              <p className="text-muted-foreground text-xs">Loading your reports...</p>
+            </div>
+          ) : loadError ? (
+            <div className="text-center py-16 bg-card rounded-2xl border border-destructive/30 border-dashed">
+              <AlertCircle className="w-10 h-10 text-destructive/40 mx-auto mb-3" />
+              <h3 className="text-sm font-bold text-foreground">Couldn't load reports</h3>
+              <p className="text-muted-foreground text-xs mt-1">{loadError}</p>
+            </div>
+          ) : filteredReports.length === 0 ? (
             <div className="text-center py-16 bg-card rounded-2xl border border-border/50 border-dashed">
               <ClipboardList className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
               <h3 className="text-sm font-bold text-foreground">No reports found</h3>

@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as HotToast } from "react-hot-toast"; 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
+import toast from "react-hot-toast";
 import { FavoritesProvider } from "@/contexts/FavoritesContext";
 
 // --- PUBLIC PAGES IMPORTS ---
@@ -14,8 +15,10 @@ import Home from "./pages/Home";
 import Explore from "./pages/Explore";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ResetPassword from "./pages/ResetPassword";
 import Photographers from "./pages/Photographers";
 import PhotographerProfile from "./pages/PhotographerProfile";
+import About from "./pages/About";
 import NotFound from "./pages/NotFound";
 
 // --- SHARED PAGES IMPORTS ---
@@ -75,7 +78,7 @@ function RouteThemeEnforcer() {
   const { theme, systemTheme } = useTheme();
 
   const isPublicRoute = 
-    ["/", "/explore", "/login", "/register", "/photographers"].includes(location.pathname) || 
+    ["/", "/explore", "/login", "/register", "/photographers", "/about"].includes(location.pathname) || 
     location.pathname.startsWith("/photographers/");
 
   useEffect(() => {
@@ -108,8 +111,22 @@ const ProtectedRoute = ({
 }) => {
   const { user, role, isLoading } = useRole();
 
+  const isBlocked = !isLoading && (!user || role !== allowedRole);
+  const roleLabel = allowedRole === "client" ? "client" : allowedRole === "studio" ? "photographer" : "administrator";
+
+  useEffect(() => {
+    if (!isBlocked) return;
+    if (!user) {
+      toast.error("Please log in to continue.");
+    } else {
+      toast.error(`This area is for ${roleLabel} accounts only.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBlocked]);
+
   if (isLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
-  if (!user || role !== allowedRole) return <Navigate to="/" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (role !== allowedRole) return <Navigate to="/" replace />;
   if (user.accountStatus !== "active") return <Navigate to="/login" replace />;
 
   // Photographer accounts (role "studio") whose application isn't approved yet
@@ -137,8 +154,10 @@ const App = () => (
               <Route path="/explore" element={<Explore />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/photographers" element={<Photographers />} />
               <Route path="/photographers/:id" element={<PhotographerProfile />} />
+              <Route path="/about" element={<About />} />
 
               {/* CLIENT ROUTES */}
               <Route path="/dashboard" element={<ProtectedRoute allowedRole="client"><Dashboard /></ProtectedRoute>} />

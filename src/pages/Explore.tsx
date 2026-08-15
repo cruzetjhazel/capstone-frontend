@@ -1,13 +1,12 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Camera, Star, MapPin, X, SlidersHorizontal } from "lucide-react";
+import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import MarketingNavbar from "@/components/MarketingNavbar";
 import SearchBar from "@/components/SearchBar";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import {
-  serviceFilters,
   typeFilters,
   priceFilters,
   ratingFilters,
@@ -20,8 +19,18 @@ const GENERIC_LOCATIONS = [
   "at my location",
   "event venue",
   "outdoor location",
-  "photographer's studio"
+  "photographer's studio",
+  "bulan, sorsogon"
 ];
+
+const sortOptions = ["rating", "favorites", "reviews", "price-low", "price-high"] as const;
+const sortLabels: Record<(typeof sortOptions)[number], string> = {
+  rating: "Recommended",
+  favorites: "Most Favorited",
+  reviews: "Most Reviewed",
+  "price-low": "Lowest price",
+  "price-high": "Highest price",
+};
 
 export default function Explore() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,16 +38,16 @@ export default function Explore() {
   // 1. PERFECT SYNC: Read state strictly from the URL. No useState required for filters.
   const activeService = searchParams.get("service") || "All";
   const urlDate = searchParams.get("date") || "";
-  const urlTime = searchParams.get("time") || "";
   const urlLocation = searchParams.get("location") || "";
   const activeType = searchParams.get("type") || "All";
   const activePriceIdx = Number(searchParams.get("price") || 0);
   const activeRatingIdx = Number(searchParams.get("rating") || 0);
-  const sortBy = (searchParams.get("sort") as "rating" | "price-low" | "price-high" | "reviews") || "rating";
+  const sortBy = (searchParams.get("sort") as "rating" | "favorites" | "price-low" | "price-high" | "reviews") || "rating";
 
-  const [showFilters, setShowFilters] = useState(false);
+  const [openPanel, setOpenPanel] = useState<"filters" | "sort" | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [filterLoading, setFilterLoading] = useState(false);
-  const { data: allPhotographers = [], isLoading: dataLoading } = usePhotographers();
+  const { data: allPhotographers = [], isLoading: dataLoading } = usePhotographers(urlDate ? { date: urlDate } : undefined);
   const loading = dataLoading || filterLoading;
 
   // 2. HELPER FUNCTION: Updates the URL instantly when a filter chip is clicked
@@ -59,27 +68,34 @@ export default function Explore() {
     return () => clearTimeout(t);
   }, [searchParams]);
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpenPanel(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
   // 3. SMART FILTERING: Handles fuzzy matching so the SearchBar never breaks
   const filtered = useMemo(() => {
     const pf = priceFilters[activePriceIdx];
     const rf = ratingFilters[activeRatingIdx];
     
     const results = allPhotographers.filter((s) => {
-      // Smart Service Match (Case insensitive, partial match)
+      // Smart Service/Name Match (Case insensitive, partial match against services or the provider's own name)
       if (activeService !== "All") {
-        const hasService = s.services.some(svc => 
-          svc.toLowerCase().includes(activeService.toLowerCase()) || 
-          activeService.toLowerCase().includes(svc.toLowerCase())
-        );
-        if (!hasService) return false;
+        const q = activeService.toLowerCase();
+        const hasService = s.services.some(svc => svc.toLowerCase().includes(q) || q.includes(svc.toLowerCase()));
+        const nameMatches = s.name.toLowerCase().includes(q);
+        if (!hasService && !nameMatches) return false;
       }
 
       // Exact Type Match
       if (activeType !== "All" && s.type !== activeType) return false;
       
-      // Price & Rating Math
+      // Budget: strict containment on priceMin (the same field price sorting uses),
+      // so anything that passes this filter is guaranteed to fall inside the bracket.
       if (pf.min > 0 || pf.max < Infinity) {
-        if (s.priceMin > pf.max || s.priceMax < pf.min) return false;
+        if (s.priceMin < pf.min || s.priceMin > pf.max) return false;
       }
       if (rf.min > 0 && s.rating < rf.min) return false;
 
@@ -99,12 +115,13 @@ export default function Explore() {
     // Sorting logic
     switch (sortBy) {
       case "rating": results.sort((a, b) => b.rating - a.rating); break;
+      case "favorites": results.sort((a, b) => (b.favoriteCount ?? 0) - (a.favoriteCount ?? 0)); break;
       case "price-low": results.sort((a, b) => a.priceMin - b.priceMin); break;
       case "price-high": results.sort((a, b) => b.priceMax - a.priceMax); break;
       case "reviews": results.sort((a, b) => b.reviews - a.reviews); break;
     }
     return results;
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, allPhotographers]);
+  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, urlDate, allPhotographers]);
 
   const activeFilterCount = [
     activeService !== "All",
@@ -123,6 +140,16 @@ export default function Explore() {
     setSearchParams(params, { replace: true });
   };
 
+  // Filters-popover-only reset: clears secondary filters (type/price/rating), leaves
+  // What/When/Where alone since those are the search bar's own criteria, not filters.
+  const clearFilters = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("type");
+    params.delete("price");
+    params.delete("rating");
+    setSearchParams(params, { replace: true });
+    setOpenPanel(null);
+  };
   const ChipRow = <T extends string>({
     label,
     options,
@@ -166,81 +193,111 @@ export default function Explore() {
         <div className="max-w-[1400px] mx-auto flex flex-col items-center text-center gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-heading font-bold">Explore photographers</h1>
-            <p className="text-xs text-muted-foreground mt-0.5 flex flex-wrap justify-center items-center gap-1">
-              <span>Browse studios in {urlLocation && !GENERIC_LOCATIONS.includes(urlLocation.toLowerCase()) ? urlLocation : "Bulan, Sorsogon"}</span>
-              {urlDate && <span>· <span className="text-foreground font-medium">{urlDate}</span></span>}
-              {urlTime && <span>at <span className="text-foreground font-medium">{urlTime}</span></span>}
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {[
+                activeService !== "All" ? activeService : null,
+                urlDate || null,
+                urlLocation && !GENERIC_LOCATIONS.includes(urlLocation.toLowerCase()) ? urlLocation : "Bulan, Sorsogon",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
 
-          <div className="w-full flex flex-wrap items-center justify-center gap-2">
-            <SearchBar
-              variant="compact"
-              initialService={activeService !== "All" ? activeService : ""}
-              initialDate={urlDate}
-              initialLocation={urlLocation}
-            />
-            <div className="flex items-center gap-2 text-sm">
-              <button
-                onClick={() => setShowFilters((v) => !v)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors",
-                  (showFilters || activeFilterCount > 0) && "text-foreground border-primary/50"
-                )}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </button>
+          <SearchBar
+            initialService={activeService !== "All" ? activeService : ""}
+            initialDate={urlDate}
+            initialLocation={urlLocation}
+          />
 
-              <select
-                value={sortBy}
-                onChange={(e) => setParam("sort", e.target.value, "rating")}
-                className="h-9 px-3 rounded-full border border-border bg-transparent text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer text-sm"
-              >
-                <option value="rating">Top Rated</option>
-                <option value="reviews">Most Reviews</option>
-                <option value="price-low">Price ↑</option>
-                <option value="price-high">Price ↓</option>
-              </select>
-
-              {activeFilterCount > 0 && (
-                <button onClick={clearAll} className="text-primary hover:underline text-sm font-medium">
-                  Reset
-                </button>
+          <div ref={panelRef} className="relative flex flex-wrap items-center justify-center gap-2 text-sm">
+            <button
+              onClick={() => setOpenPanel(openPanel === "filters" ? null : "filters")}
+              className={cn(
+                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors",
+                (openPanel === "filters" || activeFilterCount > 0) && "text-foreground border-primary/50"
               )}
-            </div>
-          </div>
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
 
-          {/* Expanded Filters */}
-          {showFilters && (
-            <div className="w-full max-w-4xl mx-auto text-left bg-background border border-border rounded-2xl p-4 grid gap-4 sm:grid-cols-2 animate-fade-in shadow-sm mt-2">
-              <ChipRow label="Service" options={serviceFilters} active={activeService} onSelect={(v) => setParam("service", v, "All")} />
-              <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
-              <ChipRow
-                label="Price Range"
-                options={priceFilters.map((_, i) => String(i))}
-                active={String(activePriceIdx)}
-                onSelect={(v) => setParam("price", v, "0")}
-                labelOf={(v) => priceFilters[Number(v)].label}
-              />
-              <ChipRow
-                label="Rating"
-                options={ratingFilters.map((_, i) => String(i))}
-                active={String(activeRatingIdx)}
-                onSelect={(v) => setParam("rating", v, "0")}
-                labelOf={(v) =>
-                  ratingFilters[Number(v)].label === "Any Rating"
-                    ? ratingFilters[Number(v)].label
-                    : `★ ${ratingFilters[Number(v)].label}`
-                }
-              />
-            </div>
-          )}
+            <button
+              onClick={() => setOpenPanel(openPanel === "sort" ? null : "sort")}
+              className={cn(
+                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors",
+                openPanel === "sort" && "text-foreground border-primary/50"
+              )}
+            >
+              <span>Sort by: {sortLabels[sortBy]}</span>
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Filters popover */}
+            {openPanel === "filters" && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[320px] sm:w-[420px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Budget</p>
+                    <div className="space-y-1">
+                      {priceFilters.map((_, i) => {
+                        const budgetLabels = ["Any budget", "Under ₱3,000", "₱3,000–₱5,000", "₱5,000–₱10,000", "₱10,000+"];
+                        const selected = activePriceIdx === i;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => setParam("price", String(i), "0")}
+                            className="w-full flex items-center gap-2 text-left px-1 py-1 rounded-md hover:bg-muted transition-colors"
+                          >
+                            <span
+                              className={cn(
+                                "w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center",
+                                selected ? "border-primary" : "border-border"
+                              )}
+                            >
+                              {selected && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                            </span>
+                            <span className={cn("text-xs", selected ? "text-foreground font-medium" : "text-muted-foreground")}>
+                              {budgetLabels[i] ?? priceFilters[i].label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                {(activeType !== "All" || activePriceIdx !== 0) && (
+                  <button onClick={clearFilters} className="mt-4 text-xs text-primary hover:underline font-medium">
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Sort popover */}
+            {openPanel === "sort" && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[220px] text-left bg-card border border-border rounded-2xl p-2 animate-fade-in shadow-xl z-50">
+                {sortOptions.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => { setParam("sort", opt, "rating"); setOpenPanel(null); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
+                      sortBy === opt ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    {sortLabels[opt]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -249,8 +306,10 @@ export default function Explore() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg sm:text-xl font-heading font-bold">
-              {activeService !== "All" ? activeService : "All"}{" "}
-              {activeType !== "All" ? activeType + "s" : "Photographers & Studios"}
+              {(() => {
+                const parts = [activeService !== "All" ? activeService : null, activeType !== "All" ? activeType : null].filter(Boolean);
+                return parts.length ? `${parts.join(" ")} Photographers` : "All Photographers & Studios";
+              })()}
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               {loading ? "Searching…" : `Showing ${filtered.length} of ${allPhotographers.length} results`}
@@ -321,9 +380,14 @@ export default function Explore() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-20 bg-card rounded-2xl border border-border/50">
             <Camera className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-            <h3 className="font-heading font-semibold mb-1 text-lg">No results found</h3>
-            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">We couldn't find any photographers matching your exact search criteria. Try removing some filters.</p>
-            <Button variant="outline" onClick={clearAll} className="rounded-full">Clear all filters</Button>
+            <h3 className="font-heading font-semibold mb-1 text-lg">No photographers match your current search</h3>
+            <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">Try adjusting your date, budget, or provider type.</p>
+            {allPhotographers.length > 0 && activeFilterCount > 0 && (
+              <p className="text-xs text-muted-foreground mb-6">
+                {allPhotographers.length} photographer{allPhotographers.length === 1 ? "" : "s"} found without these filters
+              </p>
+            )}
+            <Button variant="outline" onClick={activeFilterCount > 0 ? clearFilters : clearAll} className="rounded-full">Clear filters</Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -333,8 +397,12 @@ export default function Explore() {
                 to={`/photographers/${s.id}`}
                 className="group bg-card rounded-xl card-shadow border border-border/50 overflow-hidden hover:card-shadow-hover transition-all duration-200"
               >
-                <div className="h-40 bg-gradient-to-br from-primary/5 to-secondary/5 flex items-center justify-center relative">
-                  <span className="text-4xl font-heading font-bold text-primary/20">{s.avatar}</span>
+                <div className="h-40 bg-gradient-to-br from-primary/5 to-secondary/5 flex items-center justify-center relative overflow-hidden">
+                  {s.avatarUrl ? (
+                    <img src={s.avatarUrl} alt={s.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-4xl font-heading font-bold text-primary/20">{s.avatar}</span>
+                  )}
                   <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-card/90 text-xs font-medium border border-border">
                     {s.type}
                   </span>

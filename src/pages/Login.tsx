@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRole, getPostLoginPath } from "@/contexts/RoleContext";
-import { getApiErrorMessage } from "@/lib/api";
+import api, { getApiErrorMessage } from "@/lib/api";
 import Logo from "@/components/Logo";
 import toast from "react-hot-toast";
 
@@ -54,16 +54,18 @@ export default function Login() {
   };
 
   const handleConfirmPasswordReset = async () => {
-    setIsConfirmResetOpen(false);
     setSendingReset(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success(`Password reset instructions sent to ${forgotEmail}`);
+      await api.post("/auth/forgot-password", { email: forgotEmail });
+      setIsConfirmResetOpen(false);
+      // Backend intentionally returns the same generic message whether or not the
+      // email exists, to avoid leaking account existence — mirror that here.
+      toast.success(`If an account exists for ${forgotEmail}, a reset link has been sent.`);
       setIsForgotPasswordOpen(false);
       setForgotEmail("");
-    } catch {
-      toast.error("Failed to send reset email. Please try again.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to send reset email. Please try again."));
     } finally {
       setSendingReset(false);
     }
@@ -73,19 +75,24 @@ export default function Login() {
     <div className="min-h-screen flex bg-white relative text-foreground">
       <Link
         to="/"
-        className="absolute top-5 left-5 z-20 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full bg-white/80 backdrop-blur border border-border text-foreground/80 hover:bg-white transition-colors"
+        className="absolute top-5 left-5 z-20 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border border-transparent transition-colors text-foreground/80 lg:text-white/80 hover:bg-white hover:text-foreground hover:border-border/50 hover:shadow-sm hover:backdrop-blur"
       >
         <ArrowLeft className="w-4 h-4" /> Back to website
       </Link>
 
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
-        <div className="relative z-10 px-16 max-w-lg animate-fade-up">
+              <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-15 mix-blend-luminosity"
+              style={{ backgroundImage: "url('/images/login-photography-bg.jpg')" }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-br from-[#1a1006]/90 via-[#2a1810]/85 to-[#4a2c1e]/90" />
+            <div className="relative z-10 px-16 max-w-lg animate-fade-up">
           <Logo onDark className="mb-8" />
           <h1 className="text-4xl font-heading font-bold leading-tight mb-4">
-            Manage your photography bookings effortlessly
+            Your photography bookings, all in one place
           </h1>
           <p className="text-white/60 text-lg leading-relaxed">
-            Streamline scheduling, payments, and client communication — all in one place.
+            Discover photographers, manage bookings, and stay connected — whether you're booking a shoot or running one.
           </p>
         </div>
         <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-white/5" />
@@ -98,10 +105,10 @@ export default function Login() {
             <Logo />
           </div>
 
-          <h2 className="text-2xl font-heading font-bold mb-1">Welcome back</h2>
-          <p className="text-muted-foreground mb-6">Sign in to your account</p>
+              <h2 className="text-2xl font-heading font-bold mb-1">Welcome back</h2>
+              <p className="text-muted-foreground mb-5">Sign in to your account</p>
 
-          <form className="space-y-5" onSubmit={handleSubmit}>
+              <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input
@@ -140,9 +147,14 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4 shrink-0" strokeWidth={2} />
+                  ) : (
+                    <Eye className="w-4 h-4 shrink-0" strokeWidth={2} />
+                  )}
                 </button>
               </div>
             </div>

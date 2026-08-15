@@ -8,8 +8,13 @@ export type ProfileStatus = "approved" | "pending" | "rejected" | "suspended";
 export interface PublicProfile extends Photographer {
   status: ProfileStatus;
   featured: boolean;
+  favoriteCount?: number;
   ownerEmail?: string;
   applicationId?: string;
+  // Real add-ons fetched from the backend's public profile resource
+  // (photographerService.ts's normalizeAddOn()). Optional since mock-registry
+  // profiles built from allPhotographers don't populate this.
+  addOns?: { id: string; name: string; description: string; price: number }[];
 }
 
 /** In-memory profile registry — replace with Laravel API. */
@@ -18,6 +23,31 @@ let profiles: PublicProfile[] = allPhotographers.map((p) => ({
   status: "approved" as ProfileStatus,
   featured: ["1", "2", "3", "4", "8"].includes(p.id),
 }));
+
+const featuredPopularityById: Record<string, number> = {
+  "8": 240,
+  "1": 220,
+  "6": 205,
+  "2": 185,
+  "5": 170,
+  "3": 150,
+  "4": 135,
+  "7": 110,
+};
+
+function getPopularityScore(profile: PublicProfile): number {
+  return profile.favoriteCount ?? featuredPopularityById[profile.id] ?? profile.reviews;
+}
+
+function sortByPopularity(items: PublicProfile[]): PublicProfile[] {
+  return [...items].sort((a, b) => {
+    const scoreDelta = getPopularityScore(b) - getPopularityScore(a);
+    if (scoreDelta !== 0) return scoreDelta;
+    const reviewDelta = b.reviews - a.reviews;
+    if (reviewDelta !== 0) return reviewDelta;
+    return b.rating - a.rating;
+  });
+}
 
 export function mockListProfiles(): PublicProfile[] {
   return [...profiles];
@@ -38,6 +68,12 @@ export function mockGetApprovedProfile(id: string): PublicProfile | undefined {
 
 export function mockListFeaturedProfiles(): PublicProfile[] {
   return profiles.filter((p) => p.status === "approved" && p.featured);
+}
+
+export function mockListMostFavoritedProfiles(): PublicProfile[] {
+  return sortByPopularity(
+    profiles.filter((p) => p.status === "approved" && p.type === "Studio"),
+  );
 }
 
 export function mockSetFeaturedIds(ids: string[]): PublicProfile[] {

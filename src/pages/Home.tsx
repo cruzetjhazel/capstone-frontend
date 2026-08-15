@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  MapPin, Star, ChevronLeft, ChevronRight, ArrowRight,
-  Search, Sparkles, Package, Monitor,
+  MapPin, Star, ChevronLeft, ChevronRight, ChevronDown, ArrowRight,
+  Search, Package, ClipboardCheck, PartyPopper, UserRound, Heart, Aperture, Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const heroSlides = [
     image: "/images/hero-events.jpg",
     tag: "Celebrate • Memories",
     cardLabel: "Events & Celebrations",
+    icon: PartyPopper,
   },
   {
     title: "Portrait\nSessions",
@@ -30,6 +31,7 @@ const heroSlides = [
     image: "/images/hero-portrait.jpg",
     tag: "You • Refined",
     cardLabel: "Portrait Sessions",
+    icon: UserRound,
   },
   {
     title: "Couples & Wedding\nPhotography",
@@ -37,6 +39,7 @@ const heroSlides = [
     image: "/images/hero-couple.jpg",
     tag: "Love • Forever",
     cardLabel: "Couple & Wedding",
+    icon: Heart,
   },
   {
     title: " Studio\nPhotography",
@@ -44,6 +47,7 @@ const heroSlides = [
     image: "/images/hero-studio.jpg",
     tag: "Professional • Creative",
     cardLabel: "Studio Shoots",
+    icon: Aperture,
   },
   {
     title: "Plan Your Perfect\nPhotoshoot",
@@ -51,16 +55,17 @@ const heroSlides = [
     image: "/images/hero-creative.jpg",
     tag: "Dream • Customize",
     cardLabel: "Creative Photography",
+    icon: Wand2,
   },
 ];
 
 const categories = [
-  { name: "Events", image: "/images/event-card.jpg" },
+  { name: "Events", image: "/images/events-card.jpg" },
   { name: "Portrait", image: "/images/portrait-card.jpg" },
-  { name: "Studio", image: "/images/hero-portrait.jpg" },
-  { name: "Couples", image: "/images/hero-couples.jpg" },
-  { name: "Graduation", image: "/images/hero-graduation.jpg" },
-  { name: "Wedding", image: "/images/hero-wedding.jpg" },
+  { name: "Debuts", image: "/images/debut-card.jpg" },
+  { name: "Wedding", image: "/images/wedding-card.jpg" },
+  { name: "Birthday", image: "/images/birthday-card.jpg" },
+  { name: "Graduation", image: "/images/graduation-card.jpg" },
 ];
 
 /* Navbar is shared via MarketingNavbar; SearchBar comes from components/SearchBar */
@@ -135,11 +140,15 @@ function HeroSection() {
                   Explore Studios
                 </Button>
               </Link>
-              <Link to="/explore">
+              <button
+                type="button"
+                onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+              >
                 <Button variant="outline" size="lg" className="font-medium px-8 border-white/30 text-white hover:bg-white/10 rounded-lg bg-transparent">
-                  View Events
+                  How It Works
+                  <ChevronDown className="w-4 h-4 ml-1.5" />
                 </Button>
-              </Link>
+              </button>
 
             </div>
           </div>
@@ -147,14 +156,18 @@ function HeroSection() {
           {/* Right — Cascading portrait cards, left-to-right like reference */}
           <div className="hidden lg:block w-[560px] relative h-[400px]">
             {heroSlides.map((s, i) => {
-              const offset = (i - current + total) % total;
-              const visible = offset < 3;
-              // Left-anchored cascade: front card is a tall portrait, next two peek to the right
+              const rawOffset = (i - current + total) % total;
+              // Signed offset: negative = behind (just cycled out), positive = ahead (queued up)
+              const offset = rawOffset > total / 2 ? rawOffset - total : rawOffset;
+              const visible = offset >= 0 && offset < 3;
+              const Icon = s.icon;
+              // Cascade to the right for ahead cards, mirrored exit to the left for behind cards
               const styles =
                 offset === 0 ? "left-0 top-0 w-[260px] h-[400px] z-30 border-white/25 shadow-2xl opacity-100"
                 : offset === 1 ? "left-[250px] top-[60px] w-[170px] h-[280px] z-20 border-white/20 shadow-xl opacity-95"
                 : offset === 2 ? "left-[440px] top-[90px] w-[140px] h-[230px] z-10 border-white/15 shadow-lg opacity-80"
-                : "left-[440px] top-[90px] w-[140px] h-[230px] z-0 opacity-0 pointer-events-none";
+                : offset === -1 ? "left-[-120px] top-[60px] w-[170px] h-[280px] z-0 border-white/10 opacity-0 pointer-events-none"
+                : "left-[-260px] top-[90px] w-[140px] h-[230px] z-0 border-white/10 opacity-0 pointer-events-none";
               return (
                 <button
                   key={s.cardLabel}
@@ -170,7 +183,7 @@ function HeroSection() {
                   {offset === 0 && (
                     <div className="absolute bottom-4 left-4 right-4 text-left">
                       <div className="flex items-center gap-1.5 text-white/80 text-xs mb-1">
-                        <Sparkles className="w-3.5 h-3.5" />
+                        <Icon className="w-3.5 h-3.5" />
                         {s.tag}
                       </div>
                       <p className="text-white font-heading font-semibold text-sm">{s.cardLabel}</p>
@@ -238,7 +251,7 @@ function BrowseCategoriesSection() {
   };
 
   return (
-    <section className="bg-black py-14 px-6">
+    <section className="bg-black py-14 px-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-heading font-bold text-white">Browse by Category</h2>
@@ -259,18 +272,18 @@ function BrowseCategoriesSection() {
           onMouseMove={onMove}
           onMouseUp={onUp}
           onMouseLeave={onUp}
-          className="flex gap-4 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-none snap-x snap-mandatory cursor-grab select-none"
-        >
+          className="flex gap-6 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-none snap-x snap-mandatory cursor-grab select-none"
+          >
           {categories.map((cat) => (
             <Link
               key={cat.name}
               to={`/explore?service=${cat.name}`}
               onClick={(e) => { if (dragState.current.moved) e.preventDefault(); }}
               style={{ width: "calc((100% - 4 * 1rem) / 4.5)" }}
-              className="relative flex-shrink-0 aspect-[4/3] rounded-2xl overflow-hidden group snap-start"
-            >
+              className="relative flex-shrink-0 aspect-[16/9] rounded-2xl overflow-hidden group snap-start"
+              >
               <img src={cat.image} alt={cat.name} draggable={false} className="w-full h-full object-cover pointer-events-none transition-transform duration-500 group-hover:scale-110" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent" />
               <p className="absolute bottom-4 left-4 text-white font-heading font-semibold text-base">{cat.name}</p>
             </Link>
           ))}
@@ -294,19 +307,24 @@ export default function Home() {
 
 
       {/* How It Works */}
-      <section className="py-20 px-6">
-        <div className="max-w-4xl mx-auto text-center">
+      <section id="how-it-works" className="py-20 px-8 scroll-mt-20">
+        <div className="max-w-5xl mx-auto text-center">
           <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-2">How It Works</h2>
-          <p className="text-muted-foreground mb-12">Simple, fast, and professional booking process</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+          <p className="text-muted-foreground mb-12">Find, customize, and book with confidence.</p>
+          <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-10 sm:gap-16">
+            {/* Connecting line — links the three steps into one journey */}
+            <div className="hidden sm:block absolute top-8 left-[16.6%] right-[16.6%] h-px bg-border z-0" />
             {[
-              { icon: Search, title: "Browse & Compare", desc: "Explore portfolios, compare styles, and find the perfect photographer for your needs." },
-              { icon: Package, title: "Customize Your Package", desc: "Select services, choose your date, and tailor a package that fits your vision and budget." },
-              { icon: Monitor, title: "Book & Confirm", desc: "Secure your session with a few clicks and receive instant booking confirmation." },
+              { icon: Search, title: "Find Your Photographer", desc: "Search by event/service, date, and location. Compare portfolios, services, pricing, ratings, and other relevant details." },
+              { icon: Package, title: "Customize Your Booking", desc: "Choose the services and package options you need, select your preferred date, and tailor the booking to your event." },
+              { icon: ClipboardCheck, title: "Book & Track", desc: "Submit your booking request, receive booking updates, and track your session through completion." },
             ].map((step, i) => (
-              <div key={step.title} className="flex flex-col items-center animate-fade-in" style={{ animationDelay: `${i * 100}ms` }}>
-                <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-5">
+              <div key={step.title} className="relative z-10 flex flex-col items-center">
+                <div className="relative w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-6">
                   <step.icon className="w-7 h-7 text-muted-foreground" />
+                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary/75 border border-primary/20 text-white text-[10px] font-semibold flex items-center justify-center">
+                    {i + 1}
+                  </span>
                 </div>
                 <h3 className="font-heading font-semibold text-sm mb-2">{step.title}</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed max-w-[250px]">{step.desc}</p>
@@ -320,7 +338,7 @@ export default function Home() {
 
 
       {/* CTA */}
-      <section className="mx-6 mb-16 mt-8">
+      <section className="mx-8 mb-16 mt-8">
         <div className="max-w-7xl mx-auto rounded-3xl px-8 sm:px-16 py-12 flex flex-col sm:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#3a2418] via-[#4a2e1e] to-[#5a3826] shadow-xl">
           <div>
             <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white mb-2">Are you a Photographer in Bulan?</h2>
@@ -335,35 +353,42 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border py-16 px-6">
+      <footer className="border-t border-border py-16 px-8">
         <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
           <div>
             <Logo linkTo={null} className="mb-3" />
-            <p className="text-xs text-muted-foreground leading-relaxed">Connect with talented photographers in Bulan and book your perfect photoshoot.</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Connect with photographers and studios in Bulan, Sorsogon.
+            </p>
           </div>
 
           <div>
-            <h4 className="font-heading font-semibold text-sm mb-3">Quick Links</h4>
+            <h4 className="font-heading font-semibold text-sm mb-3">Explore</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><Link to="/explore" className="hover:text-foreground transition-colors">Explore Studios</Link></li>
-              <li><Link to="/photographers" className="hover:text-foreground transition-colors">Photographers</Link></li>
-              <li><Link to="/dashboard" className="hover:text-foreground transition-colors">My Bookings</Link></li>
+              <li><Link to="/explore" className="hover:text-foreground transition-colors">Explore</Link></li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
+                  className="hover:text-foreground transition-colors"
+                >
+                  How It Works
+                </button>
+              </li>
             </ul>
           </div>
+
           <div>
-            <h4 className="font-heading font-semibold text-sm mb-3">Support</h4>
+            <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground transition-colors">Help Center</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Contact Us</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Terms of Service</a></li>
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About Bulan</Link></li>
             </ul>
           </div>
+
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">For Photographers</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
               <li><Link to="/register" className="hover:text-foreground transition-colors">Join as Photographer</Link></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Pricing</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Resources</a></li>
             </ul>
           </div>
         </div>

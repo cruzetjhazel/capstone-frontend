@@ -4,7 +4,7 @@ import { MapPin, Star, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFeaturedPhotographers } from "@/hooks/usePhotographers";
 
-/** Admin-curated featured studios — only approved profiles marked featured. */
+/** Homepage featured studios ranked by client popularity. */
 export default function FeaturedStudiosSection() {
   const { data: studios = [], isLoading } = useFeaturedPhotographers();
 
@@ -21,7 +21,7 @@ export default function FeaturedStudiosSection() {
         <div className="text-center mb-12">
           <p className="text-xs uppercase tracking-[0.2em] text-white/60 mb-2">Bulan • Sorsogon</p>
           <h2 className="text-3xl sm:text-4xl font-heading font-bold text-white">Featured Photography Studios</h2>
-          <p className="text-white/70 mt-2 text-sm">Verified professionals ready to capture your moments</p>
+          <p className="text-white/70 mt-2 text-sm">Verified studios ranked by what clients favor most</p>
         </div>
 
         {isLoading ? (
@@ -32,7 +32,7 @@ export default function FeaturedStudiosSection() {
           </div>
         ) : studios.length === 0 ? (
           <p className="text-center text-white/60 text-sm py-8">
-            Featured studios will appear here once an admin selects approved studios.
+            Featured studios will appear here once verified studios have enough favorites to rank.
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
@@ -42,8 +42,12 @@ export default function FeaturedStudiosSection() {
                 className="bg-white/10 rounded-2xl overflow-hidden border border-white/15 hover:border-white/30 hover:bg-white/15 transition-all duration-300 animate-fade-in"
                 style={{ animationDelay: `${i * 80}ms` }}
               >
-                <div className="h-40 bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center">
-                  <span className="text-4xl font-heading font-bold text-white/40">{studio.avatar}</span>
+                <div className="h-40 bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center overflow-hidden">
+                  {studio.avatarUrl ? (
+                    <img src={studio.avatarUrl} alt={studio.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-4xl font-heading font-bold text-white/40">{studio.avatar}</span>
+                  )}
                 </div>
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-1">

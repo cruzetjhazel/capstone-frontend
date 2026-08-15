@@ -1,33 +1,32 @@
 import { useState } from "react";
 import { Star, Search, SlidersHorizontal, Heart, MapPin, Calendar, Camera } from "lucide-react";
 import { Link } from "react-router-dom";
-import { toast } from "sonner";
+import toast from "react-hot-toast";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useFavorites } from "@/contexts/FavoritesContext";
+import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/useFavorites";
+import { usePhotographers } from "@/hooks/usePhotographers";
+import { formatPrice } from "@/data/photographers";
 
 // Aligned with SRS 1.2, 3.2, 5.1, 7.1: Professional Types, Bulan Location, and Profile Data
-const photographers = [
-  { id: "1", name: "Marcus Rivera", type: "Studio", specialty: "Weddings & Prenup", rating: 4.9, reviews: 134, price: "₱10,000–₱25,000", location: "Bulan, Sorsogon", avatar: "MR", style: "Cinematic" },
-  { id: "2", name: "Anya Petrova", type: "Freelancer", specialty: "Portraits & Lifestyle", rating: 4.8, reviews: 97, price: "₱3,000–₱8,000", location: "Bulan, Sorsogon", avatar: "AP", style: "Light & Airy" },
-  { id: "3", name: "Leo Chang", type: "Studio", specialty: "Corporate & Events", rating: 4.7, reviews: 82, price: "₱8,000–₱15,000", location: "Nearby Municipalities", avatar: "LC", style: "Classic" },
-  { id: "4", name: "Sofia Mendez", type: "Freelancer", specialty: "Events Coverage", rating: 4.9, reviews: 156, price: "₱5,000–₱12,000", location: "Bulan, Sorsogon", avatar: "SM", style: "Documentary" },
-  { id: "5", name: "James Okafor", type: "Studio", specialty: "Product & Studio", rating: 4.6, reviews: 63, price: "₱4,000–₱10,000", location: "Anywhere in Sorsogon", avatar: "JO", style: "Editorial" },
-  { id: "6", name: "Isla Nakamura", type: "Freelancer", specialty: "Birthday & Graduation", rating: 4.8, reviews: 111, price: "₱2,500–₱6,000", location: "Bulan, Sorsogon", avatar: "IN", style: "Vibrant" },
-];
-
 const typeFilters = ["All", "Freelancer", "Studio"];
 const serviceFilters = ["Weddings", "Portraits", "Events", "Product", "Graduation"];
 
 export default function Photographers() {
-  const { toggleFavorite, isFavorite } = useFavorites();
+  const { data: favoritePhotographers = [] } = useFavorites();
+  const addFavorite = useAddFavorite();
+  const removeFavorite = useRemoveFavorite();
+  const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
   const [activeType, setActiveType] = useState("All");
   const [activeService, setActiveService] = useState("");
+  const { data: photographers = [], isLoading } = usePhotographers();
 
-  const filteredPhotographers = photographers.filter(p => 
+  const filteredPhotographers = photographers.filter((p) =>
     (activeType === "All" || p.type === activeType) &&
-    (activeService === "" || p.specialty.includes(activeService))
+    (activeService === "" ||
+      p.specialty.toLowerCase().includes(activeService.toLowerCase()) ||
+      p.services.some((svc) => svc.toLowerCase().includes(activeService.toLowerCase())))
   );
 
   return (
@@ -95,6 +94,24 @@ export default function Photographers() {
         </div>
 
         {/* Grid (SRS 7.1) */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-card rounded-2xl border border-border/50 overflow-hidden card-shadow animate-pulse">
+                <div className="h-40 bg-muted" />
+                <div className="p-5 space-y-3">
+                  <div className="h-4 bg-muted rounded w-2/3" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
+                  <div className="h-3 bg-muted rounded w-3/4" />
+                  <div className="flex items-center justify-between pt-4">
+                    <div className="h-4 w-20 bg-muted rounded" />
+                    <div className="h-4 w-16 bg-muted rounded" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredPhotographers.map((p) => {
             const isFav = isFavorite(p.id);
@@ -107,11 +124,12 @@ export default function Photographers() {
                 <button
                   onClick={(e) => {
                     e.preventDefault();
-                    toggleFavorite(p.id);
-                    if (!isFav) {
-                      toast.success(`${p.name} added to favorites!`);
-                    } else {
+                    if (isFav) {
+                      removeFavorite.mutate(p.id);
                       toast(`${p.name} removed from favorites.`);
+                    } else {
+                      addFavorite.mutate(p.id);
+                      toast.success(`${p.name} added to favorites!`);
                     }
                   }}
                   className="absolute top-3 right-3 z-10 p-2.5 rounded-full bg-background/80 backdrop-blur-md hover:bg-background border border-border/50 active:scale-95 transition-all duration-200 group-hover:opacity-100 shadow-sm"
@@ -127,8 +145,12 @@ export default function Photographers() {
                    <div className="absolute bottom-3 left-3 bg-background/90 backdrop-blur-sm text-xs font-semibold px-2.5 py-1 rounded-md border border-border/50 text-foreground">
                       {p.type}
                    </div>
-                  <div className="w-20 h-20 rounded-full bg-background border-4 border-background flex items-center justify-center text-primary font-heading text-2xl font-bold group-hover:scale-105 transition-transform duration-300 shadow-sm">
-                    {p.avatar}
+                  <div className="w-20 h-20 rounded-full bg-background border-4 border-background flex items-center justify-center text-primary font-heading text-2xl font-bold group-hover:scale-105 transition-transform duration-300 shadow-sm overflow-hidden">
+                    {p.avatarUrl ? (
+                      <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
+                    ) : (
+                      p.avatar
+                    )}
                   </div>
                 </div>
                 <div className="p-5">
@@ -139,7 +161,7 @@ export default function Photographers() {
                       <span className="text-sm font-bold">{p.rating}</span>
                     </div>
                   </div>
-                  <p className="text-sm text-muted-foreground mb-3">{p.specialty} · {p.style}</p>
+                  <p className="text-sm text-muted-foreground mb-3">{p.specialty}</p>
                   
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
                      <MapPin className="w-3.5 h-3.5 shrink-0"/>
@@ -149,7 +171,7 @@ export default function Photographers() {
                   <div className="pt-4 border-t border-border/50 flex items-center justify-between">
                      <div>
                         <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground block mb-0.5">Starting At</span>
-                        <span className="text-sm font-bold text-primary">{p.price}</span>
+                        <span className="text-sm font-bold text-primary">{formatPrice(p.priceMin)}–{formatPrice(p.priceMax)}</span>
                      </div>
                      <span className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">View Profile</span>
                   </div>
@@ -165,6 +187,7 @@ export default function Photographers() {
              </div>
           )}
         </div>
+        )}
       </div>
     </DashboardLayout>
   );

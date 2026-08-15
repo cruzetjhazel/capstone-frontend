@@ -1,13 +1,5 @@
-import { env } from "@/config/env";
 import { applicationApi } from "@/api/applications";
 import type { ApplicationRecord, ApplicationStatus, StudioApplicationPayload } from "@/api/types/application";
-import {
-  mockListApplications,
-  mockSaveApplication,
-  mockUpdateApplicationStatus,
-  mockGetApplication,
-} from "@/data/mockApplications";
-import { mockCreateProfileFromApplication } from "@/data/mockProfiles";
 
 /** Shape used by Register.tsx and AdminVerifications.tsx (camelCase). */
 export interface PendingApplication {
@@ -129,30 +121,15 @@ function fromRecord(r: ApplicationRecord): PendingApplication {
 
 export const applicationService = {
   async list(): Promise<PendingApplication[]> {
-    if (env.useMockApi) {
-      return mockListApplications().map(fromRecord);
-    }
     const { data } = await applicationApi.list();
     return data.map(fromRecord);
   },
 
   async submit(app: PendingApplication): Promise<void> {
-    if (env.useMockApi) {
-      mockSaveApplication(toRecord(app));
-      return;
-    }
     await applicationApi.submit(toRecord(app) as unknown as StudioApplicationPayload);
   },
 
   async updateStatus(id: string, status: ApplicationStatus, adminNote?: string): Promise<void> {
-    if (env.useMockApi) {
-      mockUpdateApplicationStatus(id, status, adminNote);
-      if (status === "approved") {
-        const app = mockGetApplication(id);
-        if (app) mockCreateProfileFromApplication(app);
-      }
-      return;
-    }
     await applicationApi.updateStatus(id, status, adminNote);
   },
 };

@@ -460,12 +460,16 @@ export default function BookingDetails() {
                 <div className="space-y-3 text-xs">
                   <div className="flex items-center gap-3">
                     <Phone className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="font-medium">{photographer?.phone || "+63 917 123 4567"}</span>
+                    {/* TODO: usePhotographers() returns the public profile shape,
+                        which has no phone field — the "+63 917..." fallback below
+                        is a placeholder, not this studio's real number, until the
+                        backend actually exposes a contact number here. */}
+                    <span className="font-medium">{(photographer as { phone?: string } | null)?.phone || "+63 917 123 4567"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span className="font-medium truncate">
-                      {photographer?.email || `contact@${booking?.photographerName?.toLowerCase()?.replace(/\s+/g, "") || "studio"}.com`}
+                      {(photographer as { email?: string } | null)?.email || `contact@${booking?.photographerName?.toLowerCase()?.replace(/\s+/g, "") || "studio"}.com`}
                     </span>
                   </div>
                 </div>

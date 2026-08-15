@@ -27,8 +27,8 @@ export type User = {
   accountType: AccountType;
   accountStatus: AccountStatus;
   role: Role;
-  // Only populated for accountType === "photographer"
   application: PhotographerApplicationInfo | null;
+  profilePhotoUrl: string | null;
 };
 
 type RoleContextType = {
@@ -39,7 +39,10 @@ type RoleContextType = {
   setUserFromRegistration: (rawUser: any, token?: string) => Promise<void>;
   logout: () => void;
   refreshApplication: () => Promise<void>;
+  refreshProfilePhoto: (url: string | null) => void;
 };
+
+
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 const USER_STORAGE_KEY = "app_user";
@@ -86,9 +89,21 @@ async function fetchApplication(): Promise<PhotographerApplicationInfo | null> {
   }
 }
 
+async function fetchProfilePhoto(accountType: AccountType): Promise<string | null> {
+  try {
+    const path = accountType === "photographer" ? "/photographer/profile" : "/client/profile";
+    const res = await api.get(path);
+    const profile = res.data?.data ?? res.data;
+    return profile?.profile_photo_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function buildUser(rawUser: any): Promise<User> {
   const accountType = rawUser.account_type as AccountType;
   const application = accountType === "photographer" ? await fetchApplication() : null;
+  const profilePhotoUrl = accountType !== "administrator" ? await fetchProfilePhoto(accountType) : null;
 
   return {
     id: String(rawUser.id),
@@ -98,6 +113,7 @@ async function buildUser(rawUser: any): Promise<User> {
     accountStatus: rawUser.account_status as AccountStatus,
     role: deriveRole(accountType),
     application,
+    profilePhotoUrl,
   };
 }
 
@@ -176,9 +192,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
   };
 
+  const refreshProfilePhoto = (url: string | null) => {
+    if (!user) return;
+    const nextUser = { ...user, profilePhotoUrl: url };
+    setUser(nextUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+  };
+
   return (
     <RoleContext.Provider
-      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication }}
+      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication, refreshProfilePhoto }}
     >
       {children}
     </RoleContext.Provider>

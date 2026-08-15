@@ -2,11 +2,10 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { usePhotographers } from "@/hooks/usePhotographers";
-import { useToast } from "@/hooks/use-toast"; // <-- 1. Import the toast hook
-import { Star, Heart, Camera, MapPin, Sparkles } from "lucide-react";
+import { useFavorites, useRemoveFavorite } from "@/hooks/useFavorites";
+import toast from "react-hot-toast";
+import { Star, Heart, Camera, MapPin, Compass } from "lucide-react";
 
-// Safe local formatter fallback
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -16,34 +15,22 @@ const formatPrice = (price: number) => {
 };
 
 export default function Favorites() {
-  const { data: allPhotographers = [] } = usePhotographers();
-  const { toast } = useToast(); // <-- 2. Initialize the hook
-  
-  // Use first 3 items from the photographer dataset to populate favorites list initially
-  const [favoriteIds, setFavoriteIds] = useState<string[]>(
-    allPhotographers.slice(0, 3).map((p) => String(p.id))
-  );
-
-  // Modal State
+  const { data: favoritePhotographers = [], isLoading } = useFavorites();
+  const removeFavorite = useRemoveFavorite();
   const [studioToRemove, setStudioToRemove] = useState<string | null>(null);
 
-  const favoritePhotographers = allPhotographers.filter((p) => favoriteIds.includes(String(p.id)));
-
-  const removeFavorite = (id: string) => {
-    setFavoriteIds((prev) => prev.filter((favId) => favId !== String(id)));
-  };
-
   const confirmRemoval = () => {
-    if (studioToRemove) {
-      removeFavorite(studioToRemove);
-      setStudioToRemove(null);
-      
-      // <-- 3. Trigger the toast notification
-      toast({
-        title: "Successfully unfavorited",
-        description: "The studio has been removed from your favorites.",
-      });
-    }
+    if (!studioToRemove) return;
+    const id = studioToRemove;
+    setStudioToRemove(null);
+    removeFavorite.mutate(id, {
+      onSuccess: () => {
+        toast.success("Removed from your favorites.");
+      },
+      onError: (err) => {
+        toast.error(err instanceof Error ? err.message : "Couldn't remove favorite. Please try again.");
+      },
+    });
   };
 
   return (
@@ -58,12 +45,16 @@ export default function Favorites() {
           </div>
           <Link to="/explore">
             <Button size="sm" className="gap-1.5 text-xs">
-              <Sparkles className="w-3.5 h-3.5" /> Explore Studios
+              <Compass className="w-3.5 h-3.5" /> Explore Studios
             </Button>
           </Link>
         </div>
 
-        {favoritePhotographers.length === 0 ? (
+        {isLoading ? (
+          <div className="bg-card rounded-2xl border border-dashed border-border p-16 text-center max-w-md mx-auto">
+            <p className="text-sm text-muted-foreground">Loading your saved favorites…</p>
+          </div>
+        ) : favoritePhotographers.length === 0 ? (
           <div className="bg-card rounded-2xl border border-dashed border-border p-16 text-center max-w-md mx-auto">
             <Heart className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
             <h3 className="font-heading font-bold text-base">No favorites saved yet</h3>
@@ -82,29 +73,39 @@ export default function Favorites() {
                 className="group bg-card rounded-2xl border border-border/50 card-shadow overflow-hidden hover:card-shadow-hover transition-all duration-200"
               >
                 {/* Visual Cover Header */}
-                <div className="h-28 bg-gradient-to-br from-primary/10 via-primary/5 to-accent/5 p-4 flex justify-between items-start relative">
-                  <div className="w-12 h-12 rounded-xl bg-background/95 border border-border/50 flex items-center justify-center text-primary font-heading font-bold shadow-sm">
-                    {p.avatar}
+                <div className="h-28 relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-accent/5">
+                  {p.coverPhotoUrl && (
+                    <img src={p.coverPhotoUrl} alt="" className="w-full h-full object-cover" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/5 to-transparent" />
+                  <div className="absolute inset-0 p-4 flex justify-between items-start">
+                  <div className="w-12 h-12 rounded-xl bg-background/95 border border-border/50 flex items-center justify-center text-primary font-heading font-bold shadow-sm overflow-hidden">
+                    {p.profilePhotoUrl ? (
+                      <img src={p.profilePhotoUrl} alt={p.businessName || "Studio"} className="w-full h-full object-cover" />
+                    ) : (
+                      p.businessName?.slice(0, 2).toUpperCase()
+                    )}
                   </div>
                   
                   <button 
-                    onClick={() => setStudioToRemove(p.id)}
+                    onClick={() => setStudioToRemove(p.photographerId)}
                     className="w-8 h-8 rounded-full bg-background/90 text-primary hover:bg-destructive hover:text-white flex items-center justify-center transition-all shadow-sm"
                     title="Remove Favorite"
                   >
                     <Heart className="w-4 h-4 fill-current" />
                   </button>
+                  </div>
                 </div>
 
                 {/* Content Panel */}
                 <div className="p-5 space-y-4">
                   <div>
                     <h3 className="font-heading font-bold text-base group-hover:text-primary transition-colors">
-                      {p.name}
+                      {p.businessName || "Studio"}
                     </h3>
                     <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-muted-foreground shrink-0" />
-                      <span>{p.location || "Bulan, Sorsogon"} &bull; {p.specialty}</span>
+                      <span>{p.style || "Photography"}</span>
                     </p>
                   </div>
 
@@ -117,13 +118,13 @@ export default function Favorites() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Packages from </span>
-                      <strong className="text-primary">{formatPrice(p.priceMin)}</strong>
+                      <strong className="text-primary">{formatPrice(0)}</strong>
                     </div>
                   </div>
 
                   {/* Interactive Triggers */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
-                    <Link to={`/photographers/${p.id}`} className="w-full">
+                    <Link to={`/photographers/${p.photographerId}`} className="w-full">
                       <Button variant="outline" size="sm" className="w-full text-xs h-9">
                         View Profile
                       </Button>

@@ -4,100 +4,168 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRole } from "@/contexts/RoleContext";
+import { useBookings } from "@/hooks/useBookings";
+import api, { getApiErrorMessage } from "@/lib/api";
 import toast, { Toaster } from "react-hot-toast";
 import { 
-  User, ShieldCheck, Map, Bell, Lock, 
+  User, ShieldCheck, Bell, Lock, 
   AlertTriangle, Star, Camera, Eye, CheckCircle2
 } from "lucide-react";
 
 export default function Profile() {
-  const { user } = useRole();
+  const { user, refreshProfilePhoto } = useRole();
   const navigate = useNavigate();
+  const { data: bookings = [] } = useBookings(user?.email);
 
-  // Simulated active commitments state[cite: 21]
-  const [activeCommitments, setActiveCommitments] = useState({
-    upcomingBookings: 2,
-    pendingPayments: 0,
-  });
+  // Real counts, derived from actual bookings — used to (pre-)block deactivation
+  // the same way the backend's DeactivateAccountAction already enforces server-side.
+  const upcomingBookings = bookings.filter((b) =>
+    ["pending", "accepted", "confirmed"].includes(b.status)
+  ).length;
+  const pendingPayments = bookings.filter((b) => b.paymentStatus === "pending_verification").length;
 
   // ==========================================
-  // STATE MANAGEMENT
+  // PROFILE DATA — loaded from the real backend (GET /client/profile)
   // ==========================================
-  const initialData = {
-    displayName: "Juan D.",
-    name: user?.name || "Juan dela Cruz",
-    email: user?.email || "juan.delacruz@gmail.com",
-    phone: "+63 917 123 4567",
-    birthday: "1995-06-15",
-    gender: "Male",
-    address: "Zone 5, Bulan, Sorsogon",
-    defaultContactName: "Juan dela Cruz",
-    defaultPhone: "+63 917 123 4567",
-    defaultEmail: "juan.delacruz@gmail.com",
-    defaultEventAddress: "Zone 5, Bulan, Sorsogon",
-    preferredContact: "email",
-    notifications: {
-      bookingApproved: true,
-      bookingDeclined: true,
-      paymentReminder: true,
-      upcomingPhotoshoot: true,
-      galleryReady: true,
-      newInvoice: true,
-      studioResponse: true,
-      reviewReminder: true
-    },
-    privacy: {
-      allowContact: true,
-      showProfilePic: true,
-      promotional: false
+  const emptyProfile = {
+    name: "",
+    email: "",
+    phone: "",
+    birthday: "",
+    gender: "",
+    address: "",
+  };
+
+  const [initialData, setInitialData] = useState(emptyProfile);
+  const [formData, setFormData] = useState(emptyProfile);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  const fetchProfile = async () => {
+    setIsLoadingProfile(true);
+    try {
+      const res = await api.get("/client/profile");
+      const p = res.data?.data ?? res.data;
+      const loaded = {
+        name: p.name ?? "",
+        email: p.email ?? "",
+        phone: p.phone_number ?? "",
+        birthday: p.birthday ?? "",
+        gender: p.gender ?? "",
+        address: p.address ?? "",
+      };
+      setInitialData(loaded);
+      setFormData(loaded);
+      setAvatarUrl(p.profile_photo_url ?? null);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Unable to load your profile."));
+    } finally {
+      setIsLoadingProfile(false);
     }
   };
 
-  const [formData, setFormData] = useState(initialData);
-  const [isDirty, setIsDirty] = useState(false);
-  
-  const [passwordData, setPasswordData] = useState({
-    current: "",
-    new: "",
-    confirm: ""
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  useEffect(() => {
+    const hasChanges = JSON.stringify(formData) !== JSON.stringify(initialData) || !!avatarFile;
+    setIsDirty(hasChanges);
+  }, [formData, initialData, avatarFile]);
+
+  // Preferences below (notifications/privacy/booking defaults) have no
+  // matching backend fields on ClientProfileResource today — kept as local
+  // UI state only, clearly labeled, rather than silently pretending to save.
+  const [notifications, setNotifications] = useState({
+    bookingApproved: true,
+    bookingDeclined: true,
+    paymentReminder: true,
+    upcomingPhotoshoot: true,
+    galleryReady: true,
+    newInvoice: true,
+    studioResponse: true,
+    reviewReminder: true,
+  });
+  const [privacy, setPrivacy] = useState({
+    allowContact: true,
+    showProfilePic: true,
+    promotional: false,
   });
 
-  // Modal States[cite: 21]
-  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [passwordData, setPasswordData] = useState({ current: "", new: "", confirm: "" });
+
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [showBlockedModal, setShowBlockedModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  
-  // Deactivation States[cite: 21]
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [deactivateConfirmWord, setDeactivateConfirmWord] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  // Track if profile data has been modified[cite: 21]
-  useEffect(() => {
-    const hasChanges = JSON.stringify(formData) !== JSON.stringify(initialData);
-    setIsDirty(hasChanges);
-  }, [formData, initialData]);
-
-  // ==========================================
-  // HANDLERS
-  // ==========================================
-  const handleNestedToggle = (category: 'notifications' | 'privacy', key: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [key]: !prev[category][key as keyof typeof prev[typeof category]]
-      }
-    }));
+  const handleNestedToggle = (category: "notifications" | "privacy", key: string) => {
+    if (category === "notifications") {
+      setNotifications((prev) => ({ ...prev, [key]: !prev[key as keyof typeof prev] }));
+    } else {
+      setPrivacy((prev) => ({ ...prev, [key]: !prev[key as keyof typeof prev] }));
+    }
   };
 
-  const confirmSaveProfile = async () => {
-    setShowSaveModal(false);
-    const loadingToast = toast.loading("Saving profile changes...");
-    await new Promise(resolve => setTimeout(resolve, 800));
-    toast.success("Profile updated successfully!", { id: loadingToast });
-    setIsDirty(false);
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Profile photo must be under 2MB.");
+      return;
+    }
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  };
+
+  const handleSaveProfile = async () => {
+    setIsSaving(true);
+    const formPayload = new FormData();
+    formPayload.append("name", formData.name);
+    formPayload.append("phone_number", formData.phone);
+    formPayload.append("birthday", formData.birthday);
+    formPayload.append("gender", formData.gender);
+    formPayload.append("address", formData.address);
+    if (avatarFile) formPayload.append("profile_photo", avatarFile);
+
+    try {
+      const res = await api.patch("/client/profile", formPayload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const p = res.data?.data ?? res.data;
+      const saved = {
+        name: p.name ?? "",
+        email: p.email ?? "",
+        phone: p.phone_number ?? "",
+        birthday: p.birthday ?? "",
+        gender: p.gender ?? "",
+        address: p.address ?? "",
+      };
+      setInitialData(saved);
+      setFormData(saved);
+      setAvatarUrl(p.profile_photo_url ?? null);
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      refreshProfilePhoto(p.profile_photo_url ?? null); // updates the header immediately
+      toast.success("Profile updated successfully!");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update profile."));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDiscard = () => {
+    setFormData(initialData);
+    setAvatarFile(null);
+    setAvatarPreview(null);
   };
 
   const handleInitiatePasswordChange = (e: React.FormEvent) => {
@@ -121,45 +189,64 @@ export default function Profile() {
     setShowPasswordModal(true);
   };
 
+  // ⚠️ ASSUMPTION: field names (current_password/password/password_confirmation)
+  // inferred from Laravel convention + ChangePasswordAction's execute(user, current, new)
+  // signature — not confirmed against the real ChangePasswordRequest.php. Adjust
+  // these three keys if your request validates different field names.
   const confirmPasswordChange = async () => {
-    setShowPasswordModal(false);
-    const loadingToast = toast.loading("Updating password...");
-    await new Promise(resolve => setTimeout(resolve, 800));
-    toast.success("Password updated successfully!", { id: loadingToast });
-    setPasswordData({ current: "", new: "", confirm: "" });
-  };
-
-  // Trigger Deactivation Check[cite: 21]
-  const handleDeactivateClick = () => {
-    const hasCommitments = activeCommitments.upcomingBookings > 0 || activeCommitments.pendingPayments > 0;
-    if (hasCommitments) {
-      setShowBlockedModal(true);
-    } else {
-      setShowDeactivateModal(true);
-      setDeactivateConfirmWord(""); // Reset input on open
+    setIsChangingPassword(true);
+    try {
+      await api.post("/client/change-password", {
+        current_password: passwordData.current,
+        password: passwordData.new,
+        password_confirmation: passwordData.confirm,
+      });
+      toast.success("Password updated successfully!");
+      setShowPasswordModal(false);
+      setPasswordData({ current: "", new: "", confirm: "" });
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update password."));
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
-  // Execute Deactivation Process[cite: 21]
+  const handleDeactivateClick = () => {
+    if (upcomingBookings > 0 || pendingPayments > 0) {
+      setShowBlockedModal(true);
+    } else {
+      setShowDeactivateModal(true);
+      setDeactivateConfirmWord("");
+    }
+  };
+
+  // ⚠️ ASSUMPTION: confirmation field name inferred from the "DEACTIVATE" word
+  // pattern already used elsewhere in this codebase (BookingCancellationTest-style
+  // "type X to confirm" convention) — not confirmed against DeactivateAccountRequest.php.
   const confirmDeactivateAccount = async () => {
     setIsDeactivating(true);
-    // Simulate Backend API processing
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    
-    // Save status change to local storage simulation
-    const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-    localStorage.setItem("user", JSON.stringify({ ...currentUser, status: "deactivated" }));
-
-    setIsDeactivating(false);
-    setShowDeactivateModal(false);
-    setShowSuccessModal(true);
+    try {
+      await api.post("/client/deactivate", { confirmation: deactivateConfirmWord });
+      setShowDeactivateModal(false);
+      setShowSuccessModal(true);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to deactivate account."));
+    } finally {
+      setIsDeactivating(false);
+    }
   };
 
-  // Complete Deactivation and Redirect[cite: 21]
   const handleFinalizeLogout = () => {
-    localStorage.removeItem("token");
     navigate("/login");
   };
+
+  if (isLoadingProfile) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-5xl mx-auto py-16 text-center text-sm text-muted-foreground">Loading your profile…</div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -179,34 +266,22 @@ export default function Profile() {
           {/* LEFT COLUMN: PROFILE SUMMARY */}
           <div className="w-full lg:w-72 shrink-0 flex flex-col gap-4 sticky top-6">
             <div className="bg-card border border-border/50 rounded-xl p-5 text-center shadow-sm">
-              <div className="w-20 h-20 rounded-full bg-primary/10 text-primary font-heading font-bold text-3xl flex items-center justify-center mx-auto relative mb-3">
-                {formData.displayName.split(" ").map(n => n[0]).join("")}
-                <button className="absolute bottom-0 right-0 bg-background border border-border p-1.5 rounded-full shadow-sm hover:bg-muted transition-colors">
+              <div className="w-20 h-20 rounded-full bg-primary/10 text-primary font-heading font-bold text-3xl flex items-center justify-center mx-auto relative mb-3 overflow-hidden">
+                {avatarPreview || avatarUrl ? (
+                  <img src={avatarPreview ?? avatarUrl ?? ""} alt={formData.name} className="w-full h-full object-cover" />
+                ) : (
+                  formData.name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase() || "?"
+                )}
+                <label htmlFor="avatar-input" className="absolute bottom-0 right-0 bg-background border border-border p-1.5 rounded-full shadow-sm hover:bg-muted transition-colors cursor-pointer">
                   <Camera className="w-3.5 h-3.5 text-muted-foreground" />
-                </button>
+                </label>
+                <input id="avatar-input" type="file" accept="image/png, image/jpeg" className="hidden" onChange={handleAvatarChange} />
               </div>
               
-              <h3 className="font-heading font-bold text-lg">{formData.name}</h3>
+              <h3 className="font-heading font-bold text-lg">{formData.name || "Your Name"}</h3>
               <div className="flex items-center justify-center gap-1 mt-0.5 mb-2">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="text-xs font-semibold text-emerald-600">Verified Client</span>
-              </div>
-
-              <div className="flex items-center justify-center gap-1 text-accent mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-3.5 h-3.5 fill-current" />
-                ))}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 border-t border-border/50 pt-4">
-                <div className="text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Member</p>
-                  <p className="text-xs font-semibold mt-0.5">July 2026</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Bookings</p>
-                  <p className="text-xs font-semibold mt-0.5">12</p>
-                </div>
               </div>
             </div>
 
@@ -216,16 +291,12 @@ export default function Profile() {
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground text-xs">Upcoming</span>
                   <span className="font-semibold text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    {activeCommitments.upcomingBookings}
+                    {upcomingBookings}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground text-xs">Completed</span>
-                  <span className="font-semibold text-xs">18</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground text-xs">Cancelled</span>
-                  <span className="font-semibold text-xs text-destructive">1</span>
+                  <span className="text-muted-foreground text-xs">Total Bookings</span>
+                  <span className="font-semibold text-xs">{bookings.length}</span>
                 </div>
               </div>
             </div>
@@ -241,12 +312,8 @@ export default function Profile() {
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Display Name</label>
-                  <Input value={formData.displayName} onChange={e => setFormData({...formData, displayName: e.target.value})} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Full Name</label>
-                  <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="h-9 text-sm" />
+                  <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Email Address</label>
@@ -254,70 +321,50 @@ export default function Profile() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Contact Number</label>
-                  <Input value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="h-9 text-sm" />
+                  <Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Birthday</label>
-                  <Input type="date" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})} className="h-9 text-sm" />
+                  <Input type="date" value={formData.birthday} onChange={(e) => setFormData({ ...formData, birthday: e.target.value })} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Gender</label>
-                  <select 
+                  <select
                     value={formData.gender}
-                    onChange={e => setFormData({...formData, gender: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                     className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
                   >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                    <option value="Prefer not to say">Prefer not to say</option>
+                    <option value="">Prefer not to say</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
                   </select>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className="text-xs font-semibold text-muted-foreground">Home Address</label>
-                  <Input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="h-9 text-sm" />
+                  <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="h-9 text-sm" />
                 </div>
               </div>
             </section>
 
-            {/* Booking Defaults */}
-            <section className="bg-card border border-border/50 rounded-xl p-5 shadow-sm space-y-4">
-              <h3 className="font-heading font-bold text-sm flex items-center gap-2 border-b border-border/50 pb-2">
-                <Map className="w-4 h-4 text-primary" /> Booking Defaults
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Default Contact Name</label>
-                  <Input value={formData.defaultContactName} onChange={e => setFormData({...formData, defaultContactName: e.target.value})} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Default Phone</label>
-                  <Input value={formData.defaultPhone} onChange={e => setFormData({...formData, defaultPhone: e.target.value})} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <label className="text-xs font-semibold text-muted-foreground">Default Event Address</label>
-                  <Input value={formData.defaultEventAddress} onChange={e => setFormData({...formData, defaultEventAddress: e.target.value})} className="h-9 text-sm" />
-                </div>
-              </div>
-            </section>
-
-            {/* Notifications & Privacy */}
+            {/* Notifications & Privacy — local preferences only, no backend field for these yet */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <section className="bg-card border border-border/50 rounded-xl p-5 shadow-sm space-y-4">
                 <h3 className="font-heading font-bold text-sm flex items-center gap-2 border-b border-border/50 pb-2">
                   <Bell className="w-4 h-4 text-primary" /> Notifications
+                  <span className="text-[10px] font-normal text-muted-foreground ml-auto">(this device only)</span>
                 </h3>
                 <div className="space-y-2 pt-1 h-32 overflow-y-auto pr-2 custom-scrollbar">
-                  {Object.entries(formData.notifications).map(([key, value]) => (
+                  {Object.entries(notifications).map(([key, value]) => (
                     <label key={key} className="flex items-center gap-2 text-sm cursor-pointer group">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={value}
-                        onChange={() => handleNestedToggle('notifications', key)}
+                        onChange={() => handleNestedToggle("notifications", key)}
                         className="accent-primary w-3.5 h-3.5 rounded"
                       />
                       <span className="text-xs font-medium">
-                        {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                        {key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())}
                       </span>
                     </label>
                   ))}
@@ -327,19 +374,20 @@ export default function Profile() {
               <section className="bg-card border border-border/50 rounded-xl p-5 shadow-sm space-y-4">
                 <h3 className="font-heading font-bold text-sm flex items-center gap-2 border-b border-border/50 pb-2">
                   <Eye className="w-4 h-4 text-primary" /> Privacy
+                  <span className="text-[10px] font-normal text-muted-foreground ml-auto">(this device only)</span>
                 </h3>
                 <div className="space-y-3 pt-1">
-                  {Object.entries(formData.privacy).map(([key, value]) => (
+                  {Object.entries(privacy).map(([key, value]) => (
                     <label key={key} className="flex items-center gap-2 text-sm cursor-pointer group">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={value}
-                        onChange={() => handleNestedToggle('privacy', key)}
+                        onChange={() => handleNestedToggle("privacy", key)}
                         className="accent-primary w-3.5 h-3.5 rounded"
                       />
                       <span className="text-xs font-medium">
-                        {key === 'allowContact' ? "Allow studios to contact me" : 
-                         key === 'showProfilePic' ? "Show profile picture" : 
+                        {key === "allowContact" ? "Allow studios to contact me" :
+                         key === "showProfilePic" ? "Show profile picture" :
                          "Receive promotional offers"}
                       </span>
                     </label>
@@ -358,15 +406,15 @@ export default function Profile() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground">Current Password</label>
-                    <Input type="password" value={passwordData.current} onChange={e => setPasswordData({...passwordData, current: e.target.value})} className="h-9 text-sm" />
+                    <Input type="password" value={passwordData.current} onChange={(e) => setPasswordData({ ...passwordData, current: e.target.value })} className="h-9 text-sm" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground">New Password (Min. 8 chars)</label>
-                    <Input type="password" value={passwordData.new} onChange={e => setPasswordData({...passwordData, new: e.target.value})} className="h-9 text-sm" />
+                    <Input type="password" value={passwordData.new} onChange={(e) => setPasswordData({ ...passwordData, new: e.target.value })} className="h-9 text-sm" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground">Confirm Password</label>
-                    <Input type="password" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} className="h-9 text-sm" />
+                    <Input type="password" value={passwordData.confirm} onChange={(e) => setPasswordData({ ...passwordData, confirm: e.target.value })} className="h-9 text-sm" />
                   </div>
                 </div>
                 <div className="flex justify-end">
@@ -401,32 +449,12 @@ export default function Profile() {
             <div className="max-w-5xl mx-auto flex items-center justify-between">
               <p className="text-sm font-medium hidden sm:block">You have unsaved profile changes.</p>
               <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                <Button variant="outline" size="sm" onClick={() => { setFormData(initialData); setIsDirty(false); }}>
+                <Button variant="outline" size="sm" onClick={handleDiscard} disabled={isSaving}>
                   Discard
                 </Button>
-                <Button size="sm" onClick={() => setShowSaveModal(true)}>
-                  Save Changes
+                <Button size="sm" onClick={handleSaveProfile} disabled={isSaving}>
+                  {isSaving ? "Saving…" : "Save Changes"}
                 </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ==========================================
-            MODALS
-        ========================================== */}
-
-        {/* Save Profile Modal */}
-        {showSaveModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-card border border-border shadow-lg rounded-xl w-full max-w-sm p-6 animate-in zoom-in-95">
-              <h3 className="font-heading font-bold text-lg mb-2">Save Profile Changes?</h3>
-              <p className="text-sm text-muted-foreground mb-6">
-                Are you sure you want to update your profile information and preferences?
-              </p>
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" size="sm" onClick={() => setShowSaveModal(false)}>Cancel</Button>
-                <Button size="sm" onClick={confirmSaveProfile}>Confirm Save</Button>
               </div>
             </div>
           </div>
@@ -441,8 +469,10 @@ export default function Profile() {
                 Are you sure you want to update your account password? You will need to use the new password on your next login.
               </p>
               <div className="flex justify-end gap-3">
-                <Button variant="outline" size="sm" onClick={() => setShowPasswordModal(false)}>Cancel</Button>
-                <Button size="sm" onClick={confirmPasswordChange}>Update Password</Button>
+                <Button variant="outline" size="sm" onClick={() => setShowPasswordModal(false)} disabled={isChangingPassword}>Cancel</Button>
+                <Button size="sm" onClick={confirmPasswordChange} disabled={isChangingPassword}>
+                  {isChangingPassword ? "Updating…" : "Update Password"}
+                </Button>
               </div>
             </div>
           </div>
@@ -460,14 +490,14 @@ export default function Profile() {
                 You still have active commitments linked to your account:
               </p>
               <ul className="text-sm space-y-2 mb-6 bg-muted/40 p-3 rounded-lg border border-border/50">
-                {activeCommitments.upcomingBookings > 0 && (
+                {upcomingBookings > 0 && (
                   <li className="flex items-center text-foreground font-medium">
-                    • {activeCommitments.upcomingBookings} upcoming booking{activeCommitments.upcomingBookings > 1 ? 's' : ''}
+                    • {upcomingBookings} upcoming booking{upcomingBookings > 1 ? "s" : ""}
                   </li>
                 )}
-                {activeCommitments.pendingPayments > 0 && (
+                {pendingPayments > 0 && (
                   <li className="flex items-center text-foreground font-medium">
-                    • {activeCommitments.pendingPayments} pending payment{activeCommitments.pendingPayments > 1 ? 's' : ''}
+                    • {pendingPayments} pending payment{pendingPayments > 1 ? "s" : ""}
                   </li>
                 )}
               </ul>

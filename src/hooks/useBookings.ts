@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { bookingService, type BookingRecord } from "@/services/bookingService";
+import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
 
 export function useBooking(id: string | undefined) {
   return useQuery({
@@ -20,7 +20,7 @@ export function useBookings(clientEmail?: string) {
 export function useCreateBooking() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (booking: BookingRecord) => bookingService.create(booking),
+    mutationFn: (payload: CreateBookingPayload) => bookingService.create(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["bookings"] }),
   });
 }
@@ -33,6 +33,18 @@ export function useApproveBooking() {
       qc.invalidateQueries({ queryKey: ["booking", id] });
       qc.invalidateQueries({ queryKey: ["bookings"] });
       qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useRequestBookingCancellation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      bookingService.requestCancellation(id, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
     },
   });
 }

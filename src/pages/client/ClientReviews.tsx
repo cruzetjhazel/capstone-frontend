@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
+import api, { getApiErrorMessage } from "@/lib/api";
 import toast, { Toaster } from "react-hot-toast";
 import { 
   Star, MessageSquare, CheckCircle2, AlertTriangle 
@@ -22,32 +23,53 @@ interface WrittenReview {
   dateCreated: string;
 }
 
+type RawReview = {
+  id: number;
+  booking_id: number;
+  photographer: { id: number; name: string };
+  rating: number;
+  comment: string;
+  created_at: string;
+};
+
+function mapReview(raw: RawReview): WrittenReview {
+  return {
+    id: String(raw.id),
+    bookingId: String(raw.booking_id),
+    photographerId: String(raw.photographer.id),
+    photographerName: raw.photographer.name,
+    rating: raw.rating,
+    comment: raw.comment,
+    dateCreated: new Date(raw.created_at).toDateString(),
+  };
+}
+
 export default function Reviews() {
   const { user } = useRole();
   const { data: bookings = [] } = useBookings(user?.email);
   const [activeTab, setActiveTab] = useState<ReviewTab>("pending");
-  
-  // Simulated list of written reviews
-  const [writtenReviews, setWrittenReviews] = useState<WrittenReview[]>([
-    {
-      id: "REV-401",
-      bookingId: "BK-9921",
-      photographerId: "1",
-      photographerName: "Marcus Rivera",
-      rating: 5,
-      comment: "Absolutely incredible output! Marcus made us feel very comfortable during the entire wedding shoot.",
-      dateCreated: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toDateString()
-    },
-    {
-      id: "REV-402",
-      bookingId: "BK-8812",
-      photographerId: "2",
-      photographerName: "Anya Petrova",
-      rating: 4,
-      comment: "Great experience. The lighting setups were exceptional.",
-      dateCreated: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toDateString() 
+
+  const [writtenReviews, setWrittenReviews] = useState<WrittenReview[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const fetchReviews = async () => {
+    setIsLoadingReviews(true);
+    setLoadError(null);
+    try {
+      const res = await api.get("/client/reviews");
+      const list = (res.data?.data ?? res.data ?? []) as RawReview[];
+      setWrittenReviews(list.map(mapReview));
+    } catch (err) {
+      setLoadError(getApiErrorMessage(err, "Unable to load your reviews."));
+    } finally {
+      setIsLoadingReviews(false);
     }
-  ]);
+  };
+
+  useEffect(() => {
+    fetchReviews();
+  }, []);
 
   const [ratingInput, setRatingInput] = useState<number>(5);
   const [commentInput, setCommentInput] = useState<string>("");
@@ -82,34 +104,28 @@ export default function Reviews() {
 
   const confirmAndSubmitReview = async () => {
     if (!selectedBookingId) return;
-    
+
     setIsSubmitting(true);
     const loadingToast = toast.loading("Submitting your review...");
 
-    // Simulate backend processing delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const targetBooking = bookings.find(b => String(b.id) === String(selectedBookingId));
-    if (targetBooking) {
-      const newReview: WrittenReview = {
-        id: `REV-${Math.floor(100 + Math.random() * 900)}`,
-        bookingId: selectedBookingId,
-        photographerId: targetBooking.photographerId,
-        photographerName: targetBooking.photographerName,
+    try {
+      const res = await api.post("/client/reviews", {
+        booking_id: Number(selectedBookingId),
         rating: ratingInput,
         comment: commentInput,
-        dateCreated: new Date().toDateString()
-      };
-      
-      setWrittenReviews(prev => [newReview, ...prev]);
+      });
+      const newReview = mapReview((res.data?.data ?? res.data) as RawReview);
+      setWrittenReviews((prev) => [newReview, ...prev]);
       toast.success("Review submitted successfully!", { id: loadingToast });
+      setActiveTab("history"); // Auto-switch to history to see the new review
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to submit review."), { id: loadingToast });
+    } finally {
+      setIsSubmitting(false);
+      setShowConfirmModal(false);
+      setSelectedBookingId(null);
+      setCommentInput("");
     }
-
-    setIsSubmitting(false);
-    setShowConfirmModal(false);
-    setSelectedBookingId(null);
-    setCommentInput("");
-    setActiveTab("history"); // Auto-switch to history to see the new review
   };
 
   return (
@@ -151,7 +167,14 @@ export default function Reviews() {
           
           {/* Left / Main Section: Review Lists */}
           <div className="md:col-span-2 space-y-4">
-            {activeTab === "pending" ? (
+            {isLoadingReviews ? (
+              <div className="text-center py-16 text-sm text-muted-foreground animate-pulse">Loading your reviews…</div>
+            ) : loadError ? (
+              <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-center justify-between gap-3">
+                <span>{loadError}</span>
+                <Button size="sm" variant="outline" onClick={fetchReviews}>Retry</Button>
+              </div>
+            ) : activeTab === "pending" ? (
               unreviewedBookings.length === 0 ? (
                 <div className="bg-card rounded-xl border border-dashed p-10 text-center shadow-sm">
                   <CheckCircle2 className="w-10 h-10 text-primary/40 mx-auto mb-2" />

@@ -12,6 +12,7 @@ import {
 import { useRole } from "@/contexts/RoleContext";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { reportService, getApiErrorMessage, type ReportTarget, type ReportSeverity, type ReportRequestedAction } from "@/services/reportService";
 import { 
   AlertTriangle, Send, UploadCloud, 
   CheckCircle2, AlertCircle, FileText, X, ClipboardList
@@ -179,15 +180,21 @@ export default function ReportProblem() {
     setIsSubmitting(true);
 
     try {
-      // Simulate backend POST request
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      const generatedRef = `RPT-${Math.floor(1000 + Math.random() * 9000)}`;
-      setReferenceNumber(generatedRef);
+      const report = await reportService.submit(role, {
+        target_type: target as ReportTarget,
+        reference_id: referenceId || undefined,
+        reason: reason === "Other" ? otherReason : reason,
+        severity: severity as ReportSeverity,
+        details,
+        requested_action: resolution as ReportRequestedAction,
+        evidence: files,
+      });
+      setReferenceNumber(report.id);
       setShowConfirmModal(false);
       setIsSuccess(true); 
       toast.success("Report submitted to Trust & Safety team!");
-    } catch {
-      toast.error("Submission failed. Please check your connection and try again.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Submission failed. Please check your connection and try again."));
     } finally {
       setIsSubmitting(false);
     }

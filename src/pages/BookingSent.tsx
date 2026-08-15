@@ -13,52 +13,39 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/data/photographers";
-import { useBooking, useApproveBooking } from "@/hooks/useBookings";
-import toast from "react-hot-toast";
+import { useBooking } from "@/hooks/useBookings";
+import { useToast } from "@/hooks/use-toast";
 
 export default function BookingSent() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: booking, isLoading } = useBooking(id);
-  const approveBooking = useApproveBooking();
+  const { toast } = useToast();
 
-  const [status, setStatus] = useState<"pending" | "accepted" | "cancelled" | "rejected">("pending");
+  const [status, setStatus] = useState<"pending" | "accepted" | "cancelled" | "rejected" | "expired">("pending");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancellationReason, setCancellationReason] = useState("");
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
 
   useEffect(() => {
     if (booking?.status) {
-      if (booking.status === "approved" || booking.status === "accepted") {
+      if (booking.status === "accepted" || booking.status === "confirmed" || booking.status === "completed") {
         setStatus("accepted");
       } else if (booking.status === "cancelled") {
         setStatus("cancelled");
       } else if (booking.status === "rejected") {
         setStatus("rejected");
+      } else if (booking.status === "expired") {
+        setStatus("expired");
       } else {
         setStatus("pending");
       }
     }
   }, [booking?.status]);
 
-  // Demo simulation for acceptance workflow (Pending -> Accepted)
-  useEffect(() => {
-    if (!id || !booking || booking.status !== "pending" || status !== "pending") return;
-    const timer = setTimeout(async () => {
-      const updated = await approveBooking.mutateAsync(id);
-      if (updated) {
-        setStatus("accepted");
-        toast.success(`Booking request accepted by ${updated.photographerName}! Payment is now required.`, {
-          id: "booking-accepted-toast"
-        });
-      }
-    }, 6000);
-    return () => clearTimeout(timer);
-  }, [id, booking, status, approveBooking]);
-
   const handleCancelRequest = () => {
     if (!cancellationReason.trim()) {
-      toast.error("Please provide a reason for cancelling your booking request.");
+      toast({ title: "Reason required", description: "Please provide a reason for cancelling your booking request.", variant: "destructive" as never });
       return;
     }
 
@@ -67,8 +54,8 @@ export default function BookingSent() {
     setTimeout(() => {
       setIsSubmittingCancel(false);
       setIsCancelModalOpen(false);
-      setStatus("cancelled");
-      toast.success("Booking cancellation request submitted successfully.");
+      setStatus("cancelled")
+      toast({ title: "Cancellation submitted", description: "Booking cancellation request submitted successfully." });
     }, 800);
   };
 
@@ -135,6 +122,18 @@ export default function BookingSent() {
             </>
           )}
 
+          {status === "expired" && (
+            <>
+              <div className="w-16 h-16 mx-auto rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+                <Hourglass className="w-9 h-9 text-destructive" />
+              </div>
+              <h1 className="text-2xl font-heading font-bold">Payment Window Expired</h1>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+                <strong>{booking.photographerName}</strong> accepted your request, but payment wasn't completed in time. The hold on your date has been released.
+              </p>
+            </>
+          )}
+
           {/* Status Badge */}
           <div className="inline-flex items-center gap-2 mt-5 px-4 py-1.5 rounded-full bg-muted border border-border text-xs font-semibold uppercase tracking-wider">
             {status === "pending" && (
@@ -153,6 +152,12 @@ export default function BookingSent() {
               <>
                 <XCircle className="w-3.5 h-3.5 text-muted-foreground" />
                 <span className="text-muted-foreground">Cancelled</span>
+              </>
+            )}
+            {status === "expired" && (
+              <>
+                <Hourglass className="w-3.5 h-3.5 text-destructive" />
+                <span className="text-destructive">Payment Window Expired</span>
               </>
             )}
           </div>
@@ -180,7 +185,7 @@ export default function BookingSent() {
               <p className="font-medium truncate">{booking.date}</p>
             </div>
             <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Initial Payment</p>
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Total Amount</p>
               <p className="font-semibold text-primary">{formatPrice(booking.dueNow)}</p>
             </div>
           </div>
