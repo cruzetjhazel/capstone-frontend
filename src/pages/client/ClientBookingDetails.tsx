@@ -3,13 +3,14 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings, useRequestBookingCancellation } from "@/hooks/useBookings";
-import { usePhotographers } from "@/hooks/usePhotographers";
+import { usePhotographer } from "@/hooks/usePhotographers";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  Calendar, Clock, MapPin, ArrowLeft, Shield,
-  Phone, Mail, Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check
+  Calendar, Clock, MapPin, ArrowLeft,
+  Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
+  CheckCircle2, Camera, Wand2, Send, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, type LucideIcon
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -28,20 +29,32 @@ const formatPrice = (price: number) => {
   }).format(price);
 };
 
-const TRACKING_STEPS = [
-  { label: "Booked", description: "Your booking request is sent" },
-  { label: "Confirmed", description: "Photographer accepted your booking" },
-  { label: "Event Day", description: "It's photoshoot day!" },
-  { label: "Editing", description: "Photos are currently being processed" },
-  { label: "Ready to Send", description: "Your photos are ready for review" },
-  { label: "Delivered", description: "All files have been delivered" }
+// Display-only — never mutates the stored value, just renders "23:00:00" as "11:00 PM"
+const formatTime = (timeString: string) => {
+  if (!timeString) return "";
+  const match = timeString.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return timeString;
+  const hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${minutes} ${period}`;
+};
+// Existing six-stage Service Progress workflow — labels, order, and count are
+// unchanged. `icon` is a purely visual addition for scanability.
+const TRACKING_STEPS: { label: string; description: string; icon: LucideIcon }[] = [
+  { label: "Booked", description: "Your booking request is sent", icon: Calendar },
+  { label: "Confirmed", description: "Photographer accepted your booking", icon: CheckCircle2 },
+  { label: "Event Day", description: "It's photoshoot day!", icon: Camera },
+  { label: "Editing", description: "Photos are currently being processed", icon: Wand2 },
+  { label: "Ready to Send", description: "Your photos are ready for review", icon: Send },
+  { label: "Delivered", description: "All files have been delivered", icon: PackageCheck }
 ];
 
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
   const { data: bookings = [] } = useBookings(user?.email);
-  const { data: allPhotographers = [] } = usePhotographers();
   const { data: payments = [] } = usePaymentsForBooking(id);
   const { toast } = useToast();
   const cancelMutation = useRequestBookingCancellation();
@@ -54,8 +67,7 @@ export default function BookingDetails() {
   const [isConfirming, setIsConfirming] = useState(false);
 
   const booking: any = bookings.find((b) => String(b.id) === String(id));
-  const photographer = booking ? allPhotographers.find((p) => String(p.id) === String(booking.photographerId)) : null;
-
+  const { data: photographer } = usePhotographer(booking?.photographerId);
   const hasVerifiedPayment = payments.some((p) => !!p.verifiedAt);
 
   // Modification Timing Rule: Up to 7 days before event date (reschedule/modify only —
@@ -86,8 +98,6 @@ export default function BookingDetails() {
   // straight from raw.remaining_balance) — don't subtract it from subtotal again.
   const remainingBalance = booking.status === "completed" ? 0 : booking.dueNow;
   const amountPaid = Math.max(0, booking.subtotal - remainingBalance);
-  const showDirectContact = booking.status === "confirmed" || booking.status === "completed";
-
   const hasActiveRequest = booking.hasActiveRequest;
 
   // Matches RequestBookingCancellationAction: only pending/accepted bookings
@@ -170,214 +180,248 @@ export default function BookingDetails() {
     ? booking.photographerName
     : "studio";
 
-  // photographer?.email / .phone aren't confirmed to exist on the Photographer
-  // type returned by usePhotographers() — cast defensively until that type's
-  // real shape is confirmed (send usePhotographers.ts / its Photographer type
-  // to resolve this properly instead of casting).
-  const photographerAny = photographer as any;
-
-  const contactEmail: string = photographerAny?.email
-    ? String(photographerAny.email)
-    : `contact@${fallbackName.toLowerCase().replace(/\s+/g, "")}.com`;
-
-  const contactPhone: string = photographerAny?.phone
-    ? String(photographerAny.phone)
-    : "+63 917 123 4567";
-
+  // The system doesn't collect phone/email for photographers — confirmed against
+  // PhotographerProfile.tsx, which only ever renders p.socials (facebook/instagram/website).
+  // Mirror that here rather than showing contact fields that don't exist.
+  const socialLinks = [
+    { url: photographer?.socials?.facebook, Icon: Facebook, label: "Facebook" },
+    { url: photographer?.socials?.instagram, Icon: Instagram, label: "Instagram" },
+    { url: photographer?.socials?.website, Icon: Globe, label: "Website" },
+  ].filter((s): s is { url: string; Icon: typeof Facebook; label: string } => !!s.url);
+  
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-6 animate-fade-up">
-        {/* Navigation Breadcrumb */}
+      <div className="w-full max-w-[1400px] mx-auto space-y-5 animate-fade-up">
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link to="/bookings">
-              <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl">
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             </Link>
             <div>
-              <span className="text-xs text-muted-foreground">Booking Details</span>
-              <h1 className="text-lg font-bold font-heading -mt-1">ID: {booking.id}</h1>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Booking Details</span>
+              <h1 className="text-xl font-bold font-heading -mt-0.5">Booking #{booking.id}</h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {hasVerifiedPayment && (
               <Link to={`/booking/${booking.id}/receipt`}>
-                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                <Button variant="outline" size="sm" className="text-xs gap-1.5 rounded-full">
                   <Receipt className="w-3.5 h-3.5" /> View Receipt
                 </Button>
               </Link>
             )}
 
             {hasActiveRequest ? (
-              <Button disabled variant="outline" className="text-xs text-amber-600 border-amber-200 bg-amber-50 gap-2">
-                 <AlertCircle className="w-3.5 h-3.5" /> Request Pending
-              </Button>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
+                <AlertCircle className="w-3.5 h-3.5" /> Request Pending
+              </span>
             ) : (
               <>
-                {booking.status === "pending" && <Button disabled variant="secondary" className="text-xs opacity-70">Waiting for Approval</Button>}
-                {booking.status === "accepted" && booking.paymentStatus === "pending" && <Link to={`/booking/${booking.id}/pay`}><Button className="text-xs bg-primary">Pay Now</Button></Link>}
-                {booking.status === "accepted" && booking.paymentStatus === "pending_verification" && <Button disabled variant="secondary" className="text-xs opacity-70">Payment Under Review</Button>}
-                {booking.status === "confirmed" && <Button disabled variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Payment Confirmed</Button>}
-                {booking.status === "completed" && <Button disabled variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Completed</Button>}
+                {booking.status === "pending" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Waiting for Approval
+                  </span>
+                )}
+                {booking.status === "accepted" && booking.paymentStatus === "pending" && (
+                  <Link to={`/booking/${booking.id}/pay`}>
+                    <Button size="sm" className="text-xs rounded-full bg-primary">Pay Now</Button>
+                  </Link>
+                )}
+                {booking.status === "accepted" && booking.paymentStatus === "pending_verification" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Payment Under Review
+                  </span>
+                )}
+                {booking.status === "confirmed" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Payment Confirmed
+                  </span>
+                )}
+                {booking.status === "completed" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Completed
+                  </span>
+                )}
+                {booking.status === "expired" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Expired
+                  </span>
+                )}
               </>
             )}
           </div>
         </div>
 
-        {/* The Tracking UI */}
-        {booking.status !== 'cancelled' && booking.status !== 'rejected' && (
-          <div className="bg-card rounded-2xl border border-border/50 p-6 sm:p-8 card-shadow mt-4">
-            <h3 className="font-heading font-bold text-sm sm:text-base mb-8 text-center text-muted-foreground uppercase tracking-wider">Service Progress</h3>
+        {/* Service Progress — existing six-stage tracker, refined presentation only */}
+        {booking.status !== 'cancelled' && booking.status !== 'rejected' && booking.status !== 'expired' && (
+          <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-heading font-bold text-xs sm:text-sm uppercase tracking-wider text-muted-foreground">Service Progress</h3>
+              <span className="text-[11px] sm:text-xs font-bold text-primary bg-primary/10 rounded-full px-2.5 py-1">
+                {TRACKING_STEPS[currentStep].label}
+              </span>
+            </div>
 
-            <div className="relative w-full">
-              <div className="absolute top-4 sm:top-5 left-4 sm:left-5 right-4 sm:right-5">
-                <div className="h-[2px] w-full bg-muted rounded-full" />
-                <div
-                  className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full"
-                  style={{ width: `${(currentStep / (TRACKING_STEPS.length - 1)) * 100}%` }}
-                />
-              </div>
+            <div className="relative w-full overflow-x-auto pb-1">
+              <div className="relative min-w-[560px] sm:min-w-0">
+                <div className="absolute top-4 sm:top-4.5 left-4 sm:left-[18px] right-4 sm:right-[18px]">
+                  <div className="h-[2px] w-full bg-muted rounded-full" />
+                  <div
+                    className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full"
+                    style={{ width: `${(currentStep / (TRACKING_STEPS.length - 1)) * 100}%` }}
+                  />
+                </div>
 
-              <div className="relative z-10 flex items-center justify-between w-full">
-                {TRACKING_STEPS.map((step, idx) => {
-                  const isCompleted = idx < currentStep;
-                  const isActive = idx === currentStep;
+                <div className="relative z-10 flex items-start justify-between w-full">
+                  {TRACKING_STEPS.map((step, idx) => {
+                    const isCompleted = idx < currentStep;
+                    const isActive = idx === currentStep;
+                    const StepIcon = step.icon;
 
-                  return (
-                    <div key={idx} className="relative flex flex-col items-center group">
-                      <div className={cn(
-                        "w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold border-2 transition-colors duration-300 bg-card",
-                        isCompleted ? "border-primary bg-primary text-primary-foreground" :
-                        isActive ? "border-primary text-primary ring-4 ring-primary/20" :
-                        "border-muted text-muted-foreground"
-                      )}>
-                        {isCompleted ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : (idx + 1)}
+                    return (
+                      <div key={idx} className="flex flex-col items-center gap-2 flex-1">
+                        <div className={cn(
+                          "w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border-2 transition-colors duration-300 bg-card shrink-0",
+                          isCompleted ? "border-primary bg-primary text-primary-foreground" :
+                          isActive ? "border-primary text-primary ring-4 ring-primary/15" :
+                          "border-muted text-muted-foreground/50"
+                        )}>
+                          {isCompleted ? <Check className="w-4 h-4" /> : <StepIcon className="w-4 h-4" />}
+                        </div>
+                        <span className={cn(
+                          "text-[10px] sm:text-[11px] text-center leading-tight px-0.5",
+                          isActive ? "text-foreground font-bold" : isCompleted ? "text-foreground/70 font-medium" : "text-muted-foreground/60"
+                        )}>
+                          {step.label}
+                        </span>
                       </div>
-                      <span className={cn(
-                        "absolute top-10 sm:top-12 text-[10px] sm:text-xs whitespace-nowrap font-medium",
-                        isActive ? "text-foreground font-bold" : "text-muted-foreground hidden sm:block"
-                      )}>
-                        {step.label}
-                      </span>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            <div className="mt-10 sm:mt-12 text-center bg-muted/30 py-3 rounded-lg border border-border/50">
-              <p className="text-xs sm:text-sm font-medium text-foreground">
-                Current Status: <span className="text-primary font-bold">{TRACKING_STEPS[currentStep].description}</span>
+            <div className="mt-5 flex items-center justify-center gap-2 bg-muted/30 rounded-lg py-2.5 px-4 text-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+              <p className="text-xs sm:text-sm text-foreground">
+                {TRACKING_STEPS[currentStep].description}
               </p>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* LEFT COLUMN */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6 space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-2.5 py-1 rounded-full">
-                      {booking.eventType}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* LEFT COLUMN — wide */}
+          <div className="lg:col-span-2 space-y-5">
+            {/* Your Shoot + Package, combined into one card */}
+            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-5">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                    {booking.eventType}
+                  </span>
+                  {isCustom && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> Custom Package
                     </span>
-                    {isCustom && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" /> Custom Package
-                      </span>
-                    )}
+                  )}
+                </div>
+                <h2 className="text-lg sm:text-xl font-heading font-bold mt-2">
+                  {isCustom ? "Customized Package" : booking.packageName}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5" />
+                  {isCustom ? "Built specifically for your event" : "Standard package"} &bull; Provided by {booking.photographerName}
+                </p>
+              </div>
+
+              {/* Your Shoot — horizontal on desktop */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-5 border-t border-border/60">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 text-primary" />
                   </div>
-                  <h2 className="text-xl font-heading font-bold mt-2">
-                    {isCustom ? "Customized Package" : booking.packageName}
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {isCustom ? "Built specifically for your event" : `Standard package`} &bull; Provided by {booking.photographerName}
-                  </p>
+                  <div>
+                    <p className="font-semibold text-xs text-muted-foreground">Shoot Date</p>
+                    <p className="text-sm font-medium text-foreground">{booking.date}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-xs text-muted-foreground">Start Time</p>
+                    <p className="text-sm font-medium text-foreground">{formatTime(booking.startTime)}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-xs text-muted-foreground">Venue</p>
+                    <p className="text-sm font-medium text-foreground">{booking.eventLocation}</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
-                <div className="flex items-start gap-2.5 text-sm">
-                  <Calendar className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs">Shoot Date</p>
-                    <p className="text-muted-foreground text-xs">{booking.date}</p>
+              {/* Package inclusions — compact icon rows, no boxed nesting */}
+              <div className="pt-5 border-t border-border/60">
+                <h3 className="text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  {isCustom ? "What's Included" : "Package Includes"}
+                </h3>
+
+                {isCustom ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{customBuild.editedPhotos?.label || "Standard photos"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{customBuild.photographers?.label || "1 Photographer"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{customBuild.delivery?.label || "Standard 30 Days"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{customBuild.rawFiles ? "RAW files included" : "RAW not included"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{customBuild.secondLocation ? "Second location included" : "Single location"}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-2.5 text-sm">
-                  <Clock className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs">Event Time</p>
-                    <p className="text-muted-foreground text-xs">{booking.startTime}</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">{booking.packagePhotos || "300"} edited photos</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">RAW files included</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-foreground">30-day delivery</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-2.5 text-sm sm:col-span-2">
-                  <MapPin className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs">Venue Location</p>
-                    <p className="text-muted-foreground text-xs">{booking.eventLocation}</p>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6">
-              <h3 className="text-sm font-heading font-semibold mb-4">
-                {isCustom ? "Your Customized Package" : "Package Snapshot Details"}
-              </h3>
-
-              {isCustom ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Edited Photos</span>
-                    <span className="font-semibold">{customBuild.editedPhotos?.label || "Standard"}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Photographers</span>
-                    <span className="font-semibold">{customBuild.photographers?.label || "1"}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Delivery Speed</span>
-                    <span className="font-semibold">{customBuild.delivery?.label || "Standard 30 Days"}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">RAW Files</span>
-                    <span className="font-semibold">{customBuild.rawFiles ? "Included" : "Not Included"}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Second Location</span>
-                    <span className="font-semibold">{customBuild.secondLocation ? "Included" : "No"}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
-                   <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Package</span>
-                    <span className="font-semibold">{booking.packageName}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Edited Photos</span>
-                    <span className="font-semibold">{booking.packagePhotos || "300"}</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">RAW Files</span>
-                    <span className="font-semibold">Included</span>
-                  </div>
-                  <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
-                    <span className="block text-muted-foreground mb-1">Delivery</span>
-                    <span className="font-semibold">30 Days</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'rejected' && (
-              <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6">
-                <h3 className="text-sm font-heading font-semibold mb-1">Booking Requests</h3>
+            {/* Booking Actions */}
+            {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'rejected' && booking.status !== 'expired' && (
+              <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6">
+                <h3 className="text-sm font-heading font-semibold mb-1">Booking Actions</h3>
 
                 {!canRequestCancellation && (
                   <div className="mb-4 mt-3 p-3 bg-muted text-muted-foreground text-xs rounded-lg border border-border flex items-start gap-2">
@@ -401,13 +445,18 @@ export default function BookingDetails() {
                     <p className="text-xs text-muted-foreground mb-4">Need to change something? Submit a request to the studio.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <Button onClick={() => handleOpenForm("reschedule")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
-                        <CalendarPlus className="w-3.5 h-3.5" /> Request Reschedule
-                      </Button>
-                      <Button onClick={() => handleOpenForm("cancel")} disabled={!canRequestCancellation} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 disabled:opacity-50">
-                        <FileX className="w-3.5 h-3.5" /> Request Cancellation
+                        <CalendarPlus className="w-3.5 h-3.5" /> Reschedule
                       </Button>
                       <Button onClick={() => handleOpenForm("modify")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
                         <Edit3 className="w-3.5 h-3.5" /> Modify Booking
+                      </Button>
+                      <Button
+                        onClick={() => handleOpenForm("cancel")}
+                        disabled={!canRequestCancellation}
+                        variant="outline"
+                        className="w-full text-xs font-semibold h-10 gap-1.5 text-destructive/80 border-destructive/25 bg-destructive/5 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:text-muted-foreground disabled:border-border disabled:bg-transparent"
+                      >
+                        <FileX className="w-3.5 h-3.5" /> Cancellation
                       </Button>
                     </div>
                   </>
@@ -416,104 +465,115 @@ export default function BookingDetails() {
             )}
           </div>
 
-          {/* RIGHT COLUMN */}
-          <div className="space-y-6">
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6 space-y-4">
+          {/* RIGHT COLUMN — supporting info */}
+          <div className="space-y-5">
+            {/* Payment */}
+            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-4">
               <h3 className="text-sm font-heading font-semibold flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-primary" /> Price Breakdown
+                <Receipt className="w-4 h-4 text-primary" /> Payment Summary
               </h3>
 
-              <div className="bg-muted/10 border border-border/40 rounded-xl p-4 space-y-3">
-                <div className="pb-3 border-b border-dashed border-border/80 space-y-2">
-
-                  {isCustom ? (
-                    <>
-                      <div className="flex justify-between items-end text-xs">
-                        <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">Base Fee</span>
-                        <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                        <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.baseFee)}</span>
-                      </div>
-                      {customBuild.editedPhotos && (
-                        <div className="flex justify-between items-end text-xs">
-                          <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">{customBuild.editedPhotos.label}</span>
-                          <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                          <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.editedPhotos.price)}</span>
-                        </div>
-                      )}
-                      {customBuild.photographers && (
-                        <div className="flex justify-between items-end text-xs">
-                          <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">{customBuild.photographers.label}</span>
-                          <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                          <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.photographers.price)}</span>
-                        </div>
-                      )}
-                      {customBuild.rawFiles && (
-                        <div className="flex justify-between items-end text-xs">
-                          <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">RAW Files</span>
-                          <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                          <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.rawFiles.price)}</span>
-                        </div>
-                      )}
-                      {customBuild.secondLocation && (
-                        <div className="flex justify-between items-end text-xs">
-                          <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">Second Location</span>
-                          <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                          <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.secondLocation.price)}</span>
-                        </div>
-                      )}
-                      {customBuild.delivery && (
-                        <div className="flex justify-between items-end text-xs">
-                          <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">{customBuild.delivery.label}</span>
-                          <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                          <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(customBuild.delivery.price)}</span>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex justify-between items-end text-xs">
-                      <span className="text-muted-foreground shrink-0 relative pr-2 bg-card">Package Base</span>
-                      <div className="flex-grow border-b-2 border-dotted border-border/50 mb-1 mx-1" />
-                      <span className="font-medium text-foreground shrink-0 pl-2 bg-card">{formatPrice(booking.subtotal)}</span>
+              <div className="space-y-2 text-xs">
+                {isCustom ? (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Base Fee</span>
+                      <span className="font-medium text-foreground">{formatPrice(customBuild.baseFee)}</span>
                     </div>
-                  )}
-                </div>
+                    {customBuild.editedPhotos && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">{customBuild.editedPhotos.label}</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.editedPhotos.price)}</span>
+                      </div>
+                    )}
+                    {customBuild.photographers && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">{customBuild.photographers.label}</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.photographers.price)}</span>
+                      </div>
+                    )}
+                    {customBuild.rawFiles && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">RAW Files</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.rawFiles.price)}</span>
+                      </div>
+                    )}
+                    {customBuild.secondLocation && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Second Location</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.secondLocation.price)}</span>
+                      </div>
+                    )}
+                    {customBuild.delivery && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">{customBuild.delivery.label}</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.delivery.price)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Package Base</span>
+                    <span className="font-medium text-foreground">{formatPrice(booking.subtotal)}</span>
+                  </div>
+                )}
 
-                <div className="flex justify-between items-center text-xs pt-1">
-                  <span className="font-bold text-foreground">Package Total</span>
-                  <span className="font-bold text-foreground">{formatPrice(booking.subtotal)}</span>
+                <div className="flex justify-between items-center pt-2 border-t border-border/60">
+                  <span className="font-semibold text-foreground">Package Total</span>
+                  <span className="font-semibold text-foreground">{formatPrice(booking.subtotal)}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Deposit Paid</span>
                   <span className="font-medium text-foreground">{(booking.status === 'confirmed' || booking.status === 'completed') ? formatPrice(amountPaid) : formatPrice(0)}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs pt-2 border-t border-border/50">
-                  <span className="font-semibold text-foreground">Remaining Balance</span>
-                  <span className="font-bold text-primary">{formatPrice(remainingBalance)}</span>
-                </div>
+              </div>
+
+              <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground">Remaining Balance</span>
+                <span className="text-lg font-bold text-primary">{formatPrice(remainingBalance)}</span>
               </div>
             </div>
 
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-6 space-y-4">
-              <h3 className="text-sm font-heading font-semibold flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-primary" /> Studio Contact
+            {/* Photographer / Studio */}
+            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-3">
+              <h3 className="text-sm font-heading font-semibold flex items-center gap-2">
+                <Award className="w-4 h-4 text-primary" /> Photographer
               </h3>
 
-              {showDirectContact ? (
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center gap-3">
-                    <Phone className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="font-medium">{contactPhone}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="font-medium truncate">{contactEmail}</span>
-                  </div>
+              <p className="text-sm font-semibold text-foreground">{booking.photographerName}</p>
+
+              {(photographer?.phone || photographer?.email) && (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  {photographer?.phone && (
+                    <p className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5" /> {photographer.phone}
+                    </p>
+                  )}
+                  {photographer?.email && (
+                    <p className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5" /> {photographer.email}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {socialLinks.length > 0 ? (
+                <div className="flex items-center gap-2 pt-1">
+                  {socialLinks.map(({ url, Icon, label }) => (
+                    <a
+                      key={label}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={label}
+                      className="w-8 h-8 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </a>
+                  ))}
                 </div>
               ) : (
-                <div className="bg-muted/40 p-4 rounded-xl text-center space-y-2 border border-border/50">
-                  <Shield className="w-8 h-8 text-muted-foreground/30 mx-auto" />
-                  <p className="text-[10px] text-muted-foreground">Contact details revealed upon approval.</p>
-                </div>
+                <p className="text-xs text-muted-foreground pt-1">No public links on file.</p>
               )}
             </div>
           </div>

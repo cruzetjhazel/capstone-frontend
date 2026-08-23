@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench
+  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench, Phone, Mail
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -104,11 +104,14 @@ export default function PhotographerProfile() {
   const p = photographer;
   const isFav = isFavorite(p.id);
   const popularPackageIndex = getPopularPackageIndex(p.packages);
+  const socialLinks = [
+    { url: p.socials?.facebook, Icon: Facebook, label: "Facebook" },
+    { url: p.socials?.instagram, Icon: Instagram, label: "Instagram" },
+    { url: p.socials?.website, Icon: Globe, label: "Website" },
+  ].filter((s) => !!s.url) as { url: string; Icon: typeof Facebook; label: string }[];
 
   const handleReportSubmit = () => {
-    toast.error("Report Sent", { 
-      description: `Your report regarding ${p.name} has been sent to the admin team.`
-    });
+    toast.error(`Report sent — your report regarding ${p.name} has been sent to the admin team.`);
     setShowReportModal(false);
     setReportReason("");
     setReportSeverity("");
@@ -133,6 +136,10 @@ export default function PhotographerProfile() {
               className="active:scale-75 transition-all duration-200"
               disabled={favoritesLoading || addFavorite.isPending || removeFavorite.isPending}
               onClick={() => {
+                if (!user) {
+                  toast.error("Please log in or create an account to save favorites.");
+                  return;
+                }
                 if (isFav) {
                   removeFavorite.mutate(p.id);
                   toast(`${p.name} removed from favorites.`);
@@ -158,9 +165,16 @@ export default function PhotographerProfile() {
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-8 animate-fade-up">
         {/* Profile header */}
         <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
-          <div className="h-40 relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5">
+          <div
+            className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5"
+            style={{ height: "15rem" }}
+          >
             {p.coverUrl && (
-              <img src={p.coverUrl} alt={`${p.name} cover`} className="w-full h-full object-cover" />
+              <img
+                src={p.coverUrl}
+                alt={`${p.name} cover`}
+                className="absolute inset-0 w-full h-full object-cover object-center"
+              />
             )}
             {/* Scrim starts dark at the bottom-left (where the avatar/name sit) and fades toward the top-right */}
             <div className="absolute inset-0 bg-gradient-to-tr from-black/55 via-black/10 to-transparent" />
@@ -173,17 +187,40 @@ export default function PhotographerProfile() {
                 p.avatar
               )}
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-start gap-4 pl-28 pt-3">
-              <div className="flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-6 pl-28 pt-4">
+              <div className="flex-1 min-w-0 pr-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-heading font-bold">{p.name}</h1>
                   <span className="px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">{p.type}</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {p.location}</span>
                   <span className="flex items-center gap-1"><Camera className="w-3.5 h-3.5" /> {p.specialty}</span>
-                  <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-accent text-accent" /> {p.rating} ({p.reviews} reviews)</span>
+                  <span className="flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-accent text-accent" />
+                    {p.reviews > 0 ? `${p.rating} (${p.reviews} reviews)` : "No reviews yet"}
+                  </span>
                 </div>
+                {(p.phone || p.email || socialLinks.length > 0) && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-sm text-foreground">
+                    {p.phone && (
+                      <span className="flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-muted-foreground" /> {p.phone}
+                      </span>
+                    )}
+                    {p.email && (
+                      <span className="flex items-center gap-1.5">
+                        <Mail className="w-3.5 h-3.5 text-muted-foreground" /> {p.email}
+                      </span>
+                    )}
+                    {socialLinks.map(({ url, Icon, label }) => (
+                      <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
+                        className="flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors">
+                        <Icon className="w-3.5 h-3.5" /> {label}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="text-right shrink-0">
                 <p className="text-sm text-muted-foreground">Starting at</p>
@@ -193,8 +230,8 @@ export default function PhotographerProfile() {
           </div>
         </div>
 
-        {/* Specializations + Socials strip */}
-        <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 flex flex-wrap items-center justify-between gap-4">
+        {/* Specializations strip */}
+        <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 flex flex-wrap items-center gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5" /> Specializes in
@@ -204,29 +241,6 @@ export default function PhotographerProfile() {
                 {svc}
               </span>
             ))}
-          </div>
-          <div className="flex items-center gap-2">
-            {(() => {
-              const socialLinks = [
-                { url: p.socials?.facebook, Icon: Facebook, label: "Facebook" },
-                { url: p.socials?.instagram, Icon: Instagram, label: "Instagram" },
-                { url: p.socials?.website, Icon: Globe, label: "Website" },
-              ].filter((s) => !!s.url) as { url: string; Icon: typeof Facebook; label: string }[];
-
-              if (socialLinks.length === 0) return null;
-
-              return (
-                <>
-                  <span className="text-xs text-muted-foreground mr-1">Connect:</span>
-                  {socialLinks.map(({ url, Icon, label }) => (
-                    <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
-                      className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
-                      <Icon className="w-4 h-4" />
-                    </a>
-                  ))}
-                </>
-              );
-            })()}
           </div>
         </div>
 

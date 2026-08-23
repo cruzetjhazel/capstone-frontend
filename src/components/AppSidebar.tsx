@@ -3,7 +3,7 @@ import {
   Camera, LayoutDashboard, CalendarDays, CreditCard, 
   Settings, BarChart3, FolderOpen, LogOut, Search, ImageIcon, 
   ShieldCheck, Sparkles, Star, Heart, Users, Trash2, ShieldAlert,
-  AlertTriangle, ClipboardList 
+  AlertTriangle, ClipboardList, Compass, HelpCircle 
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { cn, getInitials } from "@/lib/utils";
@@ -29,28 +29,28 @@ const clientNav: NavCategory[] = [
     title: "WORKSPACE",
     items: [
       { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
+      { label: "Find a Photographer", icon: Compass, to: "/explore" },
       { label: "My Bookings", icon: FolderOpen, to: "/bookings" },
     ]
   },
   {
-    title: "FAVORITES & FEEDBACK",
+    title: "PERSONAL",
     items: [
       { label: "Favorites", icon: Heart, to: "/favorites" },
       { label: "Reviews", icon: Star, to: "/reviews" },
+      { label: "Payments", icon: CreditCard, to: "/payments" },
     ]
   },
   {
     title: "ACCOUNT",
     items: [
-      { label: "Payments", icon: CreditCard, to: "/payments" },
       { label: "Settings", icon: Settings, to: "/profile" },
     ]
   },
   {
     title: "SUPPORT",
     items: [
-      { label: "Report a Problem", icon: AlertTriangle, to: "/report-problem" }, 
-      { label: "My Reports", icon: ClipboardList, to: "/reports" }, 
+      { label: "Help / Report a Problem", icon: HelpCircle, to: "/report-problem" },
     ]
   }
 ];
@@ -68,10 +68,10 @@ const studioNav: NavCategory[] = [
     ]
   },
   {
-    title: "CRM & ASSETS",
+    title: "STUDIO",
     items: [
       { label: "Clients (CRM)", icon: Users, to: "/studio/clients" },
-      { label: "Offer Packages", icon: Sparkles, to: "/studio/packages" },
+      { label: "Packages", icon: Sparkles, to: "/studio/packages" },
       { label: "Portfolio Showcase", icon: ImageIcon, to: "/studio/portfolio" },
     ]
   },
@@ -89,13 +89,7 @@ const studioNav: NavCategory[] = [
       { label: "Safe Archive", icon: Trash2, to: "/studio/archive" },
       { label: "Activity Logs", icon: ShieldAlert, to: "/studio/logs" },
       { label: "Settings", icon: Settings, to: "/studio/settings" },
-    ]
-  },
-  {
-    title: "SUPPORT",
-    items: [
-      { label: "Report a Problem", icon: AlertTriangle, to: "/studio/report-problem" }, 
-      { label: "My Reports", icon: ClipboardList, to: "/studio/reports" }, 
+      { label: "My Reports", icon: ClipboardList, to: "/studio/reports" },
     ]
   }
 ];

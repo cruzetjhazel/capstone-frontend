@@ -176,16 +176,21 @@ export default function Booking() {
   // value, every open day will just render as plain "available" instead of
   // ever going yellow, since there's no other client-side signal for partial
   // availability.
-  const getDateStatus = (d: Date): "past" | "booked" | "partial" | "available" => {
-    const today = new Date(new Date().setHours(0, 0, 0, 0));
-    if (d < today) return "past";
-    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const status = monthAvailability?.[ds];
-    if (bookedDates.some((bd) => bd.toDateString() === d.toDateString())) return "booked";
-    if (status === "unavailable" || status === "booked" || status === "fully_booked") return "booked";
-    if (status === "partially_booked" || status === "partial") return "partial";
-    return "available";
-  };
+  const getDateStatus = (d: Date): "past" | "booked" | "partial" | "available" | "unknown" => {
+  const today = new Date(new Date().setHours(0, 0, 0, 0));
+  if (d < today) return "past";
+  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const status = monthAvailability?.[ds];
+  if (bookedDates.some((bd) => bd.toDateString() === d.toDateString())) return "booked";
+  if (status === "unavailable" || status === "booked" || status === "fully_booked") return "booked";
+  if (status === "partially_booked" || status === "partial") return "partial";
+  if (status === "available") return "available";
+  // No answer yet for this date — the query hasn't resolved, or it's
+  // disabled because calendarPackageId is undefined. Fail closed instead
+  // of defaulting to "available": this is what let blocked/unverified
+  // dates through un-marked and clickable.
+  return "unknown";
+};
 
   // Package selection (Step 2) can change the required slot duration, which
   // can invalidate a start time picked back in Step 0 against a placeholder
@@ -240,6 +245,40 @@ export default function Booking() {
   };
 
   const customPrice = calculateCustomPrice(customBuild, rates);
+    // Group custom-package extras that share a tierName into single-select
+  // "pill" groups (e.g. Edited Photos: 50/100/200/300/Unlimited). Extras
+  // with no tierName stay as independent on/off toggles (e.g. RAW Files).
+  const tierGroups = useMemo(() => {
+    const groups = new Map<string, typeof rates.extras>();
+    for (const extra of rates.extras ?? []) {
+      const key = (extra as any).tierName as string | undefined;
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(extra);
+    }
+    return Array.from(groups.entries());
+  }, [rates.extras]);
+
+  const flatExtras = (rates.extras ?? []).filter((e) => !(e as any).tierName);
+
+  // A group's "baseline" option (price 0) is the one shown as active when
+  // nothing in that group has been explicitly picked yet.
+  const isTierOptionActive = (groupExtras: typeof rates.extras, extra: (typeof rates.extras)[number]) => {
+    const groupIds = groupExtras!.map((e) => e.id);
+    const explicit = customBuild.selectedExtraIds.find((id) => groupIds.includes(id));
+    return explicit ? explicit === extra.id : extra.price === 0;
+  };
+
+  const selectTierOption = (groupExtras: typeof rates.extras, chosen: (typeof rates.extras)[number]) => {
+    const groupIds = groupExtras!.map((e) => e.id);
+    setCustomBuild((prev) => {
+      const withoutGroup = prev.selectedExtraIds.filter((id) => !groupIds.includes(id));
+      return {
+        ...prev,
+        selectedExtraIds: chosen.price === 0 ? withoutGroup : [...withoutGroup, chosen.id],
+      };
+    });
+  };
   const packagePrice = packageMode === "fixed" ? (pkg?.price ?? 0) : customPrice;
   const packageName  = packageMode === "fixed" ? (pkg?.name ?? "—") : "Custom Package";
   const packagePhotos = packageMode === "fixed" ? (pkg?.photos ?? 0) : 0;
@@ -491,19 +530,21 @@ export default function Booking() {
                       onMonthChange={setViewMonth}
                       onSelect={setDate}
                       disabled={(d) => {
-                        const s = getDateStatus(d);
-                        return s === "past" || s === "booked" || isDateUnavailable(d);
-                      }}
-                      modifiers={{
-                        past: (d) => getDateStatus(d) === "past",
-                        booked: (d) => getDateStatus(d) === "booked",
-                        partial: (d) => getDateStatus(d) === "partial",
-                      }}
-                      modifiersClassNames={{
-                        past: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
-                        booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
-                        partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
-                      }}
+                          const s = getDateStatus(d);
+                          return s === "past" || s === "booked" || s === "unknown" || isDateUnavailable(d);
+                        }}
+                        modifiers={{
+                          past: (d) => getDateStatus(d) === "past",
+                          booked: (d) => getDateStatus(d) === "booked",
+                          partial: (d) => getDateStatus(d) === "partial",
+                          unknown: (d) => getDateStatus(d) === "unknown",
+                        }}
+                        modifiersClassNames={{
+                          past: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                          booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
+                          partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
+                          unknown: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                        }}
                       className="rounded-xl border pointer-events-auto"
                       showOutsideDays
                     />
@@ -795,9 +836,36 @@ export default function Booking() {
                       <span>These rates are set by <strong>{p.name}</strong>. Base fee starts at {formatPrice(rates.baseFee)}.</span>
                     </div>
 
-                    {(rates.extras ?? []).length > 0 && (
+                    {tierGroups.map(([tierName, groupExtras]) => (
+                      <div key={tierName} className="space-y-2">
+                        <p className="text-sm font-heading font-semibold">{tierName}</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {groupExtras!.map((extra) => {
+                            const active = isTierOptionActive(groupExtras, extra);
+                            return (
+                              <button
+                                key={extra.id}
+                                type="button"
+                                onClick={() => selectTierOption(groupExtras, extra)}
+                                className={cn(
+                                  "text-center p-3 rounded-xl border-2 transition-all duration-200",
+                                  active ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"
+                                )}
+                              >
+                                <p className="text-sm font-medium">{extra.label}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {extra.price === 0 ? "Included" : `+${formatPrice(extra.price)}`}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                    {flatExtras.length > 0 && (
                       <div className="space-y-2">
-                        {rates.extras!.map((extra) => (
+                        {flatExtras.map((extra) => (
                           <div key={extra.id} className="flex items-center justify-between p-4 rounded-xl border border-border">
                             <div>
                               <p className="text-sm font-medium">{extra.label}</p>

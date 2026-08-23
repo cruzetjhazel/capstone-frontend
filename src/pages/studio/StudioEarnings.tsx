@@ -44,14 +44,6 @@ function StatusPill({ status }: { status: DisplayStatus }) {
   );
 }
 
-const [pendingTrackerChange, setPendingTrackerChange] = useState<{ booking: StudioBookingRecord; stage: TrackingStage } | null>(null);
-
-const confirmTrackerChange = async () => {
-  if (!pendingTrackerChange) return;
-  await handleTrackerChange(pendingTrackerChange.booking.id, pendingTrackerChange.stage);
-  setPendingTrackerChange(null);
-};
-
 function money(value: number): string {
   return `₱${(Number.isFinite(value) ? value : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

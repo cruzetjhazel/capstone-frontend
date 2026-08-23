@@ -1,4 +1,5 @@
 import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, Sparkles, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
+import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -299,6 +300,7 @@ export default function Register() {
   // Basics
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
@@ -388,15 +390,16 @@ export default function Register() {
           body: formData,
         });
         await parseApiResponse(response);
-      } catch {
-        failed.push(file.name);
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : "Unknown error";
+        failed.push(`${file.name} (${reason})`);
       }
     }
 
     setIsLoading(false);
 
     if (failed.length > 0) {
-      setApiError(`${failed.length} image(s) failed to upload: ${failed.join(", ")}. Remove and re-add them, then try again.`);
+      setApiError(`${failed.length} image(s) failed to upload — ${failed.join("; ")}. Remove and re-add them, then try again.`);
       return;
     }
 
@@ -515,15 +518,33 @@ export default function Register() {
   };
 
   const handleAdditionalProofChange = (files: File[]) => {
-    const MAX_SIZE = 2 * 1024 * 1024; 
+    const MAX_SIZE = 2 * 1024 * 1024;
+    const MAX_FILES = 5;
+
+    const oversized = files.filter((f) => f.size > MAX_SIZE);
     const validFiles = files.filter((f) => f.size <= MAX_SIZE);
-    
-    if (validFiles.length < files.length) {
-      alert("Some files were skipped because they exceed the 2MB size limit.");
+
+    if (oversized.length > 0) {
+      toast.error(
+        oversized.length === 1
+          ? `"${oversized[0].name}" was removed — it exceeds the 2MB size limit.`
+          : `${oversized.length} files were removed — they exceed the 2MB size limit.`
+      );
     }
 
-    const totalSelected = [...additionalProof, ...validFiles].slice(0, 6);
-    setAdditionalProof(totalSelected);
+    const availableSlots = Math.max(0, MAX_FILES - additionalProof.length);
+    const filesToAdd = validFiles.slice(0, availableSlots);
+    const overflow = validFiles.length - filesToAdd.length;
+
+    if (overflow > 0) {
+      toast.error(
+        overflow === 1
+          ? `1 file was removed — you can only upload up to ${MAX_FILES} files.`
+          : `${overflow} files were removed — you can only upload up to ${MAX_FILES} files.`
+      );
+    }
+
+    setAdditionalProof((prev) => [...prev, ...filesToAdd].slice(0, MAX_FILES));
   };
 
   const removeAdditionalProof = (idx: number) => {
@@ -577,7 +598,7 @@ export default function Register() {
     !!priceMax &&
     Number(priceMax) >= Number(priceMin);
 
-  const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 6;
+  const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 5;
   const hasAdequateAdditionalProof = additionalProofValid || existingDocs.additionalDocuments >= 2;
   const canStep5Verify =
     accountType === "studio"
@@ -781,11 +802,13 @@ export default function Register() {
   }
 
   const stepLabel = step > 1 && accountType ? STEP_TITLES[accountType][step - 2] : "Connect with photography talent in Bulan";
+  const isProfileBuilderStep = step === 7 && accountType !== "client";
 
   return (
     <div className="min-h-screen flex bg-white relative text-foreground">
       <BackLink onDark />
 
+      {!isProfileBuilderStep && (
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
         <div className="relative z-10 px-16 max-w-lg animate-fade-up">
           <div className="flex items-center gap-3 mb-8">
@@ -808,9 +831,10 @@ export default function Register() {
         <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-white/5" />
         <div className="absolute -top-16 -left-16 w-64 h-64 rounded-full bg-white/5" />
       </div>
+      )}
 
-      <div className="flex-1 flex items-center justify-center px-6 py-12 bg-white text-foreground overflow-y-auto overflow-x-visible">
-        <div className="w-full max-w-md max-h-full overflow-y-visible animate-fade-up">
+      <div className={cn("flex-1 flex items-start justify-center px-6 py-12 bg-white text-foreground overflow-y-auto overflow-x-visible", !isProfileBuilderStep && "items-center")}>
+        <div className={cn("w-full max-h-full overflow-y-visible animate-fade-up", isProfileBuilderStep ? "max-w-5xl" : "max-w-md")}>
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Camera className="w-4 h-4 text-primary-foreground" />
@@ -880,7 +904,19 @@ export default function Register() {
                   <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" maxLength={100} />
                 </Field>
                 <Field label="Email address" required>
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" maxLength={254} />
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onBlur={() => setEmailTouched(true)}
+                    placeholder="you@example.com"
+                    maxLength={254}
+                  />
+                  {emailTouched && email.trim() && (
+                    isValidEmail(email)
+                      ? <ValidationHint text="Valid email address" valid />
+                      : <p className="text-xs text-destructive">Enter a valid email address.</p>
+                  )}
                 </Field>
                 <Field label="Phone number" required>
                   <Input
@@ -1190,7 +1226,7 @@ export default function Register() {
                   />
                 )}
 
-                <Field label="Additional Proof / Documents" required hint="Please upload 2 to 6 files. Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
+                <Field label="Additional Proof / Documents" required hint="Upload up to 5 files (minimum 2). Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
                   <div className="flex items-center justify-center w-full">
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-xl cursor-pointer bg-card hover:bg-muted/50 transition-colors">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -1198,7 +1234,7 @@ export default function Register() {
                         <p className="text-sm text-muted-foreground">
                           <span className="font-semibold text-primary">Click to upload</span> or drag and drop
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or PDF (Max 2MB)</p>
+                        <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or PDF (Max 2MB, up to 5 files)</p>
                       </div>
                       <Input 
                         type="file" 
@@ -1218,10 +1254,10 @@ export default function Register() {
                   <div className="flex justify-between items-center text-xs mt-3 mb-1">
                     <span className={cn("font-medium", (additionalProofValid || existingDocs.additionalDocuments >= 2) ? "text-emerald-600" : "text-destructive")}>
                       {additionalProof.length > 0
-                        ? `${additionalProof.length} / 6 files selected (minimum 2)`
+                        ? `${additionalProof.length} / 5 files selected (minimum 2)`
                         : existingDocs.additionalDocuments >= 2
                         ? `${existingDocs.additionalDocuments} file(s) already on file — add more to replace`
-                        : `${additionalProof.length} / 6 files selected (minimum 2)`}
+                        : `${additionalProof.length} / 5 files selected (minimum 2)`}
                     </span>
                   </div>
 

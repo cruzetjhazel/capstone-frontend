@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,38 +8,41 @@ import {
 import { 
   Eye, Search, RotateCcw, ChevronLeft, ChevronRight,
   Calendar, Clock, CreditCard, User, Aperture, FileText, Activity, AlertCircle,
-  CalendarDays, CheckCircle2, CheckCircle, XCircle, Receipt, Check, X, Ban, MapPin, Users
+  CalendarDays, CheckCircle2, CheckCircle, XCircle, Receipt, Check, X, Ban, MapPin, Users, Loader2
 } from "lucide-react";
 import toast from "react-hot-toast";
+import api, { getApiErrorMessage } from "@/lib/api";
 
 // --- Types Aligned with System Requirements ---
-type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Rejected" | "Cancelled" | "Completed";
-type PaymentStatus = "Pending" | "Partially Paid" | "Fully Paid" | "Failed" | "Cancelled";
-type TrackingStatus = "Upcoming" | "Scheduled" | "In Progress" | "Completed";
+type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Rejected" | "Cancelled" | "Completed" | "Expired";
+type PaymentStatus = "Pending" | "Pending Verification" | "Partially Paid" | "Fully Paid" | "Failed" | "Cancelled";
+type TrackingStatus = "Upcoming" | "In Progress" | "Completed" | "Pending";
 type PaymentPlan = "Half Payment" | "Full Payment";
 type ProfessionalType = "Freelancer" | "Studio";
 
 interface ServiceTrackingStep {
   label: string;
-  status: TrackingStatus | "Pending";
-  date?: string;
+  status: TrackingStatus;
+  date?: string | null;
 }
 
 interface BookingRecord {
   id: string;
+  rawId: number;
   client: string;
-  clientEmail: string;
-  clientPhone: string;
+  clientEmail: string | null;
+  clientPhone: string | null;
   photographer: string;
+  photographerId: number | null;
   professionalType: ProfessionalType;
   event: string;
   eventLocation: string;
-  eventAddress?: string;
-  guests?: number;
-  bookingDate: string;
-  eventDate: string;
-  startingTime: string;
-  expectedEndTime: string;
+  eventAddress?: string | null;
+  guests?: number | null;
+  bookingDate: string | null;
+  eventDate: string | null;
+  startingTime: string | null;
+  expectedEndTime: string | null;
   paymentStatus: PaymentStatus;
   paymentPlan: PaymentPlan;
   status: BookingStatus;
@@ -48,174 +51,178 @@ interface BookingRecord {
   totalAmount: number;
   amountPaid: number;
   balance: number;
-  invoiceId: string;
-  paymentMethod?: string;
-  paymentDate?: string;
-  clientNotes: string;
-  cancellationReason?: string;
-  rescheduleRequest?: string;
-  modificationRequests?: string;
-  history: { date: string; action: string }[];
+  invoiceId: string | null;
+  paymentMethod?: string | null;
+  paymentDate?: string | null;
+  clientNotes: string | null;
+  cancellationReason?: string | null;
   serviceTracking: ServiceTrackingStep[];
 }
 
-// --- Mock Data ---
-const initialBookings: BookingRecord[] = [
-  { 
-    id: "BK-001", client: "Emily Watson", clientEmail: "emily@mail.com", clientPhone: "+63 912 345 6789", 
-    photographer: "Rivera Studio", professionalType: "Studio", event: "Wedding", 
-    eventLocation: "Outdoor Location", eventAddress: "123 Beachfront Resort, Bulan", guests: 150,
-    bookingDate: "Mar 15, 2026, 10:30 AM", eventDate: "May 20, 2026", 
-    startingTime: "08:00 AM", expectedEndTime: "04:00 PM",
-    paymentStatus: "Partially Paid", status: "Confirmed", paymentPlan: "Half Payment",
-    package: "Premium Wedding Coverage", addons: ["Drone Footage", "Extra 2 Hours"], 
-    totalAmount: 45000, amountPaid: 22500, balance: 22500, invoiceId: "INV-2026-001",
-    paymentMethod: "Xendit (GCash)", paymentDate: "Mar 16, 2026",
-    clientNotes: "Please ensure you capture the first look.", 
-    history: [{ date: "Mar 15, 2026, 10:30 AM", action: "Booking requested" }, { date: "Mar 16, 2026, 09:00 AM", action: "Accepted & Payment Recorded" }],
-    serviceTracking: [
-      { label: "Upcoming", status: "Completed", date: "Mar 15, 2026" },
-      { label: "Scheduled", status: "In Progress", date: "Mar 16, 2026" },
-      { label: "In Progress", status: "Pending" },
-      { label: "Completed", status: "Pending" }
-    ]
-  },
-  { 
-    id: "BK-002", client: "David Kim", clientEmail: "david@mail.com", clientPhone: "+63 998 765 4321", 
-    photographer: "Anya Petrova", professionalType: "Freelancer", event: "Prenup", 
-    eventLocation: "Client Location", eventAddress: "Sabang Park, Bulan", guests: 2,
-    bookingDate: "Apr 2, 2026, 02:15 PM", eventDate: "Apr 18, 2026", 
-    startingTime: "03:00 PM", expectedEndTime: "06:00 PM",
-    paymentStatus: "Pending", status: "Pending", paymentPlan: "Full Payment",
-    package: "Standard Engagement", addons: [], 
-    totalAmount: 8500, amountPaid: 0, balance: 8500, invoiceId: "INV-2026-002",
-    clientNotes: "We prefer sunset shots.", 
-    history: [{ date: "Apr 2, 2026, 02:15 PM", action: "Booking requested" }],
-    serviceTracking: [
-      { label: "Upcoming", status: "In Progress", date: "Apr 2, 2026" },
-      { label: "Scheduled", status: "Pending" },
-      { label: "In Progress", status: "Pending" },
-      { label: "Completed", status: "Pending" }
-    ]
-  },
-  { 
-    id: "BK-003", client: "Sarah Chen", clientEmail: "sarah@mail.com", clientPhone: "+63 945 123 9876", 
-    photographer: "Leo Chang", professionalType: "Freelancer", event: "Corporate Event", 
-    eventLocation: "Studio", guests: 50,
-    bookingDate: "Jan 10, 2026, 11:00 AM", eventDate: "Feb 5, 2026", 
-    startingTime: "09:00 AM", expectedEndTime: "05:00 PM",
-    paymentStatus: "Fully Paid", status: "Completed", paymentPlan: "Full Payment",
-    package: "Full Day Corporate Event", addons: ["Photo Booth"], 
-    totalAmount: 25000, amountPaid: 25000, balance: 0, invoiceId: "INV-2026-003",
-    paymentMethod: "Xendit (Card)", paymentDate: "Jan 12, 2026",
-    clientNotes: "Corporate branding guidelines attached via email.", 
-    history: [{ date: "Jan 10, 2026", action: "Booking requested" }, { date: "Jan 12, 2026", action: "Fully paid" }, { date: "Feb 5, 2026", action: "Event completed" }],
-    serviceTracking: [
-      { label: "Upcoming", status: "Completed", date: "Jan 10, 2026" },
-      { label: "Scheduled", status: "Completed", date: "Jan 12, 2026" },
-      { label: "In Progress", status: "Completed", date: "Feb 5, 2026" },
-      { label: "Completed", status: "Completed", date: "Feb 10, 2026" }
-    ]
-  },
-  ...Array.from({ length: 12 }).map((_, i) => {
-    const isCompleted = i % 4 === 0;
-    const isConfirmed = i % 3 === 0;
-    const isCancelled = i % 2 === 0 && !isCompleted && !isConfirmed;
-    
-    return {
-      id: `BK-00${i + 4}`, client: `Client ${i + 4}`, clientEmail: `client${i+4}@mail.com`, clientPhone: "+63 900 000 0000",
-      photographer: i % 2 === 0 ? "Amara's Studio" : "Kap Studio", 
-      professionalType: (i % 2 === 0 ? "Studio" : "Freelancer") as ProfessionalType,
-      event: "Portrait", eventLocation: "Studio", guests: 1,
-      bookingDate: `Apr ${i + 1}, 2026, 09:00 AM`, eventDate: `Apr ${i + 15}, 2026`,
-      startingTime: "01:00 PM", expectedEndTime: "03:00 PM",
-      paymentStatus: (i % 3 === 0 ? "Fully Paid" : i % 2 === 0 ? "Partially Paid" : "Pending") as PaymentStatus,
-      status: (isCompleted ? "Completed" : isConfirmed ? "Confirmed" : isCancelled ? "Cancelled" : "Pending") as BookingStatus,
-      paymentPlan: i % 2 === 0 ? "Half Payment" : "Full Payment" as PaymentPlan,
-      package: "Basic Package", addons: [], 
-      totalAmount: 3000, amountPaid: (i % 3 === 0 ? 3000 : i % 2 === 0 ? 1500 : 0), balance: (i % 3 === 0 ? 0 : i % 2 === 0 ? 1500 : 3000), 
-      invoiceId: `INV-2026-00${i + 4}`,
-      paymentMethod: i % 3 === 0 ? "Xendit (Maya)" : undefined,
-      clientNotes: "N/A", history: [],
-      serviceTracking: [
-        { label: "Upcoming", status: "Completed" as TrackingStatus, date: `Apr ${i + 1}, 2026` },
-        { label: "Scheduled", status: (isConfirmed || isCompleted ? "Completed" : "Pending") as TrackingStatus },
-        { label: "In Progress", status: (isCompleted ? "Completed" : isConfirmed ? "In Progress" : "Pending") as TrackingStatus },
-        { label: "Completed", status: (isCompleted ? "Completed" : "Pending") as TrackingStatus }
-      ]
-    };
-  })
-];
+function fromApi(raw: any): BookingRecord {
+  return {
+    id: raw.id,
+    rawId: raw.raw_id,
+    client: raw.client,
+    clientEmail: raw.clientEmail,
+    clientPhone: raw.clientPhone,
+    photographer: raw.photographer,
+    photographerId: raw.photographerId,
+    professionalType: raw.professionalType === "Studio" ? "Studio" : "Freelancer",
+    event: raw.event,
+    eventLocation: raw.eventLocation,
+    eventAddress: raw.eventAddress,
+    guests: raw.guests,
+    bookingDate: raw.bookingDate,
+    eventDate: raw.eventDate,
+    startingTime: raw.startingTime,
+    expectedEndTime: raw.expectedEndTime,
+    paymentStatus: raw.paymentStatus,
+    paymentPlan: raw.paymentPlan,
+    status: raw.status,
+    package: raw.package,
+    addons: raw.addons ?? [],
+    totalAmount: Number(raw.totalAmount ?? 0),
+    amountPaid: Number(raw.amountPaid ?? 0),
+    balance: Number(raw.balance ?? 0),
+    invoiceId: raw.invoiceId,
+    paymentMethod: raw.paymentMethod,
+    paymentDate: raw.paymentDate,
+    clientNotes: raw.clientNotes,
+    cancellationReason: raw.cancellationReason,
+    serviceTracking: raw.serviceTracking ?? [],
+  };
+}
+
+// Handles res.data.data vs res.data.data.data etc. without assuming a fixed depth.
+function unwrapObject(payload: any): any {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && typeof cur === "object" && !Array.isArray(cur) && "data" in cur; i++) {
+    cur = cur.data;
+  }
+  return cur && typeof cur === "object" ? cur : {};
+}
+
+function unwrapList(payload: any): any[] {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && !Array.isArray(cur); i++) {
+    cur = cur.data;
+  }
+  return Array.isArray(cur) ? cur : [];
+}
 
 const ITEMS_PER_PAGE = 10;
 
 // --- Configs ---
-const bookingStatusConfig: Record<BookingStatus, string> = {
+const bookingStatusConfig: Record<string, string> = {
   "Pending": "bg-amber-500/10 text-amber-600",
   "Accepted": "bg-blue-500/10 text-blue-600",
   "Confirmed": "bg-emerald-500/10 text-emerald-600",
   "Rejected": "bg-orange-500/10 text-orange-600",
   "Completed": "bg-primary/10 text-primary",
   "Cancelled": "bg-destructive/10 text-destructive",
+  "Expired": "bg-muted text-muted-foreground",
 };
 
-const paymentStatusConfig: Record<PaymentStatus, string> = {
+const paymentStatusConfig: Record<string, string> = {
   "Pending": "bg-muted text-muted-foreground",
+  "Pending Verification": "bg-amber-500/10 text-amber-600",
   "Partially Paid": "bg-blue-500/10 text-blue-600",
   "Fully Paid": "bg-emerald-500/10 text-emerald-600",
   "Failed": "bg-destructive/10 text-destructive",
   "Cancelled": "bg-destructive/10 text-destructive",
 };
 
+type Studio = { id: number; name: string };
+
 export default function AdminBookings() {
-  const [bookings, setBookings] = useState<BookingRecord[]>(initialBookings);
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const [platformStats, setPlatformStats] = useState({ total: 0, pending: 0, confirmed: 0, completed: 0, cancelled_or_rejected: 0 });
+
+  const [studios, setStudios] = useState<Studio[]>([]);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [studioFilter, setStudioFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
   // Modals state
   const [viewBooking, setViewBooking] = useState<BookingRecord | null>(null);
   const [viewPayment, setViewPayment] = useState<BookingRecord | null>(null);
   const [cancelModal, setCancelModal] = useState<BookingRecord | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
-  const uniqueStudios = Array.from(new Set(bookings.map(b => b.photographer))).sort();
+  // Studio filter options — reuse the existing user-management endpoint.
+  useEffect(() => {
+    api.get("/admin/users", { params: { account_type: "photographer", account_status: "active" } })
+      .then((res) => {
+        const list = unwrapList(res.data);
+        setStudios(list.map((u: any) => ({ id: u.id, name: u.name })));
+      })
+      .catch(() => { /* non-critical — filter just won't populate */ });
+  }, []);
 
-  const filteredBookings = useMemo(() => {
-    return bookings.filter((b) => {
-      if (statusFilter !== "all" && b.status !== statusFilter) return false;
-      if (paymentFilter !== "all" && b.paymentStatus !== paymentFilter) return false;
-      if (studioFilter !== "all" && b.photographer !== studioFilter) return false;
-      if (dateFilter !== "all") {
-        if (dateFilter === "today" && !b.bookingDate.includes("Today")) return true;
-      }
-      if (search) {
-        const q = search.toLowerCase();
-        if (
-          !b.id.toLowerCase().includes(q) && 
-          !b.client.toLowerCase().includes(q) && 
-          !b.photographer.toLowerCase().includes(q) && 
-          !b.event.toLowerCase().includes(q)
-        ) return false;
-      }
-      return true;
-    });
-  }, [bookings, statusFilter, paymentFilter, studioFilter, dateFilter, search]);
+  const fetchBookings = () => {
+    setIsLoading(true);
+    setLoadError("");
 
-  const summaryCounts = {
-    total: filteredBookings.length,
-    pending: filteredBookings.filter(b => b.status === "Pending").length,
-    confirmed: filteredBookings.filter(b => b.status === "Confirmed").length,
-    completed: filteredBookings.filter(b => b.status === "Completed").length,
-    cancelled: filteredBookings.filter(b => b.status === "Cancelled" || b.status === "Rejected").length,
+    const statusMap: Record<string, string> = {
+      Pending: "pending", Accepted: "accepted", Confirmed: "confirmed",
+      Rejected: "rejected", Cancelled: "cancelled", Completed: "completed",
+    };
+    const paymentMap: Record<string, string> = {
+      Pending: "pending", "Pending Verification": "pending_verification",
+      "Partially Paid": "partially_paid", "Fully Paid": "fully_paid",
+      Failed: "failed", Cancelled: "cancelled",
+    };
+
+    api.get("/admin/bookings", {
+      params: {
+        per_page: ITEMS_PER_PAGE,
+        page: currentPage,
+        status: statusFilter !== "all" ? statusMap[statusFilter] : undefined,
+        payment_status: paymentFilter !== "all" ? paymentMap[paymentFilter] : undefined,
+        photographer_id: studioFilter !== "all" ? studioFilter : undefined,
+        date_filter: dateFilter !== "all" ? dateFilter : undefined,
+        search: search || undefined,
+      },
+    })
+      .then((res) => {
+        const envelope = unwrapObject(res.data);
+        const paginated = envelope.bookings ?? {};
+        const list = unwrapList(paginated);
+        setBookings(list.map(fromApi));
+        setTotalPages(paginated.last_page ?? 1);
+        setTotalCount(paginated.total ?? list.length);
+        if (envelope.stats) setPlatformStats(envelope.stats);
+      })
+      .catch((err) => {
+        setLoadError(getApiErrorMessage(err, "Failed to load bookings."));
+      })
+      .finally(() => setIsLoading(false));
   };
 
-  const totalPages = Math.max(1, Math.ceil(filteredBookings.length / ITEMS_PER_PAGE));
-  const paginatedBookings = filteredBookings.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-  const startItem = (currentPage - 1) * ITEMS_PER_PAGE + 1;
-  const endItem = Math.min(currentPage * ITEMS_PER_PAGE, filteredBookings.length);
+  useEffect(() => {
+    fetchBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, paymentFilter, studioFilter, dateFilter, currentPage]);
+
+  // Debounce free-text search so it doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setCurrentPage(1);
+      fetchBookings();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const resetFilters = () => {
     setSearch("");
@@ -226,28 +233,30 @@ export default function AdminBookings() {
     setCurrentPage(1);
   };
 
-  // Admin Actions
-  const handleKeepBooking = () => {
-    setCancelModal(null);
-    toast.info("Booking cancellation aborted.");
-  };
-
-  const confirmCancel = () => {
-    if (cancelModal) {
-      setBookings(prev => prev.map(b => 
-        b.id === cancelModal.id ? { ...b, status: "Cancelled", paymentStatus: "Cancelled" } : b
-      ));
-      toast.success(`Booking ${cancelModal.id} has been successfully cancelled.`);
+  const confirmCancel = async () => {
+    if (!cancelModal) return;
+    setIsCancelling(true);
+    try {
+      await api.post(`/admin/bookings/${cancelModal.rawId}/cancel`);
+      toast.success(`Booking ${cancelModal.id} has been cancelled.`);
       setCancelModal(null);
+      fetchBookings();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "That booking couldn't be cancelled."));
+    } finally {
+      setIsCancelling(false);
     }
   };
 
+  const startItem = totalCount === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
+  const endItem = Math.min(currentPage * ITEMS_PER_PAGE, totalCount);
+
   const stats = [
-    { label: "Total Bookings", value: summaryCounts.total.toLocaleString(), subtext: "+18% vs last month", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
-    { label: "Pending", value: summaryCounts.pending.toLocaleString(), subtext: "Awaiting studio action", icon: Clock, color: "bg-amber-500/10 text-amber-600" },
-    { label: "Confirmed", value: summaryCounts.confirmed.toLocaleString(), subtext: "+5 verified this week", icon: CheckCircle2, color: "bg-blue-500/10 text-blue-600" },
-    { label: "Completed", value: summaryCounts.completed.toLocaleString(), subtext: "+12% vs last month", icon: CheckCircle, color: "bg-primary/10 text-primary" },
-    { label: "Cancelled/Rejected", value: summaryCounts.cancelled.toLocaleString(), subtext: "-3 from last week", icon: XCircle, color: "bg-destructive/10 text-destructive" },
+    { label: "Total Bookings", value: platformStats.total.toLocaleString(), subtext: "Platform-wide", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
+    { label: "Pending", value: platformStats.pending.toLocaleString(), subtext: "Awaiting studio action", icon: Clock, color: "bg-amber-500/10 text-amber-600" },
+    { label: "Confirmed", value: platformStats.confirmed.toLocaleString(), subtext: "Active bookings", icon: CheckCircle2, color: "bg-blue-500/10 text-blue-600" },
+    { label: "Completed", value: platformStats.completed.toLocaleString(), subtext: "Finished events", icon: CheckCircle, color: "bg-primary/10 text-primary" },
+    { label: "Cancelled/Rejected", value: platformStats.cancelled_or_rejected.toLocaleString(), subtext: "Not proceeding", icon: XCircle, color: "bg-destructive/10 text-destructive" },
   ];
 
   return (
@@ -280,7 +289,7 @@ export default function AdminBookings() {
               placeholder="Search booking ID, client, studio, or event..."
               className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           
@@ -307,6 +316,7 @@ export default function AdminBookings() {
               <SelectContent>
                 <SelectItem value="all">All Payments</SelectItem>
                 <SelectItem value="Pending">Pending</SelectItem>
+                <SelectItem value="Pending Verification">Pending Verification</SelectItem>
                 <SelectItem value="Partially Paid">Partially Paid</SelectItem>
                 <SelectItem value="Fully Paid">Fully Paid</SelectItem>
                 <SelectItem value="Failed">Failed</SelectItem>
@@ -320,8 +330,8 @@ export default function AdminBookings() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Studios</SelectItem>
-                {uniqueStudios.map(studio => (
-                  <SelectItem key={studio} value={studio}>{studio}</SelectItem>
+                {studios.map(studio => (
+                  <SelectItem key={studio.id} value={String(studio.id)}>{studio.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -363,31 +373,45 @@ export default function AdminBookings() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
-                {paginatedBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-muted/30 transition-colors">
+                {isLoading && (
+                  <tr>
+                    <td colSpan={9} className="text-center py-12 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> Loading bookings…
+                    </td>
+                  </tr>
+                )}
+
+                {!isLoading && loadError && (
+                  <tr>
+                    <td colSpan={9} className="text-center py-12 text-rose-600">{loadError}</td>
+                  </tr>
+                )}
+
+                {!isLoading && !loadError && bookings.map((b) => (
+                  <tr key={b.rawId} className="hover:bg-muted/30 transition-colors">
                     <td className="px-5 py-3.5 text-sm font-medium">{b.id}</td>
                     <td className="px-5 py-3.5 text-sm font-medium">{b.client}</td>
                     <td className="px-5 py-3.5 text-sm">{b.photographer}</td>
                     <td className="px-5 py-3.5 text-sm text-muted-foreground">{b.event}</td>
                     <td className="px-5 py-3.5">
                       <div className="flex flex-col">
-                        <span className="text-sm">{b.bookingDate.split(", ")[0]}</span>
-                        <span className="text-xs text-muted-foreground mt-0.5">{b.bookingDate.split(", ")[1]}</span>
+                        <span className="text-sm">{b.bookingDate ? new Date(b.bookingDate).toLocaleDateString() : "—"}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{b.bookingDate ? new Date(b.bookingDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex flex-col">
-                        <span className="text-sm">{b.eventDate}</span>
-                        <span className="text-xs text-muted-foreground mt-0.5">{b.startingTime}</span>
+                        <span className="text-sm">{b.eventDate ? new Date(b.eventDate).toLocaleDateString() : "—"}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{b.startingTime ?? ""}</span>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[b.paymentStatus]}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[b.paymentStatus] ?? "bg-muted text-muted-foreground"}`}>
                         {b.paymentStatus}
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[b.status]}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[b.status] ?? "bg-muted text-muted-foreground"}`}>
                         {b.status}
                       </span>
                     </td>
@@ -425,7 +449,7 @@ export default function AdminBookings() {
               </tbody>
             </table>
 
-            {paginatedBookings.length === 0 && (
+            {!isLoading && !loadError && bookings.length === 0 && (
               <div className="p-12 text-center text-muted-foreground">
                 No bookings found matching your search or filters.
               </div>
@@ -433,10 +457,10 @@ export default function AdminBookings() {
           </div>
 
           {/* Pagination */}
-          {filteredBookings.length > 0 && (
+          {totalCount > 0 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-3.5 border-t border-border/40 bg-muted/20">
               <span className="text-xs text-muted-foreground font-medium">
-                Showing {startItem}–{endItem} of {filteredBookings.length} bookings
+                Showing {startItem}–{endItem} of {totalCount} bookings
               </span>
               
               <div className="flex items-center gap-1.5">
@@ -483,13 +507,14 @@ export default function AdminBookings() {
             </div>
             <h3 className="text-lg font-bold font-heading mb-2">Cancel Booking {cancelModal.id}?</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              Are you sure you want to administratively cancel this booking? This action updates the system status and notifies both the Professional and the Client.
+              Are you sure you want to administratively cancel this booking? This action updates the system status and payment record. No refund is processed automatically.
             </p>
             <div className="flex items-center gap-3 w-full">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={handleKeepBooking}>
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setCancelModal(null)} disabled={isCancelling}>
                 Keep Booking
               </Button>
-              <Button variant="destructive" className="flex-1 rounded-xl" onClick={confirmCancel}>
+              <Button variant="destructive" className="flex-1 rounded-xl" onClick={confirmCancel} disabled={isCancelling}>
+                {isCancelling && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
                 Yes, Cancel
               </Button>
             </div>
@@ -519,10 +544,10 @@ export default function AdminBookings() {
                 <p className="text-sm text-muted-foreground mt-1">Reviewing complete booking details</p>
               </div>
               <div className="flex flex-col sm:items-end gap-2">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[viewBooking.status]}`}>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[viewBooking.status] ?? "bg-muted text-muted-foreground"}`}>
                   {viewBooking.status}
                 </span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[viewBooking.paymentStatus]}`}>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[viewBooking.paymentStatus] ?? "bg-muted text-muted-foreground"}`}>
                   {viewBooking.paymentStatus}
                 </span>
               </div>
@@ -532,52 +557,50 @@ export default function AdminBookings() {
             <div className="p-6 space-y-8">
               
               {/* Visual Service Tracking Component */}
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-                  <Activity className="w-4 h-4" /> Service Tracking Progress
-                </h3>
-                <div className="bg-muted/20 rounded-xl p-6 border border-border/50">
-                  <div className="flex flex-col md:flex-row w-full">
-                    {viewBooking.serviceTracking.map((step, index) => {
-                      const isCompleted = step.status === "Completed";
-                      const isInProgress = step.status === "In Progress";
-                      const isPending = step.status === "Pending";
-                      const isLast = index === viewBooking.serviceTracking.length - 1;
+              {viewBooking.serviceTracking.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+                    <Activity className="w-4 h-4" /> Service Tracking Progress
+                  </h3>
+                  <div className="bg-muted/20 rounded-xl p-6 border border-border/50">
+                    <div className="flex flex-col md:flex-row w-full">
+                      {viewBooking.serviceTracking.map((step, index) => {
+                        const isCompleted = step.status === "Completed";
+                        const isInProgress = step.status === "In Progress";
+                        const isPending = step.status === "Pending";
+                        const isLast = index === viewBooking.serviceTracking.length - 1;
 
-                      return (
-                        <div key={step.label} className={`relative flex md:flex-col items-start md:items-center gap-4 md:gap-3 z-10 ${!isLast ? 'flex-1 pb-8 md:pb-0' : ''}`}>
-                          
-                          {/* Connecting Line (hidden on the last item) */}
-                          {!isLast && (
-                            <div className={`absolute left-[15px] top-[32px] bottom-0 w-0.5 md:w-full md:h-0.5 md:left-[50%] md:top-[15px] md:bottom-auto -z-10 transition-colors duration-300 ${isCompleted ? 'bg-primary' : 'bg-border'}`} />
-                          )}
-                          
-                          {/* Tracking Dot */}
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 shrink-0 bg-card
-                            ${isCompleted ? 'border-primary bg-primary text-primary-foreground' : 
-                              isInProgress ? 'border-primary text-primary shadow-[0_0_0_4px_rgba(var(--primary),0.1)]' : 
-                              'border-border text-muted-foreground'} transition-all`}
-                          >
-                            {isCompleted ? <Check className="w-4 h-4" /> : <span className="text-xs font-bold">{index + 1}</span>}
+                        return (
+                          <div key={step.label} className={`relative flex md:flex-col items-start md:items-center gap-4 md:gap-3 z-10 ${!isLast ? 'flex-1 pb-8 md:pb-0' : ''}`}>
+                            
+                            {!isLast && (
+                              <div className={`absolute left-[15px] top-[32px] bottom-0 w-0.5 md:w-full md:h-0.5 md:left-[50%] md:top-[15px] md:bottom-auto -z-10 transition-colors duration-300 ${isCompleted ? 'bg-primary' : 'bg-border'}`} />
+                            )}
+                            
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 shrink-0 bg-card
+                              ${isCompleted ? 'border-primary bg-primary text-primary-foreground' : 
+                                isInProgress ? 'border-primary text-primary shadow-[0_0_0_4px_rgba(var(--primary),0.1)]' : 
+                                'border-border text-muted-foreground'} transition-all`}
+                            >
+                              {isCompleted ? <Check className="w-4 h-4" /> : <span className="text-xs font-bold">{index + 1}</span>}
+                            </div>
+                            
+                            <div className="text-left md:text-center md:-ml-0">
+                              <p className={`text-sm font-semibold ${isPending ? 'text-muted-foreground' : 'text-foreground'}`}>
+                                {step.label}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{step.date ? new Date(step.date).toLocaleDateString() : 'Pending'}</p>
+                            </div>
                           </div>
-                          
-                          {/* Tracking Label */}
-                          <div className="text-left md:text-center md:-ml-0">
-                            <p className={`text-sm font-semibold ${isPending ? 'text-muted-foreground' : 'text-foreground'}`}>
-                              {step.label}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{step.date || 'Pending'}</p>
-                          </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Information Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Left Column: Schedule & Details */}
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
@@ -591,21 +614,21 @@ export default function AdminBookings() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Booking Placed On</p>
-                          <p className="text-sm font-medium">{viewBooking.bookingDate}</p>
+                          <p className="text-sm font-medium">{viewBooking.bookingDate ? new Date(viewBooking.bookingDate).toLocaleString() : "—"}</p>
                         </div>
                         <div className="col-span-2">
                           <p className="text-xs text-muted-foreground mb-1">Event Date</p>
                           <p className="text-sm font-medium bg-primary/10 text-primary px-3 py-1.5 rounded-lg inline-block">
-                            {viewBooking.eventDate}
+                            {viewBooking.eventDate ? new Date(viewBooking.eventDate).toLocaleDateString() : "—"}
                           </p>
                         </div>
                         <div>
                            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Clock className="w-3 h-3" /> Starting Time</p>
-                           <p className="text-sm font-medium">{viewBooking.startingTime}</p>
+                           <p className="text-sm font-medium">{viewBooking.startingTime ?? "—"}</p>
                         </div>
                         <div>
                            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Clock className="w-3 h-3" /> Exp. End Time</p>
-                           <p className="text-sm font-medium">{viewBooking.expectedEndTime}</p>
+                           <p className="text-sm font-medium">{viewBooking.expectedEndTime ?? "—"}</p>
                         </div>
                         <div className="col-span-2">
                            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location & Address</p>
@@ -647,7 +670,6 @@ export default function AdminBookings() {
                   </div>
                 </div>
 
-                {/* Right Column: Profiles & Payment Snapshot */}
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
@@ -693,7 +715,7 @@ export default function AdminBookings() {
               </div>
 
               {/* Additional Requests / Notes */}
-              {(viewBooking.clientNotes || viewBooking.cancellationReason || viewBooking.rescheduleRequest || viewBooking.modificationRequests) && (
+              {(viewBooking.clientNotes || viewBooking.cancellationReason) && (
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" /> Notes & Requests
@@ -701,23 +723,11 @@ export default function AdminBookings() {
                   <div className="bg-muted/30 rounded-xl p-4 space-y-4 border border-border/50">
                     {viewBooking.cancellationReason && (
                       <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20">
-                        <p className="text-xs font-semibold text-red-600 mb-1">Cancellation Request Reason</p>
+                        <p className="text-xs font-semibold text-red-600 mb-1">Cancellation Reason</p>
                         <p className="text-sm text-red-800 dark:text-red-300">{viewBooking.cancellationReason}</p>
                       </div>
                     )}
-                    {viewBooking.rescheduleRequest && (
-                      <div className="bg-orange-500/10 p-3 rounded-lg border border-orange-500/20">
-                        <p className="text-xs font-semibold text-orange-600 mb-1">Reschedule Request</p>
-                        <p className="text-sm text-orange-800 dark:text-orange-300">{viewBooking.rescheduleRequest}</p>
-                      </div>
-                    )}
-                    {viewBooking.modificationRequests && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Modification Requests</p>
-                        <p className="text-sm bg-background p-3 rounded-lg border border-border">{viewBooking.modificationRequests}</p>
-                      </div>
-                    )}
-                    {viewBooking.clientNotes && viewBooking.clientNotes !== "N/A" && (
+                    {viewBooking.clientNotes && (
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Client Notes</p>
                         <p className="text-sm bg-background p-3 rounded-lg border border-border italic text-muted-foreground">"{viewBooking.clientNotes}"</p>
@@ -744,7 +754,6 @@ export default function AdminBookings() {
               <X className="w-5 h-5" />
             </button>
             
-            {/* Payment Header */}
             <div className="bg-muted/30 px-6 py-6 pr-14 border-b border-border flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold font-heading flex items-center gap-2">
@@ -757,21 +766,16 @@ export default function AdminBookings() {
               </div>
             </div>
 
-            {/* Payment Body */}
             <div className="p-6 space-y-6">
               
               <div className="flex items-center justify-between pb-4 border-b border-border/50">
                 <p className="text-sm font-medium text-muted-foreground">Payment Status</p>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[viewPayment.paymentStatus]}`}>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[viewPayment.paymentStatus] ?? "bg-muted text-muted-foreground"}`}>
                   {viewPayment.paymentStatus}
                 </span>
               </div>
 
               <div className="space-y-4">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Invoice ID</span>
-                  <span className="font-medium font-mono text-xs">{viewPayment.invoiceId}</span>
-                </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground">Payment Plan</span>
                   <span className="font-medium">{viewPayment.paymentPlan}</span>

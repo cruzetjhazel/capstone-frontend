@@ -1,8 +1,13 @@
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/StatusBadge";
 import { BookingTracker } from "@/components/BookingTracker";
-import { Check, DollarSign, AlertCircle, Loader2 } from "lucide-react";
+import {
+  Check, DollarSign, AlertCircle, ArrowRight,
+  Search, SlidersHorizontal, ArrowUpDown,
+} from "lucide-react";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -17,9 +22,9 @@ import {
   useRecordOnsitePayment,
 } from "@/hooks/usePhotographerBookings";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
-import { useState } from "react";
 
-type FilterTab = "All" | "Pending" | "Active" | "Completed" | "Archived";
+type FilterTab = "All" | "Pending" | "Confirmed" | "In Progress" | "Completed" | "Cancelled" | "Expired";
+type SortOption = "newest" | "oldest" | "event_soonest" | "event_latest" | "price_low" | "price_high";
 
 // A "pending" booking's 24h review window (set by CreateBookingAction) may
 // have lapsed server-side before ExpireStaleBookingHoldsAction next runs and
@@ -28,6 +33,34 @@ type FilterTab = "All" | "Pending" | "Active" | "Completed" | "Archived";
 // Accept/Decline actions instead of letting the request fail confusingly.
 function isPendingHoldExpired(b: StudioBookingRecord): boolean {
   return b.status === "pending" && !!b.holdExpiresAt && new Date(b.holdExpiresAt).getTime() < Date.now();
+}
+
+// A confirmed booking whose service tracker has moved past its default first
+// stage is treated as "in progress" for tab purposes — no separate backend
+// status exists for this, so we derive it from the same tracker data the
+// card's "Update status" control already reads.
+function isServiceInProgress(b: StudioBookingRecord): boolean {
+  return b.status === "confirmed" && !!b.serviceStatus && b.serviceStatus !== trackingStages[0]?.id;
+}
+
+function parseBookingDateTime(b: StudioBookingRecord): number {
+  const withTime = new Date(`${b.date} ${b.startTime}`).getTime();
+  if (!isNaN(withTime)) return withTime;
+  const dateOnly = new Date(b.date).getTime();
+  return isNaN(dateOnly) ? 0 : dateOnly;
+}
+
+function sortBookings(list: StudioBookingRecord[], sort: SortOption): StudioBookingRecord[] {
+  const arr = [...list];
+  switch (sort) {
+    case "oldest": return arr.reverse();
+    case "event_soonest": return arr.sort((a, b) => parseBookingDateTime(a) - parseBookingDateTime(b));
+    case "event_latest": return arr.sort((a, b) => parseBookingDateTime(b) - parseBookingDateTime(a));
+    case "price_low": return arr.sort((a, b) => a.totalPrice - b.totalPrice);
+    case "price_high": return arr.sort((a, b) => b.totalPrice - a.totalPrice);
+    case "newest":
+    default: return arr; // bookings load newest-first from the API
+  }
 }
 
 export default function StudioBookings() {
@@ -42,6 +75,15 @@ export default function StudioBookings() {
   const onsitePaymentMutation = useRecordOnsitePayment();
 
   const [filter, setFilter] = useState<FilterTab>("All");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  const [packageFilter, setPackageFilter] = useState<string>("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   const [pendingAction, setPendingAction] = useState<{ type: "accept" | "decline"; booking: StudioBookingRecord } | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [recordingPaymentFor, setRecordingPaymentFor] = useState<StudioBookingRecord | null>(null);
@@ -49,14 +91,66 @@ export default function StudioBookings() {
   const [cancellationActionFor, setCancellationActionFor] = useState<{ type: "approve" | "reject"; booking: StudioBookingRecord } | null>(null);
   const [pendingTrackerChange, setPendingTrackerChange] = useState<{ booking: StudioBookingRecord; stage: TrackingStage } | null>(null);
 
-  const filtered = bookings.filter((b) => {
-    if (filter === "Archived") return b.status === "rejected" || b.status === "cancelled";
-    if (b.status === "rejected" || b.status === "cancelled") return false;
-    if (filter === "All") return true;
-    if (filter === "Pending") return b.status === "pending";
-    if (filter === "Completed") return b.status === "completed";
-    return b.status === "accepted" || b.status === "confirmed";
+  const packageOptions = useMemo(
+    () => Array.from(new Set(bookings.map((b) => b.packageName).filter(Boolean))),
+    [bookings]
+  );
+  const clientOptions = useMemo(
+    () => Array.from(new Set(bookings.map((b) => b.clientName).filter(Boolean))),
+    [bookings]
+  );
+
+  const tabFiltered = bookings.filter((b) => {
+    switch (filter) {
+      case "All": return b.status !== "rejected" && b.status !== "cancelled";
+      case "Pending": return b.status === "pending";
+      case "Confirmed": return (b.status === "accepted" || b.status === "confirmed") && !isServiceInProgress(b);
+      case "In Progress": return isServiceInProgress(b);
+      case "Completed": return b.status === "completed";
+      case "Cancelled": return b.status === "cancelled" || b.status === "rejected";
+      case "Expired": return b.status === "expired";
+      default: return true;
+    }
   });
+
+  const searched = tabFiltered.filter((b) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return (
+      b.clientName.toLowerCase().includes(q) ||
+      b.packageName.toLowerCase().includes(q) ||
+      b.eventType.toLowerCase().includes(q)
+    );
+  });
+
+  const advancedFiltered = searched.filter((b) => {
+    if (paymentFilter !== "all" && (b.paymentStatus ?? "pending") !== paymentFilter) return false;
+    if (packageFilter !== "all" && b.packageName !== packageFilter) return false;
+    if (clientFilter !== "all" && b.clientName !== clientFilter) return false;
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime();
+      const bd = new Date(b.date).getTime();
+      if (!isNaN(from) && !isNaN(bd) && bd < from) return false;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo).getTime();
+      const bd = new Date(b.date).getTime();
+      if (!isNaN(to) && !isNaN(bd) && bd > to) return false;
+    }
+    return true;
+  });
+
+  const visible = sortBookings(advancedFiltered, sortBy);
+  const activeFilterCount = [paymentFilter !== "all", packageFilter !== "all", clientFilter !== "all", !!dateFrom, !!dateTo].filter(Boolean).length;
+  const hasSearchOrFilters = !!search.trim() || activeFilterCount > 0;
+
+  const resetAdvancedFilters = () => {
+    setPaymentFilter("all");
+    setPackageFilter("all");
+    setClientFilter("all");
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const confirmAccept = async () => {
     if (!pendingAction) return;
@@ -131,26 +225,142 @@ export default function StudioBookings() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto space-y-6 animate-fade-up relative pb-12">
+      <div className="max-w-6xl mx-auto space-y-5 animate-fade-up relative pb-12">
 
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-heading font-bold">Bookings</h1>
-            <p className="text-sm text-muted-foreground mt-1">Manage requests, track service stages, and record payments.</p>
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-heading font-bold">Bookings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage your studio bookings.</p>
+        </div>
+
+        {/* Status tabs */}
+        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-full border border-border/50 overflow-x-auto w-fit max-w-full">
+          {(["All", "Pending", "Confirmed", "In Progress", "Completed", "Cancelled", "Expired"] as FilterTab[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap",
+                filter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+
+        {/* Search / Filter / Sort toolbar */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search bookings..."
+              className="w-full h-9 rounded-md border border-input bg-transparent pl-9 pr-3 text-sm focus:ring-1 focus:ring-ring"
+            />
           </div>
-          <div className="flex gap-2 bg-muted/50 p-1 rounded-full border border-border/50">
-            {(["All", "Pending", "Active", "Completed", "Archived"] as FilterTab[]).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                  filter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+
+          <div className="flex gap-2 shrink-0">
+            <div className="relative">
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => setFiltersOpen((v) => !v)}>
+                <SlidersHorizontal className="w-3.5 h-3.5" /> Filter
+                {activeFilterCount > 0 && (
+                  <span className="ml-0.5 text-[10px] leading-none bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                    {activeFilterCount}
+                  </span>
                 )}
+              </Button>
+
+              {filtersOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-card border border-border rounded-xl shadow-xl p-4 space-y-3 z-30">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Payment status</label>
+                    <select
+                      value={paymentFilter}
+                      onChange={(e) => setPaymentFilter(e.target.value)}
+                      className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">All</option>
+                      <option value="pending">Pending</option>
+                      <option value="pending_verification">Pending Verification</option>
+                      <option value="partially_paid">Partially Paid</option>
+                      <option value="fully_paid">Fully Paid</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">From</label>
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">To</label>
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Package</label>
+                    <select
+                      value={packageFilter}
+                      onChange={(e) => setPackageFilter(e.target.value)}
+                      className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">All packages</option>
+                      {packageOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Client</label>
+                    <select
+                      value={clientFilter}
+                      onChange={(e) => setClientFilter(e.target.value)}
+                      className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">All clients</option>
+                      {clientOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-1 border-t border-border">
+                    <button onClick={resetAdvancedFilters} className="text-xs text-muted-foreground hover:text-foreground pt-2">
+                      Clear filters
+                    </button>
+                    <Button size="sm" className="h-7 text-xs mt-2" onClick={() => setFiltersOpen(false)}>
+                      Done
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="h-9 rounded-md border border-input bg-transparent pl-3 pr-8 text-xs focus:ring-1 focus:ring-ring appearance-none"
               >
-                {f}
-              </button>
-            ))}
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="event_soonest">Event date: Soonest</option>
+                <option value="event_latest">Event date: Latest</option>
+                <option value="price_low">Price: Low → High</option>
+                <option value="price_high">Price: High → Low</option>
+              </select>
+              <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
           </div>
         </div>
 
@@ -166,131 +376,117 @@ export default function StudioBookings() {
         )}
 
         {!isLoading && !error && (
-        <div className="space-y-4">
-          {filtered.map((b) => (
-            <div key={b.id} className={cn(
-              "bg-card rounded-2xl card-shadow border p-5 transition-all",
-              b.status === "rejected" ? "border-border/40 opacity-80" : "border-border/50"
-            )}>
-              <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm",
-                    b.status === "rejected" ? "bg-muted text-muted-foreground" : "bg-secondary/10 text-secondary"
-                  )}>
-                    {b.clientName.split(" ").map((n) => n[0]).join("")}
-                  </div>
-                  <div>
-                    <p className={cn("font-medium text-sm", b.status === "rejected" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
-                      {b.clientName} <span className="text-xs text-muted-foreground font-mono ml-1 no-underline">{b.id}</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">{b.eventType} · {b.packageName} · {b.date} {b.startTime}</p>
-                  </div>
-                </div>
+        <div className="space-y-3">
+          {visible.map((b) => {
+            const holdExpired = b.status === "pending" && isPendingHoldExpired(b);
+            const showTracker = (b.status === "confirmed" || b.status === "completed") && !b.hasActiveCancellationRequest;
+            const displayStage = (b.serviceStatus ?? trackingStages[0].id) as TrackingStage;
 
-                <div className="flex items-center gap-4">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-xs text-muted-foreground">Total / Paid</p>
-                    <p className={cn("font-heading font-bold", b.status === "rejected" ? "text-muted-foreground" : "text-primary")}>
-                      ₱{b.totalPrice.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">/ ₱{b.amountPaid.toLocaleString()}</span>
-                    </p>
-                  </div>
-
-                  <Button variant="outline" size="sm" onClick={() => navigate(`/studio/bookings/${b.id}`)} className="text-xs font-medium">
-                    View Details
-                  </Button>
-                </div>
-              </div>
-
-              {b.hasActiveCancellationRequest && (
-                <div className="flex items-center justify-between gap-3 p-3 mb-4 rounded-lg bg-destructive/10 border border-destructive/20">
-                  <p className="text-sm text-destructive">Client has requested cancellation{b.cancellationReason ? `: "${b.cancellationReason}"` : "."}</p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setCancellationActionFor({ type: "reject", booking: b })}>Keep Booking</Button>
-                    <Button size="sm" variant="destructive" onClick={() => setCancellationActionFor({ type: "approve", booking: b })}>Approve Cancellation</Button>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-3 gap-2 mb-4 p-3 rounded-lg bg-muted/30 border border-border/50 text-xs">
-                <div><span className="text-muted-foreground block">Booking:</span> <span className="font-semibold capitalize">{b.status}</span></div>
-                <div><span className="text-muted-foreground block">Payment:</span> <span className="font-semibold capitalize">{(b.paymentStatus ?? "pending").replace('_', ' ')}</span></div>
-                <div><span className="text-muted-foreground block">Service:</span> <span className="font-semibold capitalize">{(b.serviceStatus ?? "not started").replace(/_/g, ' ')}</span></div>
-              </div>
-
-              {b.status === "pending" && !b.hasActiveCancellationRequest && (
-                isPendingHoldExpired(b) ? (
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border/60">
-                    <AlertCircle className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <p className="text-sm text-muted-foreground">
-                      This request's response window has expired and can no longer be accepted. It will be archived automatically.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <p className="text-sm text-amber-900 dark:text-amber-400">Review details before responding to request.</p>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10" onClick={() => setPendingAction({ type: "decline", booking: b })} disabled={isMutating}>Decline</Button>
-                      <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setPendingAction({ type: "accept", booking: b })} disabled={isMutating}>Accept Request</Button>
+            return (
+              <div key={b.id} className={cn(
+                "bg-card rounded-2xl card-shadow border p-4 sm:p-5 transition-all",
+                b.status === "rejected" ? "border-border/40 opacity-80" : "border-border/50"
+              )}>
+                {/* Compact scan row */}
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0",
+                      b.status === "rejected" ? "bg-muted text-muted-foreground" : "bg-secondary/10 text-secondary"
+                    )}>
+                      {b.clientName.split(" ").map((n) => n[0]).join("")}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={cn("font-medium text-sm truncate", b.status === "rejected" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
+                        {b.clientName}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{b.packageName} · {b.eventType}</p>
+                      <p className="text-xs text-muted-foreground truncate">{b.date} · {b.startTime}</p>
                     </div>
                   </div>
-                )
-              )}
 
-              {b.status === "accepted" && !b.hasActiveCancellationRequest && (
-                b.paymentStatus === "pending_verification" ? (
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3">
-                    <span>Client submitted a GCash reference — needs your review before the booking can confirm.</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs shrink-0"
-                      onClick={() => navigate("/studio/earnings")}
-                    >
+                  <div className="flex items-center gap-3 shrink-0">
+                    <p className={cn("font-heading font-bold text-sm", b.status === "rejected" ? "text-muted-foreground" : "text-primary")}>
+                      ₱{b.totalPrice.toLocaleString()}
+                    </p>
+                    <StatusBadge status={b.status as any} />
+
+                    {b.status === "pending" && !b.hasActiveCancellationRequest && !holdExpired ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button size="sm" variant="outline" className="h-7 text-xs text-destructive hover:bg-destructive/10" onClick={() => setPendingAction({ type: "decline", booking: b })} disabled={isMutating}>
+                          Decline
+                        </Button>
+                        <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setPendingAction({ type: "accept", booking: b })} disabled={isMutating}>
+                          Accept
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => navigate(`/studio/bookings/${b.id}`)}>
+                          View <ArrowRight className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => navigate(`/studio/bookings/${b.id}`)}>
+                        View <ArrowRight className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Only surface what needs the owner's attention below the row */}
+                {b.hasActiveCancellationRequest && (
+                  <div className="flex items-center justify-between gap-3 p-3 mt-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                    <p className="text-xs text-destructive truncate">Client requested cancellation{b.cancellationReason ? `: "${b.cancellationReason}"` : "."}</p>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCancellationActionFor({ type: "reject", booking: b })}>Keep</Button>
+                      <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setCancellationActionFor({ type: "approve", booking: b })}>Approve</Button>
+                    </div>
+                  </div>
+                )}
+
+                {b.status === "pending" && !b.hasActiveCancellationRequest && holdExpired && (
+                  <div className="flex items-center gap-2 p-2.5 mt-3 rounded-lg bg-muted/50 border border-border/60">
+                    <AlertCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                      <p className="text-xs text-muted-foreground">Response window expired — this request will automatically be marked Expired and moved to the Expired tab.</p>
+                  </div>
+                )}
+
+                {b.status === "accepted" && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
+                  <div className="flex items-center justify-between gap-3 p-2.5 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <p className="text-xs text-amber-900 dark:text-amber-400">Client submitted a GCash reference — needs review.</p>
+                    <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => navigate("/studio/earnings")}>
                       Review Payment
                     </Button>
                   </div>
-                ) : b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid" ? (
-                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-800 dark:text-emerald-300">
-                    Payment received — booking is finalizing confirmation.
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-800 dark:text-blue-300">
-                    Request accepted. Awaiting client online deposit payment to confirm booking.
-                  </div>
-                )
-              )}
+                )}
 
-              {(b.status === "confirmed" || b.status === "completed") && !b.hasActiveCancellationRequest && (() => {
-                const displayStage = (b.serviceStatus ?? trackingStages[0].id) as TrackingStage;
-                return (
-                  <div className="space-y-4">
+                {showTracker && (
+                  <div className="space-y-3 mt-3 pt-3 border-t border-border/60">
                     <BookingTracker currentStage={displayStage} />
                     <div className="flex items-center justify-end gap-2 flex-wrap">
                       {b.remainingBalance > 0 && (
-                        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
-                          <DollarSign className="w-3.5 h-3.5" /> Record Onsite Payment
+                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
+                          <DollarSign className="w-3.5 h-3.5" /> Record Payment
                         </Button>
                       )}
-                      <span className="text-xs text-muted-foreground font-medium">Update status:</span>
                       <select
                         value={displayStage}
                         onChange={(e) => setPendingTrackerChange({ booking: b, stage: e.target.value as TrackingStage })}
-                        className="h-8 rounded-md border border-input bg-background px-3 text-xs focus:ring-1 ring-primary"
+                        className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:ring-1 ring-primary"
                         disabled={trackerMutation.isPending}
                       >
                         {trackingStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
                     </div>
                   </div>
-                );
-              })()}
-            </div>
-          ))}
+                )}
+              </div>
+            );
+          })}
 
-          {filtered.length === 0 && (
+          {visible.length === 0 && (
             <div className="text-center py-16 px-4 bg-card/50 rounded-2xl border border-dashed border-border/60">
-              <p className="text-sm text-muted-foreground">No bookings found in the "{filter}" view.</p>
+              <p className="text-sm text-muted-foreground">
+                {hasSearchOrFilters ? "No bookings match your search or filters." : `No bookings found in the "${filter}" view.`}
+              </p>
             </div>
           )}
         </div>

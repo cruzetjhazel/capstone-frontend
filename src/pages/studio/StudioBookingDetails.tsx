@@ -193,7 +193,8 @@ export default function StudioBookingDetail() {
               <span className={`font-bold capitalize inline-flex items-center gap-1 ${
                 booking.status === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' :
                 booking.status === 'pending' ? 'text-amber-600 dark:text-amber-400' :
-                booking.status === 'rejected' ? 'text-destructive' : 'text-blue-600'
+                booking.status === 'rejected' || booking.status === 'cancelled' ? 'text-destructive' :
+                booking.status === 'expired' ? 'text-muted-foreground' : 'text-blue-600'
               }`}>
                 ● {booking.status}
               </span>
@@ -322,6 +323,18 @@ export default function StudioBookingDetail() {
                   </select>
                 </div>
                 <BookingTracker currentStage={displayStage} />
+              </div>
+            </div>
+          )}
+
+          {booking.status === "expired" && (
+            <div className="bg-muted/50 p-5 rounded-xl border border-border/60 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Booking Expired</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  This request lapsed automatically — either it wasn't reviewed in time, or the client didn't pay within the payment window. No one actively cancelled it.
+                </p>
               </div>
             </div>
           )}

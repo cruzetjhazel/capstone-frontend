@@ -5,15 +5,18 @@ import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
 import { usePhotographers } from "@/hooks/usePhotographers";
-import toast from "react-hot-toast"; 
+import toast from "react-hot-toast";
 import {
-  Calendar as CalendarIcon, Clock, MapPin, AlertCircle, 
-  CheckCircle2, FileText, XCircle, PlayCircle, X, ChevronRight, Settings2, CalendarPlus, FileX, Edit3, Loader2, Star
+  Calendar as CalendarIcon, Clock, MapPin, AlertCircle,
+  FileText, X, ChevronRight, Settings2, CalendarPlus, FileX, Edit3, Loader2, Star, History as HistoryIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type BookingTab = "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
+type SimpleTab = "current" | "history";
 type RequestType = "reschedule" | "cancel" | "modify" | null;
+
+// Terminal statuses live in Booking History; everything else is "current"
+const TERMINAL_STATUSES = ["completed", "cancelled", "rejected", "expired"];
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("en-PH", {
@@ -23,17 +26,52 @@ const formatPrice = (price: number) => {
   }).format(price);
 };
 
+const isToday = (dateString: string) => {
+  try {
+    const today = new Date().toDateString();
+    const bookingDate = new Date(dateString).toDateString();
+    return today === bookingDate;
+  } catch {
+    return false;
+  }
+};
+
+// Small status badge shown inside each card — replaces the old tab-per-status navigation
+const getStatusBadge = (status: string, date?: string) => {
+  if (status === "confirmed" && date && isToday(date)) {
+    return { label: "In Progress", className: "bg-blue-500/10 text-blue-600" };
+  }
+  switch (status) {
+    case "pending":
+      return { label: "Pending", className: "bg-amber-500/10 text-amber-600" };
+    case "accepted":
+      return { label: "Accepted", className: "bg-amber-500/10 text-amber-600" };
+    case "confirmed":
+      return { label: "Confirmed", className: "bg-primary/10 text-primary" };
+    case "completed":
+      return { label: "Completed", className: "bg-emerald-500/10 text-emerald-600" };
+    case "cancelled":
+      return { label: "Cancelled", className: "bg-destructive/10 text-destructive" };
+    case "rejected":
+      return { label: "Rejected", className: "bg-destructive/10 text-destructive" };
+    case "expired":
+      return { label: "Expired", className: "bg-muted text-muted-foreground" };
+    default:
+      return { label: status, className: "bg-muted text-muted-foreground" };
+  }
+};
+
 export default function MyBookings() {
   const { user } = useRole();
   const { data: bookings = [], isLoading: loadingBookings } = useBookings(user?.email);
   const { data: allPhotographers = [] } = usePhotographers();
-  const [activeTab, setActiveTab] = useState<BookingTab>("confirmed");
-  
+  const [activeTab, setActiveTab] = useState<SimpleTab>("current");
+
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [requestFormType, setRequestFormType] = useState<RequestType>(null);
   const [localRequests, setLocalRequests] = useState<Record<string, boolean>>({});
-  
+
   const [reason, setReason] = useState("");
   const [preferredDate, setPreferredDate] = useState("");
   const [isConfirming, setIsConfirming] = useState(false);
@@ -41,45 +79,25 @@ export default function MyBookings() {
 
   const safeBookings = bookings || [];
 
-  const isToday = (dateString: string) => {
-    try {
-      const today = new Date().toDateString();
-      const bookingDate = new Date(dateString).toDateString();
-      return today === bookingDate;
-    } catch {
-      return false;
-    }
-  };
+  // Current Booking: anything not in a terminal status (pending, accepted, confirmed, in-progress)
+  const currentBookings = useMemo(
+    () =>
+      safeBookings
+        .filter((b) => !TERMINAL_STATUSES.includes(b.status))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [safeBookings]
+  );
 
-  const filteredBookings = safeBookings.filter((b) => {
-    switch (activeTab) {
-      case "pending": return b.status === "pending" || b.status === "accepted";
-      case "confirmed": return b.status === "confirmed" && !isToday(b.date);
-      case "in_progress": return b.status === "confirmed" && isToday(b.date);
-      case "completed": return b.status === "completed";
-      case "cancelled": return b.status === "cancelled" || b.status === "rejected";
-      default: return false;
-    }
-  });
+  // Booking History: completed, cancelled, rejected, expired — most recent first
+  const historyBookings = useMemo(
+    () =>
+      safeBookings
+        .filter((b) => TERMINAL_STATUSES.includes(b.status))
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [safeBookings]
+  );
 
-  const getCount = (tab: BookingTab) => {
-    return safeBookings.filter((b) => {
-      if (tab === "pending") return b.status === "pending" || b.status === "accepted";
-      if (tab === "confirmed") return b.status === "confirmed" && !isToday(b.date);
-      if (tab === "in_progress") return b.status === "confirmed" && isToday(b.date);
-      if (tab === "completed") return b.status === "completed";
-      if (tab === "cancelled") return b.status === "cancelled" || b.status === "rejected";
-      return false;
-    }).length;
-  };
-
-  const tabs: { id: BookingTab; label: string; icon: any }[] = [
-    { id: "pending", label: "Pending", icon: Clock },
-    { id: "confirmed", label: "Confirmed", icon: CheckCircle2 },
-    { id: "in_progress", label: "In Progress", icon: PlayCircle },
-    { id: "completed", label: "Completed", icon: FileText },
-    { id: "cancelled", label: "Cancelled", icon: XCircle },
-  ];
+  const visibleBookings = activeTab === "current" ? currentBookings : historyBookings;
 
   const handleManageClick = (bookingId: string) => {
     setSelectedBookingId(bookingId);
@@ -101,7 +119,7 @@ export default function MyBookings() {
     try {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      setLocalRequests(prev => ({ ...prev, [selectedBookingId]: true }));
+      setLocalRequests((prev) => ({ ...prev, [selectedBookingId]: true }));
       toast.success(`Your ${requestFormType} request has been submitted successfully.`);
       setRequestModalOpen(false);
       setRequestFormType(null);
@@ -115,8 +133,8 @@ export default function MyBookings() {
     }
   };
 
-  const selectedBooking = useMemo(() => safeBookings.find(b => b.id === selectedBookingId), [safeBookings, selectedBookingId]);
-  
+  const selectedBooking = useMemo(() => safeBookings.find((b) => b.id === selectedBookingId), [safeBookings, selectedBookingId]);
+
   // Modification Timing Rule: Up to 7 days before event date
   const canModifyOrReschedule = useMemo(() => {
     if (!selectedBooking?.date) return false;
@@ -132,56 +150,79 @@ export default function MyBookings() {
         <div>
           <h1 className="text-2xl font-heading font-bold">My Bookings</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your photoshoot schedules, payments, and studio requests.
+            Keep track of your current session and look back on past ones.
           </p>
         </div>
 
-        <div className="flex border-b border-border overflow-x-auto scrollbar-none gap-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const count = getCount(tab.id);
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium transition-all whitespace-nowrap shrink-0",
-                  isActive ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                )}
-              >
-                <Icon className={cn("w-4 h-4", isActive ? "text-primary" : "text-muted-foreground")} />
-                <span>{tab.label}</span>
-                {count > 0 && (
-                  <span className={cn(
-                    "text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0",
-                    isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
-                  )}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        {/* Simple two-way segmented control — replaces the old five-status tab row */}
+        <div className="inline-flex items-center gap-1 p-1 bg-muted/50 rounded-xl">
+          <button
+            onClick={() => setActiveTab("current")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all",
+              activeTab === "current" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <CalendarIcon className="w-4 h-4" />
+            Current Booking
+            {currentBookings.length > 0 && (
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                activeTab === "current" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+              )}>
+                {currentBookings.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("history")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all",
+              activeTab === "history" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <HistoryIcon className="w-4 h-4" />
+            Booking History
+            {historyBookings.length > 0 && (
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                activeTab === "history" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+              )}>
+                {historyBookings.length}
+              </span>
+            )}
+          </button>
         </div>
 
         <div className="space-y-4">
           {loadingBookings ? (
             <div className="py-16 text-center text-sm text-muted-foreground animate-pulse">Syncing your booking timeline...</div>
-          ) : filteredBookings.length === 0 ? (
-            <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center max-w-md mx-auto mt-6">
-              <CalendarIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-              <h3 className="font-medium text-base">No bookings here</h3>
-              <p className="text-sm text-muted-foreground mt-1 mb-4">
-                You do not have any bookings in the <strong className="capitalize">{activeTab.replace("_", " ")}</strong> tab right now.
-              </p>
-              <Link to="/explore"><Button size="sm">Find Professional</Button></Link>
-            </div>
+          ) : visibleBookings.length === 0 ? (
+            activeTab === "current" ? (
+              <div className="bg-card rounded-2xl border border-dashed border-border p-10 sm:p-14 text-center max-w-md mx-auto mt-6">
+                <CalendarIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <h3 className="font-heading font-bold text-lg">No current booking</h3>
+                <p className="text-sm text-muted-foreground mt-1 mb-5">
+                  You don't have an active photography session right now. Browse our photographers and book your next session.
+                </p>
+                <Link to="/explore"><Button size="sm">Find a Photographer</Button></Link>
+              </div>
+            ) : (
+              <div className="bg-card rounded-2xl border border-dashed border-border p-10 sm:p-14 text-center max-w-md mx-auto mt-6">
+                <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <h3 className="font-heading font-bold text-lg">No booking history yet</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Your completed and past bookings will show up here.
+                </p>
+              </div>
+            )
           ) : (
-            filteredBookings.map((b) => {
+            visibleBookings.map((b) => {
               const photog = (allPhotographers || []).find((p) => String(p.id) === String(b.photographerId));
               const remainingBalance = b.subtotal - b.dueNow;
-              const hasActiveRequest = (b as any).hasActiveRequest || localRequests[b.id]; 
+              const hasActiveRequest = (b as any).hasActiveRequest || localRequests[b.id];
+              const badge = getStatusBadge(b.status, b.date);
+              const isCurrent = !TERMINAL_STATUSES.includes(b.status);
 
               return (
                 <div key={b.id} className={cn(
@@ -197,8 +238,12 @@ export default function MyBookings() {
                         <p className="text-xs font-semibold text-primary uppercase tracking-wider mb-0.5">
                           {b.eventType} &bull; {b.packageName}
                         </p>
-                        <h3 className="font-heading font-bold text-base flex items-center gap-2">
+                        <h3 className="font-heading font-bold text-base flex items-center gap-2 flex-wrap">
                           {b.photographerName}
+                          {/* Status badge lives on the card itself, not as a nav tab */}
+                          <span className={cn("text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full", badge.className)}>
+                            {badge.label}
+                          </span>
                           {hasActiveRequest && (
                             <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" /> Request Pending
@@ -225,16 +270,7 @@ export default function MyBookings() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4 text-xs">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold block mb-1">Booking Status</span>
-                      <span className={cn(
-                        "inline-flex items-center px-2 py-0.5 rounded-full font-medium capitalize",
-                        hasActiveRequest ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"
-                      )}>
-                        {hasActiveRequest ? "Under Studio Review" : b.status}
-                      </span>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4 text-xs">
                     <div>
                       <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold block mb-1">Payment Status</span>
                       <span className={cn(
@@ -256,7 +292,7 @@ export default function MyBookings() {
                         <AlertCircle className="w-3.5 h-3.5" /> Request Sent
                       </Button>
                     ) : (
-                      b.status !== "completed" && b.status !== "cancelled" && b.status !== "rejected" && (
+                      isCurrent && (
                         <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleManageClick(b.id)}>
                           <Settings2 className="w-3.5 h-3.5" /> Manage
                         </Button>
@@ -295,7 +331,7 @@ export default function MyBookings() {
       {requestModalOpen && selectedBookingId && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
-            <button 
+            <button
               onClick={() => { setRequestModalOpen(false); setRequestFormType(null); setIsConfirming(false); }}
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
               disabled={isSubmitting}
@@ -316,8 +352,8 @@ export default function MyBookings() {
                 )}
 
                 <div className="space-y-3">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setRequestFormType("reschedule")}
                     disabled={!canModifyOrReschedule}
                     className="w-full justify-start h-auto py-3 px-4 flex flex-col items-start gap-1 disabled:opacity-50"
@@ -325,9 +361,9 @@ export default function MyBookings() {
                     <span className="font-semibold text-sm flex items-center gap-2"><CalendarPlus className="w-4 h-4 text-primary" /> Request Reschedule</span>
                     <span className="text-xs text-muted-foreground font-normal pl-6">Propose a new date or time to the studio.</span>
                   </Button>
-                  
-                  <Button 
-                    variant="outline" 
+
+                  <Button
+                    variant="outline"
                     onClick={() => setRequestFormType("modify")}
                     disabled={!canModifyOrReschedule}
                     className="w-full justify-start h-auto py-3 px-4 flex flex-col items-start gap-1 disabled:opacity-50"
@@ -336,8 +372,8 @@ export default function MyBookings() {
                     <span className="text-xs text-muted-foreground font-normal pl-6">Modify venue, add-ons, or guest count.</span>
                   </Button>
 
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setRequestFormType("cancel")}
                     className="w-full justify-start h-auto py-3 px-4 flex flex-col items-start gap-1 hover:border-destructive/30 hover:bg-destructive/5"
                   >
@@ -350,7 +386,7 @@ export default function MyBookings() {
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                 <h2 className="text-xl font-heading font-bold mb-2">Confirm Request</h2>
                 <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-                  Are you sure you want to submit this {requestFormType} request? 
+                  Are you sure you want to submit this {requestFormType} request?
                   The studio will be notified and this booking will be placed in a pending state until they review it.
                 </p>
                 <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
@@ -377,9 +413,9 @@ export default function MyBookings() {
                   {requestFormType === "reschedule" && (
                     <div className="space-y-2">
                       <label className="text-xs font-semibold">Preferred New Date & Time</label>
-                      <input 
+                      <input
                         required
-                        type="datetime-local" 
+                        type="datetime-local"
                         value={preferredDate}
                         onChange={(e) => setPreferredDate(e.target.value)}
                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -398,10 +434,10 @@ export default function MyBookings() {
                       </select>
                     </div>
                   )}
-                  
+
                   <div className="space-y-2">
                     <label className="text-xs font-semibold">Reason / Notes</label>
-                    <textarea 
+                    <textarea
                       required
                       placeholder="Please explain your request in detail..."
                       value={reason}

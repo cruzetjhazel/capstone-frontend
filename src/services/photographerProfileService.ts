@@ -54,6 +54,38 @@ function buildFormData(payload: ProfileFormPayload): FormData {
   return fd;
 }
 
+export interface ProfileCompleteness {
+  profileComplete: boolean;
+  activePortfolioCount: number;
+  portfolioMinimumMet: boolean;
+  portfolioMinimumRequired: number;
+  hasActivePackage: boolean;
+  gcashConfigured: boolean;
+  fullyBookable: boolean;
+}
+
+type RawCompleteness = {
+  profile_complete: boolean;
+  active_portfolio_count: number;
+  portfolio_minimum_met: boolean;
+  portfolio_minimum_required: number;
+  has_active_package: boolean;
+  gcash_configured: boolean;
+  fully_bookable: boolean;
+};
+
+function toCompleteness(raw: RawCompleteness): ProfileCompleteness {
+  return {
+    profileComplete: raw.profile_complete,
+    activePortfolioCount: raw.active_portfolio_count,
+    portfolioMinimumMet: raw.portfolio_minimum_met,
+    portfolioMinimumRequired: raw.portfolio_minimum_required,
+    hasActivePackage: raw.has_active_package,
+    gcashConfigured: raw.gcash_configured,
+    fullyBookable: raw.fully_bookable,
+  };
+}
+
 export const photographerProfileService = {
   /** Returns null if no profile exists yet (a photographer who somehow
    * reached Settings without finishing Step 7 — shouldn't normally happen,
@@ -85,6 +117,13 @@ export const photographerProfileService = {
       headers: { "Content-Type": "multipart/form-data" },
     });
     return toProfile(res.data.data as RawProfile);
+  },
+
+  /** Setup checklist used to gate bookability and drive the dashboard
+   * reminder banner (profile+portfolio, an active package, GCash info). */
+  getCompleteness: async (): Promise<ProfileCompleteness> => {
+    const res = await api.get("/photographer/profile/completeness");
+    return toCompleteness(res.data.data as RawCompleteness);
   },
 };
 

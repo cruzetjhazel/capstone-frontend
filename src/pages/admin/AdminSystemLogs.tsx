@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 
 interface ActivityLog {
   id: string;
@@ -161,7 +161,6 @@ export default function AdminActivityLogs() {
 
   return (
     <DashboardLayout>
-      <Toaster position="top-right" />
       <div className="max-w-6xl mx-auto space-y-6 animate-fade-up">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

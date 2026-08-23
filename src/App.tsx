@@ -109,7 +109,7 @@ const ProtectedRoute = ({
   allowedRole: "client" | "studio" | "admin";
   requireApprovedPhotographer?: boolean;
 }) => {
-  const { user, role, isLoading } = useRole();
+  const { user, role, isLoading, consumeJustLoggedOut } = useRole();
 
   const isBlocked = !isLoading && (!user || role !== allowedRole);
   const roleLabel = allowedRole === "client" ? "client" : allowedRole === "studio" ? "photographer" : "administrator";
@@ -117,7 +117,9 @@ const ProtectedRoute = ({
   useEffect(() => {
     if (!isBlocked) return;
     if (!user) {
-      toast.error("Please log in to continue.");
+      if (!consumeJustLoggedOut()) {
+        toast.error("Please log in to continue.");
+      }
     } else {
       toast.error(`This area is for ${roleLabel} accounts only.`);
     }
@@ -143,7 +145,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <HotToast position="top-center" reverseOrder={false} /> 
+      <HotToast position="top-right" reverseOrder={false} /> 
       <BrowserRouter>
         <RouteThemeEnforcer />
         <RoleProvider>

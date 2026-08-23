@@ -9,26 +9,13 @@ import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 
-// --- Mock Data Aligned with System Requirements ---
-// NOTE: "Pending Reviews" value below is a placeholder only — it's
-// overridden with the real count at render time via displayStats.
-// Total Users / Active Clients / Professionals / Total Bookings are
-// still hardcoded and unrelated to this fix.
-const stats = [
-  { label: "Total Users", value: "1,237", subtext: "Clients & Professionals", icon: Users, color: "bg-primary/10 text-primary" },
-  { label: "Active Clients", value: "1,154", subtext: "Registered consumers", icon: UserCheck, color: "bg-blue-500/10 text-blue-600" },
-  { label: "Professionals", value: "83", subtext: "Freelancers & Studios", icon: Aperture, color: "bg-secondary/10 text-secondary" },
-  { label: "Total Bookings", value: "38", subtext: "Platform-wide transactions", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
-  { label: "Pending Reviews", value: "0", subtext: "Applications waiting", icon: ShieldAlert, color: "bg-amber-500/10 text-amber-600" },
-];
-
-// Valid booking statuses: Pending, Accepted, Confirmed, Rejected, Cancelled, Completed[cite: 28].
-// Still hardcoded — unrelated to this fix.
-const recentBookings = [
-  { id: "BK-2045", client: "Anthony Reyes", professional: "Amara's Studio", event: "Wedding", date: "Mar 30", status: "Confirmed" },
-  { id: "BK-2046", client: "Rica Flores", professional: "Kap Studio", event: "Portrait", date: "Mar 28", status: "Completed" },
-  { id: "BK-2047", client: "Trisha Garcia", professional: "HH Production", event: "Prenup", date: "Mar 26", status: "Pending" },
-  { id: "BK-2048", client: "Mark Johnson", professional: "Leo Chang", event: "Birthday", date: "Mar 25", status: "Cancelled" },
+// --- Still mocked — pending backend analytics-delta work ---
+// (needs PhotographerApplication's approval-timestamp column and
+// ActivityLog's action-name strings before this can be made real)
+const analyticsPreview = [
+  { metric: "Completed Bookings", value: "↑ 18%", desc: "vs last month", color: "text-emerald-600" },
+  { metric: "New Clients", value: "↑ 11%", desc: "vs last week", color: "text-emerald-600" },
+  { metric: "Verified Professionals", value: "↑ 6%", desc: "MoM growth", color: "text-emerald-600" },
 ];
 
 const bookingStatusStyles: Record<string, string> = {
@@ -40,21 +27,6 @@ const bookingStatusStyles: Record<string, string> = {
   "Rejected": "bg-destructive/10 text-destructive",
 };
 
-// Still hardcoded — unrelated to this fix.
-const platformActivities = [
-  { text: "Administrator approved application for 'Amara's Studio'", time: "5 mins ago", icon: CheckCircle2, color: "text-emerald-600" },
-  { text: "Account 'Sarah Chen' deactivated by Administrator", time: "42 mins ago", icon: XCircle, color: "text-destructive" },
-  { text: "Booking BK-2048 cancelled by client", time: "2 hours ago", icon: RefreshCw, color: "text-muted-foreground" },
-  { text: "Package 'Premium Portrait' archived by Rivera Studio", time: "1 day ago", icon: Archive, color: "text-amber-600" },
-];
-
-// Still hardcoded — unrelated to this fix.
-const analyticsPreview = [
-  { metric: "Completed Bookings", value: "↑ 18%", desc: "vs last month", color: "text-emerald-600" },
-  { metric: "New Clients", value: "↑ 11%", desc: "vs last week", color: "text-emerald-600" },
-  { metric: "Verified Professionals", value: "↑ 6%", desc: "MoM growth", color: "text-emerald-600" },
-];
-
 // Same defensive unwrap used in AdminVerifications.tsx — handles
 // res.data.data vs res.data.data.data without assuming a fixed depth.
 function unwrapList(payload: any): any[] {
@@ -65,11 +37,66 @@ function unwrapList(payload: any): any[] {
   return Array.isArray(cur) ? cur : [];
 }
 
+// Dashboard-stats isn't paginated, so it doesn't go through unwrapList —
+// just unwrap the single success envelope: { data: { data: {...} } } or { data: {...} }
+function unwrapObject(payload: any): any {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && typeof cur === "object" && !Array.isArray(cur) && "data" in cur; i++) {
+    cur = cur.data;
+  }
+  return cur && typeof cur === "object" ? cur : {};
+}
+
 type DashboardPendingApp = { id: string; name: string; type: "Studio" | "Freelancer" };
+type DashboardBooking = { id: string; client: string; professional: string; event: string; date: string; status: string };
+type DashboardStats = {
+  total_users: number;
+  active_clients: number;
+  professionals: number;
+  total_bookings: number;
+  pending_reviews: number;
+};
+type ActivityFeedItem = { id: string | number; text: string; time: string; icon: typeof Terminal; color: string };
+
+const defaultStats: DashboardStats = {
+  total_users: 0,
+  active_clients: 0,
+  professionals: 0,
+  total_bookings: 0,
+  pending_reviews: 0,
+};
+
+// Picks an icon/color for an activity log entry from keywords in its text —
+// works regardless of the exact action-string convention on the backend.
+// TODO: once ActivityLogResource's real shape is confirmed, this can switch
+// to matching on the structured `action` field instead of the rendered text.
+function iconForActivity(text: string): { icon: typeof Terminal; color: string } {
+  const t = text.toLowerCase();
+  if (t.includes("approv")) return { icon: CheckCircle2, color: "text-emerald-600" };
+  if (t.includes("reject") || t.includes("deactivat") || t.includes("suspend")) return { icon: XCircle, color: "text-destructive" };
+  if (t.includes("cancel")) return { icon: RefreshCw, color: "text-muted-foreground" };
+  if (t.includes("archiv")) return { icon: Archive, color: "text-amber-600" };
+  return { icon: Terminal, color: "text-muted-foreground" };
+}
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min${mins === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export default function AdminDashboard() {
   const [pendingApplications, setPendingApplications] = useState<DashboardPendingApp[]>([]);
   const [appToApprove, setAppToApprove] = useState<{ id: string; name: string } | null>(null);
+  const [stats, setStats] = useState<DashboardStats>(defaultStats);
+  const [recentBookings, setRecentBookings] = useState<DashboardBooking[]>([]);
+  const [platformActivities, setPlatformActivities] = useState<ActivityFeedItem[]>([]);
 
   useEffect(() => {
     api.get("/admin/photographer-applications", { params: { status: "pending_review" } })
@@ -86,13 +113,77 @@ export default function AdminDashboard() {
       .catch((err) => {
         toast.error(getApiErrorMessage(err, "Failed to load pending applications."));
       });
+
+    api.get("/admin/dashboard-stats")
+      .then((res) => {
+        const s = unwrapObject(res.data);
+        setStats({
+          total_users: s.total_users ?? 0,
+          active_clients: s.active_clients ?? 0,
+          professionals: s.professionals ?? 0,
+          total_bookings: s.total_bookings ?? 0,
+          pending_reviews: s.pending_reviews ?? 0,
+        });
+      })
+      .catch((err) => {
+        toast.error(getApiErrorMessage(err, "Failed to load dashboard stats."));
+      });
+
+    api.get("/admin/bookings", { params: { per_page: 4 } })
+      .then((res) => {
+        // BookingController now returns { bookings: {paginated}, stats: {...} }
+        // wrapped under the standard success envelope, so unwrap one level
+        // deeper than before to reach the actual booking array.
+        const envelope = unwrapObject(res.data);
+        const list = unwrapList(envelope.bookings ?? envelope);
+        setRecentBookings(
+          list.map((b: any) => ({
+            id: b.id,
+            client: b.client,
+            professional: b.photographer,
+            event: b.event,
+            date: b.eventDate ? new Date(b.eventDate).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—",
+            status: b.status,
+          }))
+        );
+      })
+      .catch((err) => {
+        toast.error(getApiErrorMessage(err, "Failed to load recent bookings."));
+      });
+
+    api.get("/admin/activity-logs", { params: { per_page: 4 } })
+      .then((res) => {
+        const list = unwrapList(res.data);
+        setPlatformActivities(
+          list.map((log: any) => {
+            // Defensive against unknown field names — tries the common
+            // conventions until ActivityLogResource's real shape is confirmed.
+            const text: string =
+              log.description ?? log.message ?? log.text ??
+              `${log.causer?.name ?? "Someone"} performed ${log.action ?? "an action"}`;
+            const { icon, color } = iconForActivity(text);
+            return {
+              id: log.id,
+              text,
+              time: timeAgo(log.created_at),
+              icon,
+              color,
+            };
+          })
+        );
+      })
+      .catch((err) => {
+        toast.error(getApiErrorMessage(err, "Failed to load activity logs."));
+      });
   }, []);
 
-  const displayStats = stats.map((stat) =>
-    stat.label === "Pending Reviews"
-      ? { ...stat, value: String(pendingApplications.length) }
-      : stat
-  );
+  const statCards = [
+    { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Professionals", icon: Users, color: "bg-primary/10 text-primary" },
+    { label: "Active Clients", value: String(stats.active_clients), subtext: "Registered consumers", icon: UserCheck, color: "bg-blue-500/10 text-blue-600" },
+    { label: "Professionals", value: String(stats.professionals), subtext: "Freelancers & Studios", icon: Aperture, color: "bg-secondary/10 text-secondary" },
+    { label: "Total Bookings", value: String(stats.total_bookings), subtext: "Platform-wide transactions", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
+    { label: "Pending Reviews", value: String(pendingApplications.length), subtext: "Applications waiting", icon: ShieldAlert, color: "bg-amber-500/10 text-amber-600" },
+  ];
 
   const handleApprove = async () => {
     if (!appToApprove) return;
@@ -146,46 +237,20 @@ export default function AdminDashboard() {
 
         {/* 5-Column Compact Stats Row */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-          {displayStats.map((stat) => (
-            <div key={stat.label} className="bg-card rounded-xl p-4 border border-border/50 shadow-sm hover:shadow-md transition-shadow duration-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground tracking-wide">{stat.label}</p>
-                  <p className="text-xl font-heading font-bold mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${stat.color}`}>
-                  <stat.icon className="w-4 h-4" />
-                </div>
+          {statCards.map((stat) => (
+            <div key={stat.label} className="bg-card rounded-xl border border-border/50 shadow-sm p-4 flex flex-col gap-2">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${stat.color}`}>
+                <stat.icon className="w-4 h-4" />
               </div>
-              <p className="text-[11px] text-muted-foreground mt-2 font-medium">{stat.subtext}</p>
+              <div>
+                <p className="text-xl font-bold tracking-tight">{stat.value}</p>
+                <p className="text-xs font-semibold text-foreground/80">{stat.label}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtext}</p>
+              </div>
             </div>
           ))}
         </div>
 
-        {/* Quick Actions Bar */}
-        <div className="bg-card rounded-xl border border-border/50 p-4 shadow-sm">
-          <p className="text-[11px] font-bold text-muted-foreground/60 tracking-wider uppercase mb-3">Quick Navigation</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Link to="/admin/verifications" className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/40 hover:bg-muted text-sm font-medium transition-colors border border-border/30">
-              <ShieldCheck className="w-4 h-4 text-amber-600" />
-              <span>Verifications</span>
-            </Link>
-            <Link to="/admin/users" className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/40 hover:bg-muted text-sm font-medium transition-colors border border-border/30">
-              <UserCog className="w-4 h-4 text-blue-600" />
-              <span>User Accounts</span>
-            </Link>
-            <Link to="/admin/logs" className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/40 hover:bg-muted text-sm font-medium transition-colors border border-border/30">
-              <Terminal className="w-4 h-4 text-primary" />
-              <span>System Logs</span>
-            </Link>
-            <Link to="/admin/archives" className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/40 hover:bg-muted text-sm font-medium transition-colors border border-border/30">
-              <Archive className="w-4 h-4 text-emerald-600" />
-              <span>Archives</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* Interactive Lists */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* Pending Applications Panel */}
@@ -240,17 +305,23 @@ export default function AdminDashboard() {
               </Link>
             </div>
             <div className="divide-y divide-border/40 flex-1">
-              {recentBookings.map((b) => (
-                <div key={b.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-semibold truncate">{b.client} → <span className="text-muted-foreground font-normal">{b.professional}</span></p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{b.event} · {b.date}</p>
-                  </div>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${bookingStatusStyles[b.status]}`}>
-                    {b.status}
-                  </span>
+              {recentBookings.length === 0 ? (
+                <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  No bookings yet.
                 </div>
-              ))}
+              ) : (
+                recentBookings.map((b) => (
+                  <div key={b.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{b.client} → <span className="text-muted-foreground font-normal">{b.professional}</span></p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{b.event} · {b.date}</p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${bookingStatusStyles[b.status] ?? "bg-muted text-muted-foreground"}`}>
+                      {b.status}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -264,19 +335,19 @@ export default function AdminDashboard() {
               <h3 className="text-sm font-semibold tracking-tight">System Activity Logs</h3>
             </div>
             <div className="p-4 space-y-4">
-              {platformActivities.map((act, index) => (
-                <div key={index} className="flex items-start gap-3 text-sm">
-                  <act.icon className={`w-4 h-4 shrink-0 mt-0.5 ${act.color}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-muted-foreground leading-tight">
-                      <span className="text-foreground font-medium">{act.text.split("'")[0]}</span>
-                      {act.text.includes("'") ? <span className="font-semibold text-primary">'{act.text.split("'")[1]}'</span> : ""}
-                      {act.text.split("'")[2]}
-                    </p>
-                    <span className="text-[11px] text-muted-foreground mt-0.5 block">{act.time}</span>
+              {platformActivities.length === 0 ? (
+                <div className="text-center text-sm text-muted-foreground py-6">No recent activity.</div>
+              ) : (
+                platformActivities.map((act) => (
+                  <div key={act.id} className="flex items-start gap-3 text-sm">
+                    <act.icon className={`w-4 h-4 shrink-0 mt-0.5 ${act.color}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-muted-foreground leading-tight">{act.text}</p>
+                      <span className="text-[11px] text-muted-foreground mt-0.5 block">{act.time}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 

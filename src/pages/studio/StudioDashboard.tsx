@@ -1,7 +1,8 @@
 import {
-  CalendarDays, DollarSign, Star, TrendingUp, Clock, Users, CheckCircle,
-  Check, X, AlertCircle, FileText, Loader2
+  CalendarDays, DollarSign, Clock, CheckCircle,
+  Check, X, AlertCircle, Loader2, Activity, Wallet, Package as PackageIcon,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -15,22 +16,39 @@ import {
   useAcceptBooking,
   useRejectBooking,
 } from "@/hooks/usePhotographerBookings";
-import { useClients } from "@/hooks/useClients";
 import { usePayments } from "@/hooks/usePayments";
-import { useReviews } from "@/hooks/useReviews";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
-import { useState } from "react";
+import { photographerProfileService, type ProfileCompleteness } from "@/services/photographerProfileService";
+import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
+
+// A "pending" booking's 24h review window (set by CreateBookingAction) may
+// have lapsed server-side before ExpireStaleBookingHoldsAction next runs and
+// flips its status to "expired". AcceptBookingAction rejects these with a
+// validation error, so we detect it client-side first and disable the
+// Accept/Decline actions instead of letting the request fail confusingly.
+function isPendingHoldExpired(b: StudioBookingRecord): boolean {
+  return b.status === "pending" && !!b.holdExpiresAt && new Date(b.holdExpiresAt).getTime() < Date.now();
+}
 
 export default function StudioDashboard() {
   const { user } = useRole();
   const { toast } = useToast();
 
   const { data: bookings = [], isLoading: loadingBookings, error: bookingsError } = usePhotographerBookings();
-  const { data: clients = [], isLoading: loadingClients } = useClients();
   const { data: payments = [], isLoading: loadingPayments } = usePayments();
-  const { data: reviews = [], isLoading: loadingReviews } = useReviews();
   const acceptMutation = useAcceptBooking();
   const rejectMutation = useRejectBooking();
+
+  const [completeness, setCompleteness] = useState<ProfileCompleteness | null>(null);
+  const [completenessLoaded, setCompletenessLoaded] = useState(false);
+
+  useEffect(() => {
+    photographerProfileService.getCompleteness()
+      .then(setCompleteness)
+      .catch(() => setCompleteness(null))
+      .finally(() => setCompletenessLoaded(true));
+  }, []);
 
   const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -39,14 +57,25 @@ export default function StudioDashboard() {
 
   const isMutating = acceptMutation.isPending || rejectMutation.isPending;
 
-  const pendingBookings = bookings.filter((b) => b.status === "pending");
+    const pendingBookings = bookings.filter((b) => b.status === "pending");
+  // Dashboard's Pending Requests is meant for things that need action right
+  // now — a hold-expired pending booking can't be accepted or declined
+  // anymore (see isPendingHoldExpired below), so it's excluded here. It's
+  // still visible on the full Bookings page, which already shows it with
+  // the "Response window expired" note.
+  const actionablePendingBookings = pendingBookings.filter((b) => !isPendingHoldExpired(b));
+  const confirmedBookings = bookings.filter(
+    (b): b is StudioBookingRecord & { status: "confirmed" } => b.status === "confirmed"
+  );
   const completedBookings = bookings.filter((b) => b.status === "completed");
-  const activeClients = clients.filter((c) => c.status === "active");
 
-  // Recent/active bookings feed — everything still relevant, most recent first.
-  const recentBookings = bookings
+  // Primary "what's coming up" list — confirmed, scheduled bookings only.
+  const upcomingBookings = confirmedBookings.slice(0, 5);
+
+  // Lightweight activity feed — most recent relevant bookings, one line each.
+  const recentActivity = bookings
     .filter((b) => b.status !== "rejected" && b.status !== "cancelled")
-    .slice(0, 6);
+    .slice(0, 4);
 
   const now = new Date();
   const monthRevenue = payments
@@ -56,20 +85,19 @@ export default function StudioDashboard() {
     })
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const avgRating = reviews.length > 0
-    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-    : null;
-
-  const recentReviews = reviews.slice(0, 5);
-
   const stats = [
-    { label: "Pending Bookings", value: String(pendingBookings.length), icon: Clock },
-    { label: "This Month Revenue", value: `₱${monthRevenue.toLocaleString()}`, icon: DollarSign },
-    { label: "Completed Sessions", value: String(completedBookings.length), icon: CheckCircle },
-    { label: "Active Clients", value: String(activeClients.length), icon: Users },
+        { label: "Pending Requests", value: String(actionablePendingBookings.length), icon: Clock, highlight: actionablePendingBookings.length > 0 },
+    { label: "Upcoming Bookings", value: String(confirmedBookings.length), icon: CalendarDays, highlight: false },
+    { label: "Completed", value: String(completedBookings.length), icon: CheckCircle, highlight: false },
+    { label: "Revenue This Month", value: `₱${monthRevenue.toLocaleString()}`, icon: DollarSign, highlight: false },
   ];
 
-  const isStatsLoading = loadingBookings || loadingClients || loadingPayments;
+  const isStatsLoading = loadingBookings || loadingPayments;
+
+  // Only show the setup banner once we've actually heard back, and only
+  // when something is genuinely missing — avoids a flash of "incomplete"
+  // before the request resolves, and never nags a fully-set-up photographer.
+  const showSetupBanner = completenessLoaded && completeness !== null && !completeness.fullyBookable;
 
   const handleOpenAccept = (booking: StudioBookingRecord) => {
     setSelectedBooking(booking);
@@ -106,161 +134,237 @@ export default function StudioDashboard() {
     }
   };
 
+  const activityLabel = (b: StudioBookingRecord) => {
+    if (b.status === "completed") return "Session completed";
+    if (b.status === "confirmed") return "Booking confirmed";
+    if (b.status === "pending") return "New booking request";
+    return "Booking updated";
+  };
+
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto space-y-8 animate-fade-up">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
+        {/* Header */}
         <div>
-          <h1 className="text-2xl font-heading font-bold">Welcome back{user?.name ? `, ${user.name}` : ""}</h1>
-          <p className="text-muted-foreground mt-1">Here's your business overview and active bookings.</p>
+          <h1 className="text-2xl font-heading font-bold">{user?.name || "Your Studio"}</h1>
+          <p className="text-sm text-muted-foreground mt-1">Here's your studio at a glance.</p>
         </div>
 
+        {/* Setup reminder — clients can't see or book this photographer until
+            these are done, so it's surfaced prominently until resolved. */}
+        {showSetupBanner && completeness && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                Finish setting up your studio to start receiving bookings
+              </p>
+              <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                You won't appear in Explore and clients can't book you until this is complete:
+              </p>
+              <ul className="mt-2 space-y-1">
+                {!completeness.hasActivePackage && (
+                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <PackageIcon className="w-3.5 h-3.5 shrink-0" /> Publish at least one service package
+                  </li>
+                )}
+                {!completeness.gcashConfigured && (
+                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5 shrink-0" /> Add your GCash account details for payments
+                  </li>
+                )}
+                {!completeness.profileComplete && (
+                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Complete your public profile (bio, style, socials)
+                  </li>
+                )}
+                {!completeness.portfolioMinimumMet && (
+                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Upload at least {completeness.portfolioMinimumRequired} portfolio photos
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {!completeness.hasActivePackage && (
+                <Button asChild size="sm" variant="outline" className="text-xs border-amber-300 dark:border-amber-800">
+                  <Link to="/studio/packages">Set Up Packages</Link>
+                </Button>
+              )}
+              {!completeness.gcashConfigured && (
+                <Button asChild size="sm" variant="outline" className="text-xs border-amber-300 dark:border-amber-800">
+                  <Link to="/studio/settings">Add GCash Info</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((stat) => (
-            <div key={stat.label} className="bg-card rounded-xl p-5 card-shadow border border-border/50 hover:card-shadow-hover transition-shadow duration-200">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-heading font-bold mt-1">
+            <div
+              key={stat.label}
+              className={cn(
+                "rounded-xl p-4 card-shadow border",
+                stat.highlight ? "bg-primary/5 border-primary/40" : "bg-card border-border/50"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className={cn("text-xs truncate", stat.highlight ? "text-primary font-medium" : "text-muted-foreground")}>
+                    {stat.label}
+                  </p>
+                  <p className="text-xl font-heading font-bold mt-0.5">
                     {isStatsLoading ? "—" : stat.value}
                   </p>
                 </div>
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <stat.icon className="w-5 h-5 text-primary" />
+                <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", stat.highlight ? "bg-primary/15" : "bg-primary/10")}>
+                  <stat.icon className="w-4 h-4 text-primary" />
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent bookings */}
-          <div className="lg:col-span-2 bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
-            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20">
-              <h3 className="font-heading font-semibold flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Incoming & Active Bookings
-              </h3>
-              <span className="text-xs text-muted-foreground font-medium bg-muted px-2 py-1 rounded-full">
-                {pendingBookings.length} Pending
-              </span>
-            </div>
-
-            {loadingBookings && (
-              <div className="px-6 py-16 text-center text-sm text-muted-foreground animate-pulse">Loading bookings...</div>
-            )}
-
-            {!loadingBookings && bookingsError && (
-              <div className="px-6 py-8 text-center text-sm text-destructive">
-                {getApiErrorMessage(bookingsError, "Unable to load bookings.")}
-              </div>
-            )}
-
-            {!loadingBookings && !bookingsError && (
-              <div className="divide-y divide-border">
-                {recentBookings.length === 0 && (
-                  <div className="px-6 py-16 text-center text-sm text-muted-foreground">No active bookings right now.</div>
-                )}
-
-                {recentBookings.map((b) => (
-                  <div key={b.id} className="px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/10 transition-colors">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-semibold text-sm shrink-0 border border-secondary/20">
-                        {b.clientName.split(" ").map((n) => n[0]).join("")}
-                      </div>
-                      <div className="min-w-0 space-y-1">
-                        <p className="font-medium text-sm truncate">{b.clientName}</p>
-                        <p className="text-xs text-muted-foreground truncate flex gap-1.5 items-center">
-                          <span className="font-semibold text-foreground/80">{b.eventType}</span>
-                          <span>•</span> {b.packageName}
-                        </p>
-                        <div className="flex items-center gap-2 text-[10px] mt-1">
-                          <span className="bg-primary/5 text-primary px-1.5 py-0.5 rounded border border-primary/10 capitalize">
-                            Payment: {(b.paymentStatus ?? "pending").replace(/_/g, " ")}
-                          </span>
-                          <span className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border capitalize">
-                            Service: {(b.serviceStatus ?? "not started").replace(/_/g, " ")}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-                      <div className="text-xs text-muted-foreground text-left sm:text-right">
-                        <p className="font-medium text-foreground">{b.date}</p>
-                        <p>{b.startTime}</p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <StatusBadge status={b.status as any} />
-
-                        {b.status === "pending" && (
-                          <div className="flex items-center gap-1 ml-2">
-                            <button
-                              onClick={() => handleOpenAccept(b)}
-                              className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 rounded-md transition-colors border border-emerald-200/50"
-                              title="Accept Booking"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenReject(b)}
-                              className="p-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-md transition-colors border border-destructive/20"
-                              title="Reject Booking"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Pending Requests — full-width, gets top priority whenever action is needed */}
+        {loadingBookings ? (
+          <div className="bg-card rounded-xl card-shadow border border-border/50 px-5 py-8 text-center text-sm text-muted-foreground">
+            Loading…
           </div>
-
-          {/* Reviews */}
-          <div className="bg-card rounded-xl card-shadow border border-border/50">
-            <div className="px-6 py-4 border-b border-border bg-muted/20 flex items-center justify-between">
-              <h3 className="font-heading font-semibold flex items-center gap-2">
-                <Star className="w-4 h-4 text-accent" /> Recent Reviews
+        ) : actionablePendingBookings.length > 0 ? (
+          <div className="bg-card rounded-xl card-shadow border-2 border-primary/30 overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-primary/20 bg-primary/5">
+              <h3 className="font-heading font-semibold text-sm flex items-center gap-2 text-primary">
+                <AlertCircle className="w-4 h-4" /> Pending Requests · {actionablePendingBookings.length}
               </h3>
-              {avgRating && (
-                <span className="text-xs font-semibold text-accent flex items-center gap-1">
-                  <Star className="w-3 h-3 fill-accent text-accent" /> {avgRating}
-                </span>
-              )}
             </div>
-
-            {loadingReviews && (
-              <div className="px-6 py-10 text-center text-sm text-muted-foreground animate-pulse">Loading reviews...</div>
-            )}
-
-            {!loadingReviews && recentReviews.length === 0 && (
-              <div className="px-6 py-10 text-center text-sm text-muted-foreground">No reviews yet.</div>
-            )}
-
-            {!loadingReviews && recentReviews.length > 0 && (
-              <div className="divide-y divide-border">
-                {recentReviews.map((r) => (
-                  <div key={r.id} className="px-6 py-4 hover:bg-muted/5 transition-colors">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-semibold">{r.clientName}</p>
-                      <div className="flex items-center gap-0.5">
-                        {Array.from({ length: r.rating }).map((_, j) => (
-                          <Star key={j} className="w-3 h-3 fill-accent text-accent" />
-                        ))}
-                      </div>
+            <div className="divide-y divide-border">
+              {actionablePendingBookings.map((b) => (
+                <div key={b.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-sm">{b.clientName}</p>
+                      <StatusBadge status={b.status} />
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">"{r.comment}"</p>
-                    <p className="text-xs text-muted-foreground/70 mt-2">
-                      {new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {b.eventType} • {b.packageName}
                     </p>
                   </div>
-                ))}
-              </div>
-            )}
+
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="text-right">
+                      <p className="text-xs font-semibold">{b.date}</p>
+                      <Link
+                        to={`/studio/bookings/${b.id}`}
+                        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      >
+                        View details
+                      </Link>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => handleOpenAccept(b)}
+                      >
+                        <Check className="w-3.5 h-3.5 mr-1" /> Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-destructive hover:bg-destructive/10"
+                        onClick={() => handleOpenReject(b)}
+                      >
+                        <X className="w-3.5 h-3.5 mr-1" /> Decline
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+        ) : (
+          <div className="bg-card rounded-xl card-shadow border border-border/50 px-5 py-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <AlertCircle className="w-4 h-4 shrink-0" /> No booking requests waiting for your response.
+          </div>
+        )}
+
+        {/* Upcoming Bookings — confirmed, scheduled bookings only */}
+        <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border flex items-center justify-between bg-muted/20">
+            <h3 className="font-heading font-semibold text-sm flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-primary" /> Upcoming Bookings · {confirmedBookings.length}
+            </h3>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
+              View all
+            </Button>
+          </div>
+
+          {loadingBookings && (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">Loading…</div>
+          )}
+
+          {!loadingBookings && bookingsError && (
+            <div className="px-5 py-8 text-center text-sm text-destructive">
+              {getApiErrorMessage(bookingsError, "Unable to load bookings.")}
+            </div>
+          )}
+
+          {!loadingBookings && !bookingsError && (
+            <div className="divide-y divide-border">
+              {upcomingBookings.length === 0 && (
+                <div className="px-5 py-8 text-center text-sm text-muted-foreground">No confirmed upcoming bookings.</div>
+              )}
+
+              {upcomingBookings.map((b) => (
+                <div key={b.id} className="px-5 py-3.5 flex items-center gap-3 hover:bg-muted/10 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm truncate">{b.clientName}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {b.eventType} • {b.packageName}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-medium">{b.date}</p>
+                    <StatusBadge status={b.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Recent Activity */}
+        <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border bg-muted/20">
+            <h3 className="font-heading font-medium text-sm flex items-center gap-2 text-muted-foreground">
+              <Activity className="w-4 h-4" /> Recent Activity
+            </h3>
+          </div>
+
+          {loadingBookings && (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">Loading…</div>
+          )}
+
+          {!loadingBookings && recentActivity.length === 0 && (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">No recent activity.</div>
+          )}
+
+          {!loadingBookings && recentActivity.length > 0 && (
+            <div className="divide-y divide-border">
+              {recentActivity.map((b) => (
+                <div key={b.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                  <p className="text-sm truncate">
+                    {activityLabel(b)} <span className="text-muted-foreground">— {b.clientName}</span>
+                  </p>
+                  <span className="text-xs text-muted-foreground shrink-0">{b.date}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ACCEPT BOOKING MODAL */}

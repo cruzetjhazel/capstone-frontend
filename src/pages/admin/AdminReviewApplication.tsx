@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import { 
   ArrowLeft, CheckCircle2, XCircle, RotateCcw, 
   FileText, ExternalLink, Building2, User, Eye,
@@ -97,7 +97,6 @@ export default function AdminReviewApplication() {
 
   return (
     <DashboardLayout>
-      <Toaster position="top-center" reverseOrder={false} />
 
       <div className="max-w-5xl mx-auto animate-fade-up pb-16">
         

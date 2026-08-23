@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/useFavorites";
+import { useRole } from "@/contexts/RoleContext";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import { formatPrice } from "@/data/photographers";
 
@@ -14,10 +15,26 @@ const typeFilters = ["All", "Freelancer", "Studio"];
 const serviceFilters = ["Weddings", "Portraits", "Events", "Product", "Graduation"];
 
 export default function Photographers() {
+    const { user } = useRole();
   const { data: favoritePhotographers = [] } = useFavorites();
   const addFavorite = useAddFavorite();
   const removeFavorite = useRemoveFavorite();
   const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
+
+  const handleToggleFavorite = (e: React.MouseEvent, photographerId: string, photographerName: string, currentlyFav: boolean) => {
+    e.preventDefault();
+    if (!user) {
+      toast.error("Please log in or create an account to save favorites.");
+      return;
+    }
+    if (currentlyFav) {
+      removeFavorite.mutate(photographerId);
+      toast(`${photographerName} removed from favorites.`);
+    } else {
+      addFavorite.mutate(photographerId);
+      toast.success(`${photographerName} added to favorites!`);
+    }
+  };
   const [activeType, setActiveType] = useState("All");
   const [activeService, setActiveService] = useState("");
   const { data: photographers = [], isLoading } = usePhotographers();
@@ -122,16 +139,7 @@ export default function Photographers() {
                 className="group relative bg-card rounded-2xl card-shadow border border-border/50 overflow-hidden hover:card-shadow-hover transition-all duration-200"
               >
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (isFav) {
-                      removeFavorite.mutate(p.id);
-                      toast(`${p.name} removed from favorites.`);
-                    } else {
-                      addFavorite.mutate(p.id);
-                      toast.success(`${p.name} added to favorites!`);
-                    }
-                  }}
+                  onClick={(e) => handleToggleFavorite(e, p.id, p.name, isFav)}
                   className="absolute top-3 right-3 z-10 p-2.5 rounded-full bg-background/80 backdrop-blur-md hover:bg-background border border-border/50 active:scale-95 transition-all duration-200 group-hover:opacity-100 shadow-sm"
                 >
                   <Heart 

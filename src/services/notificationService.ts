@@ -1,6 +1,18 @@
 import api from "@/lib/api";
 
 export type NotificationType = "booking" | "payment" | "message" | "system";
+export type NotificationActionKind = "pay" | null;
+
+interface RawNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  description: string;
+  booking_id: string | null;
+  action: NotificationActionKind;
+  read: boolean;
+  created_at: string;
+}
 
 export interface AppNotification {
   id: string;
@@ -9,57 +21,51 @@ export interface AppNotification {
   description: string;
   time: string;
   read: boolean;
-  bookingId?: number | string;
-  action?: "pay";
+  bookingId: string | null;
+  action: NotificationActionKind;
 }
 
-/**
- * Backend notification "type" values are namespaced strings like
- * "booking.confirmed" or "payment.rejected" (see app/Notifications/**).
- * We derive the UI category from the prefix and build a readable
- * title from the suffix — there is no separate title field server-side,
- * only `type` and a pre-formatted `message`.
- */
-function categoryOf(rawType: string): NotificationType {
-  const prefix = rawType.split(".")[0];
-  return prefix === "booking" || prefix === "payment" ? prefix : "system";
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso);
+  const diffMin = Math.round((Date.now() - date.getTime()) / 60_000);
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString();
 }
 
-function titleOf(rawType: string): string {
-  const [prefix, ...rest] = rawType.split(".");
-  const label = rest.join(" ").replace(/_/g, " ");
-  const category = prefix.charAt(0).toUpperCase() + prefix.slice(1);
-  return label ? `${category} ${label.replace(/\b\w/g, (c) => c.toUpperCase())}` : category;
-}
-
-function fromApi(raw: any): AppNotification {
-  const rawType: string = raw.type ?? raw.data?.type ?? "system";
-  const data = raw.data ?? {};
+function toAppNotification(raw: RawNotification): AppNotification {
   return {
     id: raw.id,
-    type: categoryOf(rawType),
-    title: titleOf(rawType),
-    description: data.message ?? "",
-    time: raw.created_at ? new Date(raw.created_at).toLocaleString() : "",
-    read: Boolean(raw.read_at),
-    bookingId: data.booking_id,
-    // "Payment required" is the one case the UI currently offers a quick action for.
-    action: rawType === "booking.accepted" ? "pay" : undefined,
+    type: raw.type,
+    title: raw.title,
+    description: raw.description,
+    time: formatRelativeTime(raw.created_at),
+    read: raw.read,
+    bookingId: raw.booking_id,
+    action: raw.action,
   };
 }
 
 export const notificationService = {
-  async list(): Promise<AppNotification[]> {
-    const { data } = await api.get("/notifications");
-    const items = data?.data?.data ?? [];
-    return items.map(fromApi);
+  list: async (): Promise<AppNotification[]> => {
+    const res = await api.get("/notifications");
+    return (res.data.data as RawNotification[]).map(toAppNotification);
   },
 
-  async markRead(id: string): Promise<void> {
+  unreadCount: async (): Promise<number> => {
+    const res = await api.get("/notifications/unread-count");
+    return res.data.count as number;
+  },
+
+  markAsRead: async (id: string): Promise<void> => {
     await api.post(`/notifications/${id}/read`);
   },
 
-  async markAllRead(): Promise<void> {
+  markAllAsRead: async (): Promise<void> => {
     await api.post("/notifications/read-all");
   },
 };

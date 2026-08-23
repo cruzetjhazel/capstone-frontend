@@ -175,6 +175,7 @@
   --warning-foreground: 22 30% 10%;
 }
 
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased;

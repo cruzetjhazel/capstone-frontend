@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import api from "@/lib/api";
 import { AUTH_TOKEN_KEY } from "@/config/env";
 
@@ -40,6 +40,10 @@ type RoleContextType = {
   logout: () => void;
   refreshApplication: () => Promise<void>;
   refreshProfilePhoto: (url: string | null) => void;
+  // One-shot flag consumed by ProtectedRoute so it can tell "user just clicked
+  // Logout" apart from "unauthenticated visitor hit a guarded route" — the two
+  // cases were both showing an auth toast on top of the logout success toast.
+  consumeJustLoggedOut: () => boolean;
 };
 
 
@@ -120,6 +124,7 @@ async function buildUser(rawUser: any): Promise<User> {
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const justLoggedOutRef = useRef(false);
 
   // On app load: if a token exists, ask the backend who we are (source of truth),
   // rather than trusting whatever was last cached in localStorage.
@@ -165,10 +170,17 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    justLoggedOutRef.current = true;
     api.post("/auth/logout").catch(() => {});
     setUser(null);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(USER_STORAGE_KEY);
+  };
+
+  const consumeJustLoggedOut = () => {
+    const wasJustLoggedOut = justLoggedOutRef.current;
+    justLoggedOutRef.current = false;
+    return wasJustLoggedOut;
   };
 
   // Takes the raw backend user object (as returned by UserResource) plus the
@@ -201,7 +213,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   return (
     <RoleContext.Provider
-      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication, refreshProfilePhoto }}
+      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication, refreshProfilePhoto, consumeJustLoggedOut }}
     >
       {children}
     </RoleContext.Provider>

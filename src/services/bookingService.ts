@@ -123,7 +123,18 @@ async function apiRequest<T>(path: string): Promise<T> {
     throw new Error("Unable to connect to the server. Please check your connection and try again.");
   }
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(json.message || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    // Mirrors apiMutate's error handling: prefer the specific field message
+    // (e.g. "This photographer has not set up their GCash payment details
+    // yet.") over Laravel's generic top-level "The given data was invalid."
+    // — apiRequest was missing this, apiMutate already had it.
+    const fieldErrors = json.errors
+      ? Object.entries(json.errors)
+          .map(([, msgs]) => (msgs as string[]).join(", "))
+          .join(" | ")
+      : "";
+    throw new Error(fieldErrors || json.message || `Request failed (${response.status}).`);
+  }
   return json.data as T;
 }
 

@@ -92,6 +92,8 @@ export interface Photographer {
   portfolio: string[];
   customRates: CustomRates;
   socials?: { facebook?: string; instagram?: string; website?: string };
+  phone?: string;
+  email?: string;
   gcashQR?: string;   // mock QR identifier used by payment auto-verify
   gcashName?: string;
   gcashNumber?: string;

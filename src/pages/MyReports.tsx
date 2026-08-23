@@ -10,6 +10,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useRole } from "@/contexts/RoleContext";
 import { reportService, getApiErrorMessage, type Report } from "@/services/reportService";
+import { ReportingNav, getReportRoute } from "@/components/reporting/ReportingNav";
 import { 
   ClipboardList, Plus, Search, AlertCircle, 
   CheckCircle2, Clock, MessageSquare, FileText, ChevronRight, Loader2
@@ -21,6 +22,17 @@ const STATUS_CONFIG = {
   resolved: { label: "Resolved", color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/20", icon: CheckCircle2 },
   closed: { label: "Closed", color: "text-muted-foreground bg-muted border-border/50", icon: AlertCircle },
 };
+
+const STATUS_TABS: { value: string; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "reviewing", label: "Under Review" },
+  { value: "resolved", label: "Resolved" },
+  { value: "closed", label: "Closed" },
+];
+
+// Below this many reports, a search box adds more clutter than it saves.
+const SEARCH_VISIBLE_THRESHOLD = 4;
 
 export default function MyReports() {
   const { role } = useRole();
@@ -64,80 +76,107 @@ export default function MyReports() {
     return matchesTab && matchesSearch;
   });
 
-  const handleNewReportClick = () => {
-    const isPro = role === "studio";
-    navigate(isPro ? "/studio/report-problem" : "/report-problem");
+  const hasReports = reports.length > 0;
+  const hasActiveFilters = activeTab !== "all" || searchQuery.trim().length > 0;
+  const showSearch = reports.length >= SEARCH_VISIBLE_THRESHOLD;
+
+  const clearFilters = () => {
+    setActiveTab("all");
+    setSearchQuery("");
   };
 
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-6 animate-fade-up py-4 sm:py-8">
+      <div className="max-w-4xl mx-auto space-y-5 animate-fade-up py-4 sm:py-6">
         
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <ClipboardList className="w-6 h-6 text-primary" />
-              My Filed Reports
+            <h1 className="text-xl font-heading font-bold flex items-center gap-2 text-foreground">
+              <ClipboardList className="w-5 h-5 text-primary" />
+              My Reports
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Track resolution progress and administrator updates for your reported issues.
+              Track your submitted reports and their resolution progress.
             </p>
           </div>
-          
-          <Button onClick={handleNewReportClick} className="shrink-0 gap-2 rounded-xl">
-            <Plus className="w-4 h-4" /> File New Report
-          </Button>
+
+          <ReportingNav active="reports" />
         </div>
 
         {/* Filters and Search */}
-        <div className="flex flex-col md:flex-row justify-between gap-4 border-b border-border/50 pb-4">
-          <div className="flex overflow-x-auto no-scrollbar gap-2 pb-1">
-            {["all", "pending", "reviewing", "resolved", "closed"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                  activeTab === tab 
-                    ? "bg-primary text-primary-foreground shadow-xs" 
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1).replace("Reviewing", "Under Review")}
-              </button>
-            ))}
-          </div>
+        {hasReports && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/40 pb-3">
+            <div className="flex flex-wrap gap-1">
+              {STATUS_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => setActiveTab(tab.value)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+                    activeTab === tab.value 
+                      ? "bg-primary/10 text-primary border-primary/20" 
+                      : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-          <div className="relative w-full md:w-64 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input 
-              type="text" 
-              placeholder="Search by ID or reason..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
+            {showSearch && (
+              <div className="relative w-full sm:w-56 shrink-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input 
+                  type="text" 
+                  placeholder="Search by ID or reason" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-input bg-background text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* Reports Container */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {isLoading ? (
-            <div className="text-center py-16 bg-card rounded-2xl border border-border/50 border-dashed">
-              <Loader2 className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3 animate-spin" />
+            <div className="text-center py-10 bg-card rounded-xl border border-border/50 border-dashed">
+              <Loader2 className="w-7 h-7 text-muted-foreground/40 mx-auto mb-2 animate-spin" />
               <p className="text-muted-foreground text-xs">Loading your reports...</p>
             </div>
           ) : loadError ? (
-            <div className="text-center py-16 bg-card rounded-2xl border border-destructive/30 border-dashed">
-              <AlertCircle className="w-10 h-10 text-destructive/40 mx-auto mb-3" />
+            <div className="text-center py-10 bg-card rounded-xl border border-destructive/30 border-dashed">
+              <AlertCircle className="w-8 h-8 text-destructive/40 mx-auto mb-2" />
               <h3 className="text-sm font-bold text-foreground">Couldn't load reports</h3>
               <p className="text-muted-foreground text-xs mt-1">{loadError}</p>
             </div>
+          ) : !hasReports ? (
+            <div className="text-center py-10 bg-card rounded-xl border border-border/50 border-dashed">
+              <ClipboardList className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+              <h3 className="text-sm font-bold text-foreground">No reports yet</h3>
+              <p className="text-muted-foreground text-xs mt-1">You haven't submitted a report yet.</p>
+              <Button
+                size="sm"
+                onClick={() => navigate(getReportRoute(role))}
+                className="mt-4 gap-2 rounded-xl"
+              >
+                <Plus className="w-3.5 h-3.5" /> Report a Problem
+              </Button>
+            </div>
           ) : filteredReports.length === 0 ? (
-            <div className="text-center py-16 bg-card rounded-2xl border border-border/50 border-dashed">
-              <ClipboardList className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-              <h3 className="text-sm font-bold text-foreground">No reports found</h3>
-              <p className="text-muted-foreground text-xs mt-1">There are no filed reports matching your active filters.</p>
+            <div className="text-center py-10 bg-card rounded-xl border border-border/50 border-dashed">
+              <Search className="w-7 h-7 text-muted-foreground/30 mx-auto mb-2" />
+              <h3 className="text-sm font-bold text-foreground">No matching reports</h3>
+              <p className="text-muted-foreground text-xs mt-1">Try a different search term or status filter.</p>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="mt-3 text-xs font-semibold text-primary hover:underline"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
           ) : (
             filteredReports.map((report) => {
@@ -145,24 +184,32 @@ export default function MyReports() {
               return (
                 <div 
                   key={report.id} 
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedReport(report)}
-                  className="group flex flex-col sm:flex-row gap-4 p-5 bg-card border border-border/50 rounded-2xl hover:shadow-sm hover:border-primary/40 transition-all cursor-pointer"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedReport(report);
+                    }
+                  }}
+                  className="group flex flex-col sm:flex-row gap-3 p-4 bg-card border border-border/50 rounded-xl hover:border-primary/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-mono font-bold text-primary text-sm">{report.id}</span>
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${STATUS_CONFIG[report.status as keyof typeof STATUS_CONFIG].color}`}>
                         <StatusIcon className="w-3 h-3" />
                         {STATUS_CONFIG[report.status as keyof typeof STATUS_CONFIG].label}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
                       <span className="font-semibold text-foreground">{report.reason}</span>
                       <span className="text-muted-foreground text-xs">• Submitted {report.date}</span>
                     </div>
                   </div>
                   
-                  <div className="flex items-center justify-between sm:justify-end gap-4 border-t border-border/50 sm:border-0 pt-3 sm:pt-0">
+                  <div className="flex items-center justify-between sm:justify-end gap-4 border-t border-border/50 sm:border-0 pt-2 sm:pt-0">
                     <div className="text-xs text-muted-foreground font-mono flex items-center gap-1.5 bg-muted/40 px-2.5 py-1 rounded-lg">
                       <FileText className="w-3.5 h-3.5 text-muted-foreground" /> {report.referenceId !== "N/A" ? report.referenceId : "General"}
                     </div>
@@ -230,7 +277,7 @@ export default function MyReports() {
                     <div className="absolute w-3 h-3 bg-muted border-2 border-primary rounded-full -left-[7px] top-1" />
                     <p className="text-[11px] text-muted-foreground font-mono">{selectedReport.date}</p>
                     <p className="text-xs font-bold text-foreground mt-0.5">Report Received</p>
-                    <p className="text-xs text-muted-foreground mt-1">Your case was created and assigned to the Trust & Safety review queue.</p>
+                    <p className="text-xs text-muted-foreground mt-1">Your report was created and assigned to the Trust & Safety review queue.</p>
                   </div>
 
                   {/* Dynamic Admin Updates */}
@@ -250,7 +297,7 @@ export default function MyReports() {
                     <div className="relative pl-6">
                       <div className="absolute w-3 h-3 bg-emerald-500 border-2 border-background rounded-full -left-[7px] top-1" />
                       <p className="text-xs font-bold text-emerald-600">Case Resolved</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">This issue has been closed by platform administration.</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">This report has been closed by platform administration.</p>
                     </div>
                   )}
                 </div>

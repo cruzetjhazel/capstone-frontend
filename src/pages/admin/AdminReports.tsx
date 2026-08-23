@@ -1,175 +1,216 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { 
   Search, Filter, ShieldAlert, AlertTriangle, 
   CheckCircle2, Clock, Eye, X, MessageSquare, 
-  FileText, AlertCircle, Shield, User, Send, Check
+  FileText, AlertCircle, Shield, User, Send, Check,
+  Loader2, ChevronLeft, ChevronRight, Paperclip
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import toast from "react-hot-toast";
+import api, { getApiErrorMessage } from "@/lib/api";
 
-// --- MOCK DATA ALIGNED WITH SYSTEM REQUIREMENTS ---
-interface AdminReport {
-  id: string;
-  date: string;
-  reporterName: string;
-  reporterRole: "Client" | "Studio" | "Freelancer";
-  reportType: "Professionals" | "Bookings" | "Payments" | "Platform issues" | "Others";
-  referenceId: string;
-  reason: string;
-  severity: "minor_inconvenience" | "payment_problem" | "event_tomorrow" | "emergency_safety";
-  details: string;
-  expectedOutcome: string;
-  status: "submitted" | "under_review" | "resolved" | "closed";
-  adminNotes: { date: string; note: string; author: string }[];
+// --- Types aligned with the real backend (Report / ReportNote models) ---
+type ReportStatus = "submitted" | "under_review" | "resolved" | "closed";
+type ReportSeverity = "low" | "medium" | "high" | "urgent";
+
+interface AdminReportNote {
+  date: string | null;
+  note: string;
+  author: string;
 }
 
-const INITIAL_REPORTS: AdminReport[] = [
-  {
-    id: "RPT-2048",
-    date: "Jul 18, 2026 14:30",
-    reporterName: "Juan Dela Cruz",
-    reporterRole: "Client",
-    reportType: "Payments",
-    referenceId: "BK-1042",
-    reason: "Payment dispute",
-    severity: "payment_problem",
-    details: "I was charged twice for this booking. Once upon confirmation, and again after the session ended.",
-    expectedOutcome: "Refund request",
-    status: "submitted",
-    adminNotes: [],
-  },
-  {
-    id: "RPT-1933",
-    date: "Jul 15, 2026 09:15",
-    reporterName: "Lumina Studios",
-    reporterRole: "Studio",
-    reportType: "Bookings",
-    referenceId: "USR-992",
-    reason: "Unresponsive",
-    severity: "minor_inconvenience",
-    details: "The client hasn't responded to any of my messages regarding the setup requirements for tomorrow.",
-    expectedOutcome: "Investigate user",
-    status: "under_review",
-    adminNotes: [
-      { date: "Jul 16, 2026", note: "Reached out to the user via email and SMS. Giving them 24 hours to respond.", author: "Admin Sarah" }
-    ],
-  },
-  {
-    id: "RPT-1882",
-    date: "Jul 10, 2026 18:45",
-    reporterName: "Maria Santos",
-    reporterRole: "Client",
-    reportType: "Professionals",
-    referenceId: "STD-401",
-    reason: "Harassment/Inappropriate behavior",
-    severity: "emergency_safety",
-    details: "The photographer was extremely unprofessional and made inappropriate comments during the shoot.",
-    expectedOutcome: "Warn user",
-    status: "under_review",
-    adminNotes: [
-      { date: "Jul 11, 2026", note: "Account temporarily suspended pending investigation.", author: "Admin Mike" }
-    ],
-  },
-  {
-    id: "RPT-1502",
-    date: "Jul 02, 2026 11:20",
-    reporterName: "Pixel Perfect Studio",
-    reporterRole: "Studio",
-    reportType: "Platform issues",
-    referenceId: "N/A",
-    reason: "App crash",
-    severity: "minor_inconvenience",
-    details: "Every time I try to upload a portfolio image over 5MB, the whole page crashes instead of showing an error.",
-    expectedOutcome: "Other",
-    status: "resolved",
-    adminNotes: [
-      { date: "Jul 03, 2026", note: "Forwarded to dev team. Memory leak found.", author: "System" },
-      { date: "Jul 05, 2026", note: "Fix deployed in v2.4.1. Marking as resolved.", author: "Admin Sarah" }
-    ],
-  }
-];
+interface AdminReport {
+  id: string; // display reference code, e.g. RPT-00042
+  rawId: number; // numeric PK, used for API calls
+  date: string | null;
+  reporterName: string;
+  reporterRole: "Client" | "Studio" | "Freelancer";
+  reportType: string; // already human-labeled by the backend
+  referenceId: string;
+  reason: string;
+  severity: ReportSeverity;
+  severityLabel: string;
+  details: string;
+  expectedOutcome: string; // already human-labeled by the backend
+  status: ReportStatus;
+  attachments: string[];
+  adminNotes: AdminReportNote[];
+}
 
-const STATUS_CONFIG = {
+function fromApi(raw: any): AdminReport {
+  return {
+    id: raw.id,
+    rawId: raw.raw_id,
+    date: raw.date,
+    reporterName: raw.reporterName,
+    reporterRole: raw.reporterRole,
+    reportType: raw.reportType,
+    referenceId: raw.referenceId,
+    reason: raw.reason,
+    severity: raw.severity,
+    severityLabel: raw.severityLabel,
+    details: raw.details,
+    expectedOutcome: raw.expectedOutcome,
+    status: raw.status,
+    attachments: raw.attachments ?? [],
+    adminNotes: (raw.adminNotes ?? []).map((n: any) => ({
+      date: n.date,
+      note: n.note,
+      author: n.author,
+    })),
+  };
+}
+
+// Handles res.data.data vs res.data.data.data etc. without assuming a fixed depth.
+function unwrapObject(payload: any): any {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && typeof cur === "object" && !Array.isArray(cur) && "data" in cur; i++) {
+    cur = cur.data;
+  }
+  return cur && typeof cur === "object" ? cur : {};
+}
+
+function unwrapList(payload: any): any[] {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && !Array.isArray(cur); i++) {
+    cur = cur.data;
+  }
+  return Array.isArray(cur) ? cur : [];
+}
+
+const ITEMS_PER_PAGE = 10;
+
+const STATUS_CONFIG: Record<ReportStatus, { label: string; color: string; icon: any }> = {
   submitted: { label: "Submitted", color: "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900/50", icon: Clock },
   under_review: { label: "Under Review", color: "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/50", icon: Search },
   resolved: { label: "Resolved", color: "text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/50", icon: CheckCircle2 },
   closed: { label: "Closed", color: "text-muted-foreground bg-muted border-border", icon: AlertCircle },
 };
 
-const SEVERITY_CONFIG = {
-  minor_inconvenience: { label: "Minor Inconvenience", color: "text-slate-600 bg-slate-100 dark:bg-slate-900" },
-  payment_problem: { label: "Payment Problem", color: "text-blue-600 bg-blue-100 dark:bg-blue-900/50" },
-  event_tomorrow: { label: "Event is Tomorrow", color: "text-orange-600 bg-orange-100 dark:bg-orange-900/50" },
-  emergency_safety: { label: "Emergency/Safety Concern", color: "text-red-600 bg-red-100 dark:bg-red-900/50 animate-pulse" },
+const SEVERITY_CONFIG: Record<ReportSeverity, { color: string }> = {
+  low: { color: "text-slate-600 bg-slate-100 dark:bg-slate-900" },
+  medium: { color: "text-blue-600 bg-blue-100 dark:bg-blue-900/50" },
+  high: { color: "text-orange-600 bg-orange-100 dark:bg-orange-900/50" },
+  urgent: { color: "text-red-600 bg-red-100 dark:bg-red-900/50 animate-pulse" },
 };
 
 export default function AdminReports() {
-  const [reports, setReports] = useState<AdminReport[]>(INITIAL_REPORTS);
-  
+  const [reports, setReports] = useState<AdminReport[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const [stats, setStats] = useState({ total: 0, submitted: 0, under_review: 0, resolved: 0, closed: 0 });
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
-  
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [selectedReport, setSelectedReport] = useState<AdminReport | null>(null);
-  const [editingStatus, setEditingStatus] = useState<AdminReport["status"]>("submitted");
+  const [editingStatus, setEditingStatus] = useState<ReportStatus>("submitted");
   const [isConfirmingStatus, setIsConfirmingStatus] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [newNote, setNewNote] = useState("");
+  const [isAddingNote, setIsAddingNote] = useState(false);
+
+  const fetchReports = () => {
+    setIsLoading(true);
+    setLoadError("");
+
+    api.get("/admin/reports", {
+      params: {
+        per_page: ITEMS_PER_PAGE,
+        page: currentPage,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+        severity: severityFilter !== "all" ? severityFilter : undefined,
+        search: searchQuery || undefined,
+      },
+    })
+      .then((res) => {
+        const envelope = unwrapObject(res.data);
+        const paginated = envelope.reports ?? {};
+        const list = unwrapList(paginated);
+        setReports(list.map(fromApi));
+        setTotalPages(paginated.last_page ?? 1);
+        setTotalCount(paginated.total ?? list.length);
+        if (envelope.stats) setStats(envelope.stats);
+      })
+      .catch((err) => {
+        setLoadError(getApiErrorMessage(err, "Failed to load reports."));
+      })
+      .finally(() => setIsLoading(false));
+  };
+
+  useEffect(() => {
+    fetchReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, severityFilter, currentPage]);
+
+  // Debounce free-text search so it doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setCurrentPage(1);
+      fetchReports();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   // Sync editing status and reset confirmation when a new report is opened
   useEffect(() => {
     if (selectedReport) {
       setEditingStatus(selectedReport.status);
       setIsConfirmingStatus(false);
+      setNewNote("");
     }
-  }, [selectedReport]);
+  }, [selectedReport?.rawId]);
 
-  const filteredReports = reports.filter((report) => {
-    const matchesSearch = 
-      report.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      report.reporterName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.referenceId.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === "all" || report.status === statusFilter;
-    const matchesSeverity = severityFilter === "all" || report.severity === severityFilter;
-    
-    return matchesSearch && matchesStatus && matchesSeverity;
-  });
-
-  const handleUpdateStatus = () => {
+  const handleUpdateStatus = async () => {
     if (!selectedReport) return;
-    
-    const updatedReport = { ...selectedReport, status: editingStatus };
-    
-    setReports(prev => prev.map(r => r.id === selectedReport.id ? updatedReport : r));
-    setSelectedReport(updatedReport);
-    setIsConfirmingStatus(false);
-    
-    toast.success(`Report ${selectedReport.id} status updated to ${STATUS_CONFIG[editingStatus].label}`);
+    setIsUpdatingStatus(true);
+    try {
+      const res = await api.patch(`/admin/reports/${selectedReport.rawId}/status`, {
+        status: editingStatus,
+      });
+      const updated = fromApi(unwrapObject(res.data));
+      setSelectedReport(updated);
+      setReports((prev) => prev.map((r) => (r.rawId === updated.rawId ? updated : r)));
+      setIsConfirmingStatus(false);
+      toast.success(`Report ${updated.id} status updated to ${STATUS_CONFIG[updated.status].label}`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Couldn't update the report status."));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
-  const handleAddNote = (e: React.FormEvent) => {
+  const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNote.trim() || !selectedReport) return;
-    
-    const newNoteObj = {
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      note: newNote.trim(),
-      author: "Admin System", // Mock current user
-    };
 
-    const updatedReport = {
-      ...selectedReport,
-      adminNotes: [...selectedReport.adminNotes, newNoteObj]
-    };
-
-    setReports(prev => prev.map(r => r.id === selectedReport.id ? updatedReport : r));
-    setSelectedReport(updatedReport);
-    setNewNote("");
-    
-    toast.success("Internal note added securely.");
+    setIsAddingNote(true);
+    try {
+      const res = await api.post(`/admin/reports/${selectedReport.rawId}/notes`, {
+        note: newNote.trim(),
+      });
+      const updated = fromApi(unwrapObject(res.data));
+      setSelectedReport(updated);
+      setReports((prev) => prev.map((r) => (r.rawId === updated.rawId ? updated : r)));
+      setNewNote("");
+      toast.success("Internal note added securely.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Couldn't add that note."));
+    } finally {
+      setIsAddingNote(false);
+    }
   };
+
+  const startItem = totalCount === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
+  const endItem = Math.min(currentPage * ITEMS_PER_PAGE, totalCount);
 
   return (
     <DashboardLayout>
@@ -188,6 +229,28 @@ export default function AdminReports() {
           </div>
         </div>
 
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+          {[
+            { label: "Submitted", value: stats.submitted, icon: Clock, color: "bg-amber-500/10 text-amber-600" },
+            { label: "Under Review", value: stats.under_review, icon: Search, color: "bg-blue-500/10 text-blue-600" },
+            { label: "Resolved", value: stats.resolved, icon: CheckCircle2, color: "bg-emerald-500/10 text-emerald-600" },
+            { label: "Closed", value: stats.closed, icon: AlertCircle, color: "bg-muted text-muted-foreground" },
+          ].map((s) => (
+            <div key={s.label} className="bg-card rounded-xl p-4 border border-border/50 card-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground tracking-wide">{s.label}</p>
+                  <p className="text-xl font-heading font-bold mt-1">{s.value.toLocaleString()}</p>
+                </div>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${s.color}`}>
+                  <s.icon className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Filters */}
         <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 shadow-sm">
           <div className="relative flex-1">
@@ -204,7 +267,7 @@ export default function AdminReports() {
               <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
                 className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
               >
                 <option value="all">All Statuses</option>
@@ -218,14 +281,14 @@ export default function AdminReports() {
             <div className="w-full sm:w-auto">
               <select
                 value={severityFilter}
-                onChange={(e) => setSeverityFilter(e.target.value)}
+                onChange={(e) => { setSeverityFilter(e.target.value); setCurrentPage(1); }}
                 className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
               >
                 <option value="all">All Severities</option>
-                <option value="minor_inconvenience">Minor Inconvenience</option>
-                <option value="payment_problem">Payment Problem</option>
-                <option value="event_tomorrow">Event is Tomorrow</option>
-                <option value="emergency_safety">Emergency/Safety Concern</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
               </select>
             </div>
           </div>
@@ -247,13 +310,29 @@ export default function AdminReports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {filteredReports.map((report) => {
+                {isLoading && (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" /> Loading reports…
+                    </td>
+                  </tr>
+                )}
+
+                {!isLoading && loadError && (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-rose-600">{loadError}</td>
+                  </tr>
+                )}
+
+                {!isLoading && !loadError && reports.map((report) => {
                   const StatusIcon = STATUS_CONFIG[report.status].icon;
                   return (
-                    <tr key={report.id} className="hover:bg-muted/30 transition-colors">
+                    <tr key={report.rawId} className="hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-mono font-bold text-primary">{report.id}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{report.date}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {report.date ? new Date(report.date).toLocaleString() : "—"}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium">{report.reporterName}</div>
@@ -266,7 +345,7 @@ export default function AdminReports() {
                       <td className="px-4 py-3 max-w-[200px] truncate" title={report.reason}>{report.reason}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${SEVERITY_CONFIG[report.severity].color}`}>
-                          {SEVERITY_CONFIG[report.severity].label}
+                          {report.severityLabel}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -289,7 +368,7 @@ export default function AdminReports() {
                     </tr>
                   );
                 })}
-                {filteredReports.length === 0 && (
+                {!isLoading && !loadError && reports.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-16 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center space-y-2">
@@ -302,6 +381,32 @@ export default function AdminReports() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {!isLoading && !loadError && totalCount > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border/50 text-sm">
+              <p className="text-xs text-muted-foreground">
+                Showing {startItem}–{endItem} of {totalCount}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline" size="sm" className="h-8 gap-1"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">Page {currentPage} of {totalPages}</span>
+                <Button
+                  variant="outline" size="sm" className="h-8 gap-1"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -316,10 +421,12 @@ export default function AdminReports() {
                 <h3 className="text-xl font-heading font-bold flex items-center gap-2">
                   Report {selectedReport.id}
                   <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${SEVERITY_CONFIG[selectedReport.severity].color}`}>
-                    {SEVERITY_CONFIG[selectedReport.severity].label}
+                    {selectedReport.severityLabel}
                   </span>
                 </h3>
-                <p className="text-sm text-muted-foreground mt-1">Submitted on {selectedReport.date}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Submitted on {selectedReport.date ? new Date(selectedReport.date).toLocaleString() : "—"}
+                </p>
               </div>
               <button 
                 onClick={() => setSelectedReport(null)}
@@ -384,9 +491,20 @@ export default function AdminReports() {
                   <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
                     <Shield className="w-4 h-4" /> Attached Evidence
                   </h4>
-                  <div className="bg-muted/20 rounded-xl p-4 border border-border/50 border-dashed flex items-center justify-center text-sm text-muted-foreground min-h-[100px]">
-                    No files attached by the user.
-                  </div>
+                  {selectedReport.attachments.length === 0 ? (
+                    <div className="bg-muted/20 rounded-xl p-4 border border-border/50 border-dashed flex items-center justify-center text-sm text-muted-foreground min-h-[100px]">
+                      No files attached by the user.
+                    </div>
+                  ) : (
+                    <div className="bg-muted/20 rounded-xl p-4 border border-border/50 space-y-2">
+                      {selectedReport.attachments.map((path, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm bg-background border border-border/50 rounded-lg px-3 py-2">
+                          <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="truncate">{path.split("/").pop()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -404,7 +522,7 @@ export default function AdminReports() {
                       <select 
                         value={editingStatus}
                         onChange={(e) => {
-                          setEditingStatus(e.target.value as AdminReport["status"]);
+                          setEditingStatus(e.target.value as ReportStatus);
                           setIsConfirmingStatus(false);
                         }}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
@@ -445,7 +563,7 @@ export default function AdminReports() {
                           <div key={idx} className="space-y-1.5">
                             <div className="flex justify-between items-center text-[10px] text-muted-foreground uppercase tracking-wider">
                               <span className="font-semibold text-primary/80">{note.author}</span>
-                              <span>{note.date}</span>
+                              <span>{note.date ? new Date(note.date).toLocaleDateString() : ""}</span>
                             </div>
                             <div className="text-sm bg-background p-3 rounded-lg border border-border/50 shadow-sm">
                               {note.note}
@@ -462,14 +580,15 @@ export default function AdminReports() {
                         value={newNote}
                         onChange={(e) => setNewNote(e.target.value)}
                         className="h-10 text-sm bg-background"
+                        disabled={isAddingNote}
                       />
                       <Button 
                         type="submit" 
                         size="sm" 
                         className="h-10 px-4 shrink-0 gap-2"
-                        disabled={!newNote.trim()}
+                        disabled={!newNote.trim() || isAddingNote}
                       >
-                        <Send className="w-4 h-4" /> 
+                        {isAddingNote ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                         <span className="hidden sm:inline">Add Note</span>
                       </Button>
                     </form>
@@ -496,14 +615,16 @@ export default function AdminReports() {
                       variant="outline" 
                       className="flex-1"
                       onClick={() => setIsConfirmingStatus(false)}
+                      disabled={isUpdatingStatus}
                     >
                       Cancel
                     </Button>
                     <Button 
                       className="flex-1 gap-2"
                       onClick={handleUpdateStatus}
+                      disabled={isUpdatingStatus}
                     >
-                      <Check className="w-4 h-4" /> Confirm
+                      {isUpdatingStatus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Confirm
                     </Button>
                   </div>
                 </div>

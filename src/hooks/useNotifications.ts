@@ -1,37 +1,47 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notificationService } from "@/services/notificationService";
 
-export function useNotifications(userEmail?: string) {
+const LIST_KEY = ["notifications"] as const;
+const UNREAD_KEY = ["notifications", "unread-count"] as const;
+
+export function useNotifications(email: string | undefined) {
   return useQuery({
-    // userEmail only scopes the cache key per signed-in user; the backend
-    // itself scopes the list to the authenticated user via Sanctum.
-    queryKey: ["notifications", userEmail],
+    queryKey: [...LIST_KEY, email],
     queryFn: () => notificationService.list(),
+    enabled: !!email,
     staleTime: 15_000,
-    refetchInterval: 20_000,
   });
 }
 
-export function useNotificationActions(userEmail?: string) {
+export function useUnreadNotificationCount(email: string | undefined) {
+  return useQuery({
+    queryKey: [...UNREAD_KEY, email],
+    queryFn: () => notificationService.unreadCount(),
+    enabled: !!email,
+    staleTime: 15_000,
+  });
+}
+
+export function useNotificationActions(email: string | undefined) {
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["notifications", userEmail] });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: [...LIST_KEY, email] });
+    qc.invalidateQueries({ queryKey: [...UNREAD_KEY, email] });
+  };
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => notificationService.markAsRead(id),
+    onSuccess: invalidate,
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: () => notificationService.markAllAsRead(),
+    onSuccess: invalidate,
+  });
 
   return {
-    markRead: async (id: string) => {
-      await notificationService.markRead(id);
-      invalidate();
-    },
-    markAllRead: async () => {
-      await notificationService.markAllRead();
-      invalidate();
-    },
+    markRead: (id: string) => markReadMutation.mutateAsync(id),
+    markAllRead: () => markAllReadMutation.mutateAsync(),
   };
-}
-
-export function useMarkAllNotificationsRead(userEmail?: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => notificationService.markAllRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications", userEmail] }),
-  });
 }

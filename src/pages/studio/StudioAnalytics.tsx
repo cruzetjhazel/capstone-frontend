@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DollarSign, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2 } from "lucide-react";
+import { DollarSign, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2, Eye } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import toast from "react-hot-toast";
@@ -9,6 +9,7 @@ interface MonthlyPoint {
   month: string;
   revenue: number;
   bookings: number;
+  views: number;
 }
 
 interface ServiceSlice {
@@ -28,6 +29,8 @@ interface Kpis {
   bookingsThisMonth: number;
   bookingsChange: number;
   avgRating: number | null;
+  profileViewsThisMonth: number;
+  profileViewsChangePct: number | null;
 }
 
 interface AnalyticsData {
@@ -57,8 +60,10 @@ function mapAnalytics(raw: any): AnalyticsData {
       bookingsThisMonth: raw.kpis.bookings_this_month,
       bookingsChange: raw.kpis.bookings_change,
       avgRating: raw.kpis.avg_rating,
+      profileViewsThisMonth: raw.kpis.profile_views_this_month,
+      profileViewsChangePct: raw.kpis.profile_views_change_pct,
     },
-    monthly: raw.monthly.map((m: any) => ({ month: m.month, revenue: m.revenue, bookings: m.bookings })),
+    monthly: raw.monthly.map((m: any) => ({ month: m.month, revenue: m.revenue, bookings: m.bookings, views: m.views })),
     serviceMix: raw.service_mix.map((s: any) => ({ name: s.name, value: s.value })),
     topClients: raw.top_clients.map((c: any) => ({ name: c.name, bookings: c.bookings, spent: c.spent })),
   };
@@ -72,11 +77,12 @@ function exportToCsv(data: AnalyticsData) {
   lines.push(`Total Revenue (this month),${data.kpis.totalRevenue}`);
   lines.push(`Bookings (this month),${data.kpis.bookingsThisMonth}`);
   lines.push(`Average Rating,${data.kpis.avgRating ?? ""}`);
+  lines.push(`Profile Views (this month),${data.kpis.profileViewsThisMonth}`);
   lines.push("");
 
   lines.push("Monthly Trend");
-  lines.push("Month,Revenue,Bookings");
-  data.monthly.forEach((m) => lines.push(`${m.month},${m.revenue},${m.bookings}`));
+  lines.push("Month,Revenue,Bookings,Profile Views");
+  data.monthly.forEach((m) => lines.push(`${m.month},${m.revenue},${m.bookings},${m.views}`));
   lines.push("");
 
   lines.push("Service Mix");
@@ -155,6 +161,13 @@ export default function StudioAnalytics() {
           up: true,
           icon: Star,
         },
+        {
+          label: "Profile Views (this month)",
+          value: String(data.kpis.profileViewsThisMonth),
+          change: data.kpis.profileViewsChangePct !== null ? `${data.kpis.profileViewsChangePct >= 0 ? "+" : ""}${data.kpis.profileViewsChangePct}%` : "—",
+          up: (data.kpis.profileViewsChangePct ?? 0) >= 0,
+          icon: Eye,
+        },
       ]
     : [];
 
@@ -190,7 +203,7 @@ export default function StudioAnalytics() {
 
         {!isLoading && !loadError && data && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {kpiCards.map((k) => (
                 <div key={k.label} className="bg-card rounded-xl p-5 card-shadow border border-border/50">
                   <div className="flex items-start justify-between">
@@ -210,6 +223,28 @@ export default function StudioAnalytics() {
                   )}
                 </div>
               ))}
+            </div>
+
+            <div className="bg-card rounded-xl card-shadow border border-border/50 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-heading font-semibold">Profile Views</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">How many people checked out your public profile</p>
+                </div>
+                <Eye className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={data.monthly}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(25, 10%, 90%)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 8, fontSize: 13 }}
+                    formatter={(value: number) => [value, "Views"]}
+                  />
+                  <Area type="monotone" dataKey="views" stroke="hsl(199, 89%, 48%)" fill="hsl(199, 89%, 48%)" fillOpacity={0.15} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

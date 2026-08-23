@@ -26,6 +26,8 @@ interface RawPhotographerProfile {
     instagram: string | null;
     website: string | null;
   };
+  phone: string | null;
+  email: string | null;
   portfolio: Array<{ url?: string; image_url?: string; path?: string } | string>;
   packages: Array<Record<string, unknown>>;
   add_ons: Array<Record<string, unknown>>;
@@ -165,6 +167,8 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
       instagram: raw.social_links?.instagram ?? undefined,
       website: raw.social_links?.website ?? undefined,
     },
+    phone: raw.phone ?? undefined,
+    email: raw.email ?? undefined,
 
     // PublicProfile extras
     status: "approved",

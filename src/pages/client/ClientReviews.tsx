@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
 import api, { getApiErrorMessage } from "@/lib/api";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import { 
   Star, MessageSquare, CheckCircle2, AlertTriangle 
 } from "lucide-react";
@@ -130,7 +130,6 @@ export default function Reviews() {
 
   return (
     <DashboardLayout>
-      <Toaster position="top-center" />
       
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-12">
         <div>
