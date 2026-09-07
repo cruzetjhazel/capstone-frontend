@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type Status = "pending" | "accepted" | "confirmed" | "completed" | "paid" | "cancelled" | "rejected" | "expired";
+type Status = "pending" | "confirmed" | "completed" | "paid" | "cancelled" | "expired";
 
 const statusStyles: Record<Status, string> = {
   pending: "bg-warning/10 text-warning",

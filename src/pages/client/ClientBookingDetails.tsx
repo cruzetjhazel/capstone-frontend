@@ -6,11 +6,12 @@ import { useBookings, useRequestBookingCancellation } from "@/hooks/useBookings"
 import { usePhotographer } from "@/hooks/usePhotographers";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft,
   Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
-  CheckCircle2, Camera, Wand2, Send, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, type LucideIcon
+  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, type LucideIcon
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -40,16 +41,15 @@ const formatTime = (timeString: string) => {
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hour12}:${minutes} ${period}`;
 };
-// Existing six-stage Service Progress workflow — labels, order, and count are
-// unchanged. `icon` is a purely visual addition for scanability.
-const TRACKING_STEPS: { label: string; description: string; icon: LucideIcon }[] = [
-  { label: "Booked", description: "Your booking request is sent", icon: Calendar },
-  { label: "Confirmed", description: "Photographer accepted your booking", icon: CheckCircle2 },
-  { label: "Event Day", description: "It's photoshoot day!", icon: Camera },
-  { label: "Editing", description: "Photos are currently being processed", icon: Wand2 },
-  { label: "Ready to Send", description: "Your photos are ready for review", icon: Send },
-  { label: "Delivered", description: "All files have been delivered", icon: PackageCheck }
-];
+// Client-facing Service Progress — 3 stages only, matching the backend
+// ServiceTrackerStatus enum exactly (event_day/editing/delivered). Booking
+// status (pending/confirmed/completed/cancelled/expired) is shown separately
+// via the badge above, not as a tracker stage.
+     const SERVICE_PROGRESS_STEPS: { id: "event_day" | "editing" | "delivered"; label: string; description: string; icon: LucideIcon }[] = [
+       { id: "event_day", label: "Event Day", description: "It's photoshoot day!", icon: Camera },
+       { id: "editing", label: "Editing", description: "Photos are currently being processed", icon: Wand2 },
+       { id: "delivered", label: "Delivered", description: "All files have been delivered", icon: PackageCheck },
+     ];
 
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
@@ -102,7 +102,7 @@ export default function BookingDetails() {
 
   // Matches RequestBookingCancellationAction: only pending/accepted bookings
   // can have a cancellation requested.
-  const canRequestCancellation = booking.status === "pending" || booking.status === "accepted";
+  const canRequestCancellation = booking.status === "pending" || booking.status === "confirmed";
 
   const customBuild = booking.customBuild || {
     baseFee: 5000,
@@ -166,12 +166,10 @@ export default function BookingDetails() {
   };
 
   const getCurrentStepIndex = (b: any) => {
-    if (b.status === "completed") return 5;
-    if (b.serviceStatus === "ready") return 4;
-    if (b.serviceStatus === "editing") return 3;
-    if (b.status === "confirmed" && isToday(b.date)) return 2;
-    if (b.status === "confirmed") return 1;
-    return 0;
+    if (b.status === "completed" || b.serviceStatus === "delivered") return 2;
+    if (b.serviceStatus === "editing") return 1;
+    if (b.serviceStatus === "event_day") return 0;
+    return -1;
   };
 
   const currentStep = getCurrentStepIndex(booking);
@@ -226,12 +224,12 @@ export default function BookingDetails() {
                     <Clock className="w-3.5 h-3.5" /> Waiting for Approval
                   </span>
                 )}
-                {booking.status === "accepted" && booking.paymentStatus === "pending" && (
+                {booking.status === "confirmed" && booking.paymentStatus === "pending" && (
                   <Link to={`/booking/${booking.id}/pay`}>
                     <Button size="sm" className="text-xs rounded-full bg-primary">Pay Now</Button>
                   </Link>
                 )}
-                {booking.status === "accepted" && booking.paymentStatus === "pending_verification" && (
+                {booking.status === "confirmed" && booking.paymentStatus === "pending_verification" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" /> Payment Under Review
                   </span>
@@ -262,7 +260,7 @@ export default function BookingDetails() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-heading font-bold text-xs sm:text-sm uppercase tracking-wider text-muted-foreground">Service Progress</h3>
               <span className="text-[11px] sm:text-xs font-bold text-primary bg-primary/10 rounded-full px-2.5 py-1">
-                {TRACKING_STEPS[currentStep].label}
+                  {currentStep >= 0 ? SERVICE_PROGRESS_STEPS[currentStep].label : "Not Started"}
               </span>
             </div>
 
@@ -272,12 +270,12 @@ export default function BookingDetails() {
                   <div className="h-[2px] w-full bg-muted rounded-full" />
                   <div
                     className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full"
-                    style={{ width: `${(currentStep / (TRACKING_STEPS.length - 1)) * 100}%` }}
+                      style={{ width: `${(Math.max(currentStep, 0) / (SERVICE_PROGRESS_STEPS.length - 1)) * 100}%` }}
                   />
                 </div>
 
                 <div className="relative z-10 flex items-start justify-between w-full">
-                  {TRACKING_STEPS.map((step, idx) => {
+                  {SERVICE_PROGRESS_STEPS.map((step, idx) => {
                     const isCompleted = idx < currentStep;
                     const isActive = idx === currentStep;
                     const StepIcon = step.icon;
@@ -308,7 +306,9 @@ export default function BookingDetails() {
             <div className="mt-5 flex items-center justify-center gap-2 bg-muted/30 rounded-lg py-2.5 px-4 text-center">
               <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
               <p className="text-xs sm:text-sm text-foreground">
-                {TRACKING_STEPS[currentStep].description}
+                {currentStep >= 0
+                  ? SERVICE_PROGRESS_STEPS[currentStep].description
+                  : "Your event hasn't happened yet — this will update once your photographer marks Event Day."}
               </p>
             </div>
           </div>

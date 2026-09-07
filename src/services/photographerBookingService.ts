@@ -1,7 +1,7 @@
 import api from "@/lib/api";
 
 export type PhotographerBookingStatus =
-  | "pending" | "accepted" | "confirmed" | "rejected" | "cancelled" | "completed" | "expired";
+  | "pending" | "confirmed" | "completed" | "cancelled" | "expired";
 export type PhotographerPaymentStatus =
   | "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
 

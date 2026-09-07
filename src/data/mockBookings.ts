@@ -5,10 +5,10 @@
 // the API side) — this used to drift ("approved"/"paid" were never real
 // statuses the API returns), which meant bookingService.ts's `as BookingStatus`
 // cast on live API responses was silently unchecked. Fixed to match.
-export type BookingStatus = "pending" | "accepted" | "confirmed" | "rejected" | "cancelled" | "completed" | "expired";
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "expired";
 
 // New: track where the creative production is at!
-export type ServiceStatus = "not_started" | "ongoing" | "for_client_review" | "completed";
+export type ServiceStatus = "event_day" | "editing" | "delivered" | null;
 
 export interface BookingAddOn {
   name: string;
@@ -87,7 +87,7 @@ let bookings: BookingRecord[] = [
     dueNow: 4500,
     balance: 10500,
     paymentOption: "Downpayment (30%)",
-    status: "accepted", // Accepted status allows "Pay Now" and "Reschedule"
+    status: "confirmed",
     serviceStatus: "not_started",
     createdAt: new Date().toISOString(),
   },

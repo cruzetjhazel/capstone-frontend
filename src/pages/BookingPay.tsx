@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatPrice } from "@/data/photographers";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { bookingService, type BookingPaymentInfo } from "@/services/bookingService";
 import { useBooking } from "@/hooks/useBookings";
 

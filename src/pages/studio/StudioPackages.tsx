@@ -29,9 +29,8 @@ import {
 } from "@/hooks/usePhotographerCustomPackage";
 import type { CustomComponentRecord } from "@/services/photographerCustomPackageService";
 
-// Fixed packages no longer collect a duration in the UI. We still need to send
-// something to the API for existing record shapes, so new packages get this
-// default and edits simply preserve whatever duration the package already had.
+// Sensible starting point for a brand-new fixed package's duration — the
+// photographer edits this immediately in the create form, same as price.
 const DEFAULT_DURATION_MINUTES = 60;
 
 // ---------- toast notifications ----------
@@ -94,20 +93,27 @@ interface PackageFormState {
   price: number;
   description: string;
   inclusionsText: string;
+  durationMinutes: number;
+  bufferMinutes: number;
 }
 function emptyPackageForm(): PackageFormState {
-  return { name: "", price: 2500, description: "", inclusionsText: "" };
+  return {
+    name: "", price: 2500, description: "", inclusionsText: "",
+    durationMinutes: DEFAULT_DURATION_MINUTES, bufferMinutes: 0,
+  };
 }
 function packageFormFromRecord(p: PackageRecord): PackageFormState {
-  return { name: p.name, price: p.price, description: p.description, inclusionsText: p.includedItems.join("\n") };
+  return {
+    name: p.name, price: p.price, description: p.description, inclusionsText: p.includedItems.join("\n"),
+    durationMinutes: p.durationMinutes, bufferMinutes: p.bufferMinutes,
+  };
 }
 
 function PackageFormModal({
-  mode, initial, existingDurationMinutes, onClose, onSubmit, isSaving,
+  mode, initial, onClose, onSubmit, isSaving,
 }: {
   mode: "create" | "edit";
   initial: PackageFormState;
-  existingDurationMinutes?: number;
   onClose: () => void;
   onSubmit: (input: PackageInput) => void;
   isSaving: boolean;
@@ -115,15 +121,24 @@ function PackageFormModal({
   const [form, setForm] = useState<PackageFormState>(initial);
   const set = (patch: Partial<PackageFormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
+  // Mirrors PackageRequest.php: duration_minutes required + min:1,
+  // buffer_minutes min:0. Catching this client-side avoids a round trip for
+  // what's otherwise a guaranteed 422.
+  const durationError = !form.durationMinutes || form.durationMinutes < 1
+    ? "Duration must be at least 1 minute."
+    : "";
+  const bufferError = form.bufferMinutes < 0 ? "Buffer can't be negative." : "";
+  const canSubmit = !!form.name.trim() && !durationError && !bufferError;
+
   const handleSubmit = () => {
-    if (!form.name.trim()) return;
+    if (!canSubmit) return;
     onSubmit({
       name: form.name.trim(),
       description: form.description || null,
       included_items: form.inclusionsText.split("\n").map((s) => s.trim()).filter(Boolean),
       price: Number(form.price) || 0,
-      duration_minutes: existingDurationMinutes ?? DEFAULT_DURATION_MINUTES,
-      buffer_minutes: 0,
+      duration_minutes: Number(form.durationMinutes) || 0,
+      buffer_minutes: Number(form.bufferMinutes) || 0,
     });
   };
 
@@ -142,6 +157,31 @@ function PackageFormModal({
         <Label className="text-xs">Price (₱)</Label>
         <Input type="number" className="h-9 text-sm font-semibold" value={form.price === 0 ? "" : form.price} onChange={(e) => set({ price: e.target.value === "" ? 0 : Number(e.target.value) })} />
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Session Duration (minutes)</Label>
+          <Input
+            type="number" min={1} className={`h-9 text-sm ${durationError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+            placeholder="e.g. 120"
+            value={form.durationMinutes === 0 ? "" : form.durationMinutes}
+            onChange={(e) => set({ durationMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
+          />
+          {durationError && <p className="text-[11px] text-destructive">{durationError}</p>}
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Buffer After Session (minutes)</Label>
+          <Input
+            type="number" min={0} className={`h-9 text-sm ${bufferError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+            placeholder="e.g. 30"
+            value={form.bufferMinutes === 0 ? "" : form.bufferMinutes}
+            onChange={(e) => set({ bufferMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
+          />
+          {bufferError && <p className="text-[11px] text-destructive">{bufferError}</p>}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground -mt-2">
+        Availability reserves duration + buffer, so clients can't book you back-to-back with no gap between sessions.
+      </p>
       <div className="space-y-1">
         <Label className="text-xs">Short Description</Label>
         <Input className="h-9 text-sm" placeholder="Short description" value={form.description} onChange={(e) => set({ description: e.target.value })} />
@@ -152,7 +192,7 @@ function PackageFormModal({
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="outline" size="sm" onClick={onClose} disabled={isSaving}>Cancel</Button>
-        <Button size="sm" onClick={handleSubmit} disabled={isSaving || !form.name.trim()} className="gap-1.5">
+        <Button size="sm" onClick={handleSubmit} disabled={isSaving || !canSubmit} className="gap-1.5">
           {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           {mode === "create" ? "Create Package" : "Save Changes"}
         </Button>
@@ -598,7 +638,6 @@ export default function StudioPackages() {
         <PackageFormModal
           mode={packageModal.mode}
           initial={packageModal.initial}
-          existingDurationMinutes={packageModal.source?.durationMinutes}
           onClose={() => setPackageModal(null)}
           onSubmit={submitPackageForm}
           isSaving={createPackage.isPending || updatePackage.isPending}
@@ -771,7 +810,7 @@ function CustomPackageDrawer({
   updateConfig, createComponent, updateComponentMut, archiveComponentMut,
   errToast,
 }: {
-  customConfig: { enabled: boolean; baseFee: number | null } | undefined;
+  customConfig: { enabled: boolean; baseFee: number | null; bufferMinutes: number } | undefined;
   components: CustomComponentRecord[];
   onClose: () => void;
   onToggleEnabled: (checked: boolean) => void;
@@ -785,15 +824,24 @@ function CustomPackageDrawer({
   useEffect(() => setBaseFee(customConfig?.baseFee ?? 0), [customConfig?.baseFee]);
   const baseFeeDirty = Number(baseFee) !== Number(customConfig?.baseFee ?? 0);
 
+  // Extra time reserved after every custom-package booking (prep, travel,
+  // equipment packing) — mirrors a fixed Package's buffer_minutes, but there's
+  // only one value per photographer since custom bookings have no single
+  // package row to attach it to. Applied server-side in CreateBookingAction::
+  // resolveCustomPackage(): reserved time = coverage duration + this buffer.
+  const [bufferMinutes, setBufferMinutes] = useState<number>(customConfig?.bufferMinutes ?? 0);
+  useEffect(() => setBufferMinutes(customConfig?.bufferMinutes ?? 0), [customConfig?.bufferMinutes]);
+  const bufferDirty = Number(bufferMinutes) !== Number(customConfig?.bufferMinutes ?? 0);
+
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingFields, setEditingFields] = useState<{ label: string; price: number }>({ label: "", price: 0 });
+  const [editingFields, setEditingFields] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
 
   const [addOptionTier, setAddOptionTier] = useState<string | null>(null);
-  const [newOption, setNewOption] = useState({ label: "", price: 0 });
+  const [newOption, setNewOption] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
 
   const [showNewTierForm, setShowNewTierForm] = useState(false);
-  const [newTier, setNewTier] = useState<{ tierName: string; options: { label: string; price: number }[] }>({
-    tierName: "", options: [{ label: "", price: 0 }],
+  const [newTier, setNewTier] = useState<{ tierName: string; options: { label: string; price: number; durationMinutes: number | null }[] }>({
+    tierName: "", options: [{ label: "", price: 0, durationMinutes: null }],
   });
   const [isCreatingTier, setIsCreatingTier] = useState(false);
 
@@ -815,9 +863,22 @@ function CustomPackageDrawer({
     }
   };
 
+  const saveBufferMinutes = async () => {
+    try {
+      await updateConfig.mutateAsync({
+        enabled: customConfig?.enabled ?? false,
+        base_fee: customConfig?.baseFee ?? null,
+        buffer_minutes: Number(bufferMinutes) || 0,
+      });
+      toast({ title: "Buffer time updated." });
+    } catch (err) {
+      errToast(err, "Couldn't update buffer time.");
+    }
+  };
+
   const startEdit = (c: CustomComponentRecord) => {
     setEditingId(c.id);
-    setEditingFields({ label: c.label, price: c.priceAddition });
+    setEditingFields({ label: c.label, price: c.priceAddition, durationMinutes: c.durationMinutes });
   };
   const saveEdit = async (c: CustomComponentRecord) => {
     if (!editingFields.label.trim()) {
@@ -827,7 +888,13 @@ function CustomPackageDrawer({
     try {
       await updateComponentMut.mutateAsync({
         id: c.id,
-        input: { type: c.type, tier_name: c.tierName, label: editingFields.label.trim(), price_addition: Number(editingFields.price) || 0 },
+        input: {
+          type: c.type,
+          tier_name: c.tierName,
+          label: editingFields.label.trim(),
+          price_addition: Number(editingFields.price) || 0,
+          duration_minutes: editingFields.durationMinutes,
+        },
       });
       toast({ title: `"${editingFields.label.trim()}" updated.` });
       setEditingId(null);
@@ -854,19 +921,25 @@ function CustomPackageDrawer({
       return;
     }
     try {
-      await createComponent.mutateAsync({ type: "tier_option", tier_name: tierName, label: newOption.label.trim(), price_addition: Number(newOption.price) || 0 });
+      await createComponent.mutateAsync({
+        type: "tier_option",
+        tier_name: tierName,
+        label: newOption.label.trim(),
+        price_addition: Number(newOption.price) || 0,
+        duration_minutes: newOption.durationMinutes,
+      });
       toast({ title: `Option added to "${tierName}".` });
-      setNewOption({ label: "", price: 0 });
+      setNewOption({ label: "", price: 0, durationMinutes: null });
       setAddOptionTier(null);
     } catch (err) {
       errToast(err, "Couldn't add this option.");
     }
   };
 
-  const updateNewTierOption = (index: number, patch: Partial<{ label: string; price: number }>) => {
+  const updateNewTierOption = (index: number, patch: Partial<{ label: string; price: number; durationMinutes: number | null }>) => {
     setNewTier((prev) => ({ ...prev, options: prev.options.map((o, i) => (i === index ? { ...o, ...patch } : o)) }));
   };
-  const addNewTierOptionRow = () => setNewTier((prev) => (prev.options.length >= 4 ? prev : { ...prev, options: [...prev.options, { label: "", price: 0 }] }));
+  const addNewTierOptionRow = () => setNewTier((prev) => (prev.options.length >= 4 ? prev : { ...prev, options: [...prev.options, { label: "", price: 0, durationMinutes: null }] }));
   const removeNewTierOptionRow = (index: number) => setNewTier((prev) => ({ ...prev, options: prev.options.filter((_, i) => i !== index) }));
 
   const submitNewTier = async () => {
@@ -887,10 +960,16 @@ function CustomPackageDrawer({
     setIsCreatingTier(true);
     try {
       for (const opt of filled) {
-        await createComponent.mutateAsync({ type: "tier_option", tier_name: name, label: opt.label.trim(), price_addition: Number(opt.price) || 0 });
+        await createComponent.mutateAsync({
+          type: "tier_option",
+          tier_name: name,
+          label: opt.label.trim(),
+          price_addition: Number(opt.price) || 0,
+          duration_minutes: opt.durationMinutes,
+        });
       }
       toast({ title: `Tier "${name}" created.` });
-      setNewTier({ tierName: "", options: [{ label: "", price: 0 }] });
+      setNewTier({ tierName: "", options: [{ label: "", price: 0, durationMinutes: null }] });
       setShowNewTierForm(false);
     } catch (err) {
       errToast(err, "Couldn't create this tier.");
@@ -936,6 +1015,20 @@ function CustomPackageDrawer({
         </div>
       </div>
 
+      {/* Buffer time */}
+      <div className="space-y-1.5">
+        <Label className="text-xs">Buffer Time After Each Session (minutes)</Label>
+        <p className="text-[11px] text-muted-foreground -mt-0.5">
+          Extra time held after the photography coverage ends — for packing up, travel, or unexpected delays. Applied to every custom-package booking.
+        </p>
+        <div className="flex items-center gap-2">
+          <Input type="number" min={0} className="h-9 text-sm flex-1" value={bufferMinutes === 0 ? "" : bufferMinutes} onChange={(e) => setBufferMinutes(e.target.value === "" ? 0 : Number(e.target.value))} />
+          <Button size="sm" variant={bufferDirty ? "default" : "outline"} className="h-9 text-xs gap-1" disabled={!bufferDirty || updateConfig.isPending} onClick={saveBufferMinutes}>
+            {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+          </Button>
+        </div>
+      </div>
+
       {/* Tier groups */}
       <div className="space-y-4 pt-2 border-t border-border/50">
         <div className="flex items-center justify-between pt-2">
@@ -957,6 +1050,12 @@ function CustomPackageDrawer({
                       <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
                       <span className="text-muted-foreground">+₱</span>
                       <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                      <Input
+                        type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                        title="Coverage duration in minutes — only set this on the option representing how long you'll be shooting, not the client's whole event."
+                        value={editingFields.durationMinutes ?? ""}
+                        onChange={(e) => setEditingFields((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                      />
                       <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
                       <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => saveEdit(c)} disabled={updateComponentMut.isPending}>
                         <Save className="w-3 h-3" /> Save
@@ -964,7 +1063,14 @@ function CustomPackageDrawer({
                     </>
                   ) : (
                     <>
-                      <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>{c.label}</span>
+                      <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>
+                        {c.label}
+                        {c.durationMinutes != null && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium align-middle">
+                            {c.durationMinutes} min coverage
+                          </span>
+                        )}
+                      </span>
                       <span className="font-semibold">+₱{c.priceAddition.toLocaleString()}</span>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => startEdit(c)} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveItem(c)} title="Archive"><Archive className="w-3.5 h-3.5" /></Button>
@@ -975,16 +1081,22 @@ function CustomPackageDrawer({
 
               {addOptionTier === tierName ? (
                 <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 text-xs">
-                  <Input className="flex-1 h-7 text-xs" placeholder="e.g. 100+ photos" value={newOption.label} onChange={(e) => setNewOption((prev) => ({ ...prev, label: e.target.value }))} />
+                  <Input className="flex-1 h-7 text-xs" placeholder="e.g. 100+ photos, or 2 hours" value={newOption.label} onChange={(e) => setNewOption((prev) => ({ ...prev, label: e.target.value }))} />
                   <span className="text-muted-foreground">+₱</span>
                   <Input type="number" className="w-24 h-7 text-xs" value={newOption.price === 0 ? "" : newOption.price} onChange={(e) => setNewOption((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                  <Input
+                    type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                    title="Coverage duration in minutes — only fill this in if this option represents how long you'll be shooting (e.g. a '2 hours' Coverage Duration tier), not the client's whole event."
+                    value={newOption.durationMinutes ?? ""}
+                    onChange={(e) => setNewOption((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                  />
                   <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setAddOptionTier(null)}>Cancel</Button>
                   <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => submitAddOption(tierName)} disabled={createComponent.isPending}>
                     <Plus className="w-3 h-3" /> Add
                   </Button>
                 </div>
               ) : options.length < 4 && (
-                <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => { setAddOptionTier(tierName); setNewOption({ label: "", price: 0 }); }}>
+                <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => { setAddOptionTier(tierName); setNewOption({ label: "", price: 0, durationMinutes: null }); }}>
                   <Plus className="w-3 h-3" /> Add Option
                 </Button>
               )}
@@ -994,12 +1106,20 @@ function CustomPackageDrawer({
 
         {showNewTierForm && (
           <div className="pt-2 border-t border-border/50 space-y-2">
-            <Input className="h-8 text-xs font-semibold" placeholder="Tier name (e.g. Edited Photos)" value={newTier.tierName} onChange={(e) => setNewTier((prev) => ({ ...prev, tierName: e.target.value }))} />
+            <Input className="h-8 text-xs font-semibold" placeholder="Tier name (e.g. Edited Photos, or Coverage Duration)" value={newTier.tierName} onChange={(e) => setNewTier((prev) => ({ ...prev, tierName: e.target.value }))} />
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Only fill in "Min." for a tier where each option represents how long you'll actually be shooting (e.g. a "Coverage Duration" tier with "2 hours" / "4 hours" options) — this is the photography service time, not the length of the client's whole event. Leave it blank for every other tier (photo count, delivery speed, etc.).
+            </p>
             {newTier.options.map((opt, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
                 <Input className="flex-1 h-7 text-xs" placeholder="Option label" value={opt.label} onChange={(e) => updateNewTierOption(i, { label: e.target.value })} />
                 <span className="text-muted-foreground">+₱</span>
                 <Input type="number" className="w-24 h-7 text-xs" value={opt.price === 0 ? "" : opt.price} onChange={(e) => updateNewTierOption(i, { price: e.target.value === "" ? 0 : Number(e.target.value) })} />
+                <Input
+                  type="number" min={0} className="w-20 h-7 text-xs" placeholder="Min."
+                  value={opt.durationMinutes ?? ""}
+                  onChange={(e) => updateNewTierOption(i, { durationMinutes: e.target.value === "" ? null : Number(e.target.value) })}
+                />
                 {newTier.options.length > 1 && (
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeNewTierOptionRow(i)}><X className="w-3.5 h-3.5" /></Button>
                 )}

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { getApiErrorMessage } from "@/lib/api";
 import { useBlockedDates, useCreateBlockedDate, useDeleteBlockedDate } from "@/hooks/useBlockedDates";
 import { usePhotographerBookings } from "@/hooks/usePhotographerBookings";

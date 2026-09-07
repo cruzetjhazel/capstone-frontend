@@ -440,10 +440,12 @@ export default function BookingDetails() {
                   <span className="font-bold text-foreground">Total Booking Amount</span>
                   <span className="font-bold text-foreground">{formatPrice(booking.subtotal)}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-muted-foreground">Paid Online (Xendit)</span>
-                  <span className="font-medium text-foreground">{booking.status === 'paid' || booking.status === 'completed' || booking.status === 'confirmed' ? formatPrice(booking.dueNow) : formatPrice(0)}</span>
-                </div>
+                {(booking.status === 'paid' || booking.status === 'completed' || booking.status === 'confirmed') && (
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-muted-foreground">Paid Online (Xendit)</span>
+                    <span className="font-medium text-foreground">{formatPrice(booking.dueNow)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center text-xs pt-2 border-t border-border/50">
                   <span className="font-semibold text-foreground">Remaining Balance (Onsite)</span>
                   <span className="font-bold text-primary">{formatPrice(remainingBalance)}</span>

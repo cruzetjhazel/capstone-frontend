@@ -1,4 +1,4 @@
-import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, Sparkles, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
+import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
 import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useRole, getRoleDashboardPath, type Role } from "@/contexts/RoleContext";
+import { useRole, type Role } from "@/contexts/RoleContext";
 import { AUTH_TOKEN_KEY } from "@/config/env";
 import { cn } from "@/lib/utils";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
@@ -314,7 +314,7 @@ export default function Register() {
   const [clientAddress, setClientAddress] = useState("");
   
   const [city, setCity] = useState("");
-  const [province, setProvince] = useState("Sorsogon"); // default only — client can change it
+  const [province, setProvince] = useState("");
 
   // Studio / photographer info
   const [businessName, setBusinessName] = useState("");
@@ -751,15 +751,14 @@ export default function Register() {
         <BackLink />
         <div className="max-w-md w-full text-center bg-card border border-border rounded-2xl p-8 card-shadow animate-fade-up">
           <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-5">
-            <Sparkles className="w-8 h-8 text-primary" />
+            <CheckCircle2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-2xl font-heading font-bold mb-2">Welcome!</h1>
-          <p className="text-foreground font-medium text-lg mb-2">Account created successfully!</p>
+          <h1 className="text-2xl font-heading font-bold mb-2">Successfully created an account!</h1>
           <p className="text-muted-foreground text-sm leading-relaxed mb-8">
             Let's personalize your experience.
           </p>
-          <Button className="w-full" size="lg" onClick={() => navigate(getRoleDashboardPath("client"))}>
-            Go to Dashboard <ArrowRight className="w-4 h-4 ml-2" />
+          <Button className="w-full" size="lg" onClick={() => navigate("/explore")}>
+            Explore Photographers <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
         </div>
       </div>
@@ -912,7 +911,7 @@ export default function Register() {
                     placeholder="you@example.com"
                     maxLength={254}
                   />
-                  {emailTouched && email.trim() && (
+                  {email.trim() && (
                     isValidEmail(email)
                       ? <ValidationHint text="Valid email address" valid />
                       : <p className="text-xs text-destructive">Enter a valid email address.</p>
@@ -929,7 +928,7 @@ export default function Register() {
                     placeholder="0917 123 4567"
                     maxLength={20}
                   />
-                  {phoneTouched && phone.trim() && (
+                  {phone.trim() && (
                     isValidPhilippinePhone(normalizePhilippinePhone(phone))
                       ? <ValidationHint text="Valid phone number" valid />
                       : <p className="text-xs text-destructive">Enter a valid Philippine mobile number.</p>

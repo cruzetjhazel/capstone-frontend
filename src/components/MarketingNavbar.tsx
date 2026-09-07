@@ -1,17 +1,27 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Menu, X, LayoutDashboard, Settings, LogOut } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import {
+  Menu, X, LayoutDashboard, Settings, User, LogOut, Bell, HelpCircle,
+  Calendar, Heart, Star, Wallet, LucideIcon,
+} from "lucide-react";
 import Logo from "@/components/Logo";
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
+import { useNotifications } from "@/hooks/useNotifications";
+import { ProfileOverlay } from "@/components/ProfileOverlay";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const navLinks = [
+// Main site nav is the same for everyone — Home / Explore / About.
+// Client-only personal features (My Bookings, Favorites, My Reviews,
+// Payment History, Help/Report a Problem) live in the profile dropdown
+// instead, so the primary navbar stays a clean site nav rather than an
+// app-style nav.
+const baseNavLinks = [
   { label: "Home", to: "/" },
   { label: "Explore", to: "/explore" },
   { label: "About", to: "/about" },
@@ -22,10 +32,42 @@ interface Props {
   solid?: boolean;
 }
 
+// One dropdown row: highlights itself (tinted background + accent dot) when
+// its route is the current page.
+function ClientMenuLink({
+  to, icon: Icon, label, active,
+}: { to: string; icon: LucideIcon; label: string; active: boolean }) {
+  return (
+    <DropdownMenuItem
+      asChild
+      className={cn(active && "bg-primary/10 text-primary focus:bg-primary/15 focus:text-primary")}
+    >
+      <Link to={to} className="flex items-center">
+        <Icon className={cn("w-4 h-4 mr-2", active && "text-primary")} />
+        {label}
+        {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+      </Link>
+    </DropdownMenuItem>
+  );
+}
+
 export default function MarketingNavbar({ solid = false }: Props) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(solid);
+  const [profileOverlayOpen, setProfileOverlayOpen] = useState(false);
   const { user, logout } = useRole();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const isClient = user?.role === "client";
+  const navLinks = baseNavLinks;
+
+  const isActivePath = (path: string) => location.pathname === path;
+
+  const { data: notifications = [] } = useNotifications(isClient ? user?.email : undefined) || {};
+  const unreadCount = isClient && Array.isArray(notifications)
+    ? notifications.filter((n: any) => !n.read && !n.readAt).length
+    : 0;
 
   useEffect(() => {
     if (solid) return;
@@ -37,7 +79,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
   const onDark = !scrolled && !solid;
 
   const settingsPath = user?.role === "studio" ? "/studio/settings"
-    : user?.role === "admin" ? "/admin/settings" : "/dashboard";
+    : user?.role === "admin" ? "/admin/settings" : "/profile";
 
   return (
     <header
@@ -50,7 +92,6 @@ export default function MarketingNavbar({ solid = false }: Props) {
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between px-6 h-16">
         <Logo onDark={onDark} />
-
 
         <nav className="hidden md:flex items-center gap-6 lg:gap-10">
           {navLinks.map((l) => (
@@ -75,6 +116,25 @@ export default function MarketingNavbar({ solid = false }: Props) {
         </nav>
 
         <div className="flex items-center gap-3">
+          {isClient && (
+            <button
+              type="button"
+              onClick={() => navigate("/notifications")}
+              aria-label="Notifications"
+              className={cn(
+                "relative hidden md:flex w-9 h-9 rounded-full items-center justify-center transition-colors",
+                onDark
+                  ? "text-white/80 hover:text-white hover:bg-white/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+            >
+              <Bell className="w-[18px] h-[18px]" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full" />
+              )}
+            </button>
+          )}
+
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -86,28 +146,59 @@ export default function MarketingNavbar({ solid = false }: Props) {
                       : "border-border hover:bg-muted"
                   )}
                 >
-                  <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
-                    {getInitials(user.name)}
+                  <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold overflow-hidden">
+                    {user.profilePhotoUrl ? (
+                      <img src={user.profilePhotoUrl} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      getInitials(user.name)
+                    )}
                   </div>
                   <span className="text-sm font-medium">{user.name.split(" ")[0]}</span>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuContent align="end" className={cn("w-56", isClient && "w-64")}>
                 <DropdownMenuLabel>
                   <p className="text-sm font-medium">{user.name}</p>
                   <p className="text-xs text-muted-foreground font-normal">{user.email}</p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to={getRoleDashboardPath(user.role)}>
-                    <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to={settingsPath}>
-                    <Settings className="w-4 h-4 mr-2" /> Profile Settings
-                  </Link>
-                </DropdownMenuItem>
+
+                {isClient ? (
+                  <>
+                    {/* My Profile opens the overlay directly — highlighted while it's open,
+                        since it has no route of its own to match against. */}
+                    <DropdownMenuItem
+                      onClick={() => setProfileOverlayOpen(true)}
+                      className={cn(profileOverlayOpen && "bg-primary/10 text-primary focus:bg-primary/15 focus:text-primary")}
+                    >
+                      <User className={cn("w-4 h-4 mr-2", profileOverlayOpen && "text-primary")} /> My Profile
+                      {profileOverlayOpen && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                    </DropdownMenuItem>
+
+                    <ClientMenuLink to="/bookings" icon={Calendar} label="My Bookings" active={isActivePath("/bookings")} />
+                    <ClientMenuLink to="/favorites" icon={Heart} label="Favorites" active={isActivePath("/favorites")} />
+                    <ClientMenuLink to="/reviews" icon={Star} label="My Reviews" active={isActivePath("/reviews")} />
+                    <ClientMenuLink to="/payments" icon={Wallet} label="Payment History" active={isActivePath("/payments")} />
+                    {/* NOTE: routes to the existing /report-problem page for now.
+                        Converting this to an overlay too requires ReportProblem.tsx —
+                        haven't been sent that file yet. */}
+                    <ClientMenuLink to="/report-problem" icon={HelpCircle} label="Help / Report a Problem" active={isActivePath("/report-problem")} />
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to={getRoleDashboardPath(user.role)}>
+                        <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to={settingsPath}>
+                        <Settings className="w-4 h-4 mr-2" /> Profile Settings
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => void logout()}>
                   <LogOut className="w-4 h-4 mr-2" /> Log out
@@ -161,12 +252,65 @@ export default function MarketingNavbar({ solid = false }: Props) {
             <div className="pt-3 flex flex-col gap-2">
               {user ? (
                 <>
-                  <Link to={getRoleDashboardPath(user.role)} onClick={() => setOpen(false)}>
-                    <Button variant="outline" className="w-full"><LayoutDashboard className="w-4 h-4 mr-2" />Dashboard</Button>
-                  </Link>
-                  <Link to={settingsPath} onClick={() => setOpen(false)}>
-                    <Button variant="outline" className="w-full"><Settings className="w-4 h-4 mr-2" />Profile Settings</Button>
-                  </Link>
+                  {isClient ? (
+                    <>
+                      <Link to="/notifications" onClick={() => setOpen(false)}>
+                        <Button variant="outline" className="w-full"><Bell className="w-4 h-4 mr-2" />Notifications</Button>
+                      </Link>
+                      <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setProfileOverlayOpen(true); }}>
+                        <User className="w-4 h-4 mr-2" />My Profile
+                      </Button>
+                      <Link to="/bookings" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/bookings") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <Calendar className="w-4 h-4 mr-2" />My Bookings
+                        </Button>
+                      </Link>
+                      <Link to="/favorites" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/favorites") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <Heart className="w-4 h-4 mr-2" />Favorites
+                        </Button>
+                      </Link>
+                      <Link to="/reviews" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/reviews") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <Star className="w-4 h-4 mr-2" />My Reviews
+                        </Button>
+                      </Link>
+                      <Link to="/payments" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/payments") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <Wallet className="w-4 h-4 mr-2" />Payment History
+                        </Button>
+                      </Link>
+                      <Link to="/report-problem" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/report-problem") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <HelpCircle className="w-4 h-4 mr-2" />Help / Report a Problem
+                        </Button>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link to={getRoleDashboardPath(user.role)} onClick={() => setOpen(false)}>
+                        <Button variant="outline" className="w-full"><LayoutDashboard className="w-4 h-4 mr-2" />Dashboard</Button>
+                      </Link>
+                      <Link to={settingsPath} onClick={() => setOpen(false)}>
+                        <Button variant="outline" className="w-full"><Settings className="w-4 h-4 mr-2" />Profile Settings</Button>
+                      </Link>
+                    </>
+                  )}
                   <Button className="w-full" onClick={() => { void logout(); setOpen(false); }}>
                     <LogOut className="w-4 h-4 mr-2" />Log out
                   </Button>
@@ -180,6 +324,10 @@ export default function MarketingNavbar({ solid = false }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {isClient && (
+        <ProfileOverlay open={profileOverlayOpen} onClose={() => setProfileOverlayOpen(false)} />
       )}
     </header>
   );

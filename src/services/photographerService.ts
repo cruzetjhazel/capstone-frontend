@@ -47,12 +47,15 @@ interface RawCustomPackage {
   };
   // Confirmed against PublicCustomPackageComponentResource.php — it actually sends
   // type + tier_name too, previously dropped when flattened into `extras` below.
+  // duration_minutes is null on every component except the one(s) a photographer
+  // set up to represent a selectable photography coverage duration.
   components: Array<{
     id: number | string;
     type: "flat_option" | "tier_option";
     tier_name: string | null;
     label: string;
     price_addition: number | string;
+    duration_minutes: number | string | null;
   }>;
 }
 
@@ -215,6 +218,10 @@ export const photographerService = {
                 // backend round trip to get this. Safe: existing consumers only read id/label/price.
                 type: c.type,
                 tierName: c.tier_name,
+                // Present only on the option(s) representing a selectable
+                // coverage duration — Booking.tsx reads this to compute the
+                // reserved window preview. See PublicCustomPackageComponentResource.php.
+                durationMinutes: c.duration_minutes != null ? toNumber(c.duration_minutes) : undefined,
               }))
             : [],
         };

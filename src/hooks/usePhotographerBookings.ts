@@ -56,7 +56,8 @@ export function useUpdateServiceTracker() {
 
 export function useRecordOnsitePayment() {
   return useBookingMutation(
-    ({ id, amount }: { id: string; amount: number }) => photographerBookingService.recordOnsitePayment(id, amount),
+    ({ id, amount, paymentDate, notes }: { id: string; amount: number; paymentDate: string; notes?: string }) =>
+      photographerBookingService.recordOnsitePayment(id, { amount, payment_date: paymentDate, notes }),
     ({ id }) => id
   );
 }

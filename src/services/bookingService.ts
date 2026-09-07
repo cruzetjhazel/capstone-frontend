@@ -31,7 +31,7 @@ type RawBooking = {
   guest_count: number | null;
   subtotal: string;
   total_price: string;
-  status: "pending" | "accepted" | "confirmed" | "rejected" | "cancelled" | "completed" | "expired";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "expired";
   payment_status: "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;

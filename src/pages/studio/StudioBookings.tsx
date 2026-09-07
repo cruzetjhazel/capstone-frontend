@@ -11,6 +11,7 @@ import {
 import { trackingStages, type TrackingStage } from "@/data/photographers";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { getApiErrorMessage } from "@/services/clientProfileService";
 import {
   usePhotographerBookings,
@@ -102,12 +103,12 @@ export default function StudioBookings() {
 
   const tabFiltered = bookings.filter((b) => {
     switch (filter) {
-      case "All": return b.status !== "rejected" && b.status !== "cancelled";
+      case "All": return b.status !== "cancelled";
       case "Pending": return b.status === "pending";
-      case "Confirmed": return (b.status === "accepted" || b.status === "confirmed") && !isServiceInProgress(b);
+      case "Confirmed": return b.status === "confirmed" && !isServiceInProgress(b);
       case "In Progress": return isServiceInProgress(b);
       case "Completed": return b.status === "completed";
-      case "Cancelled": return b.status === "cancelled" || b.status === "rejected";
+      case "Cancelled": return b.status === "cancelled";
       case "Expired": return b.status === "expired";
       default: return true;
     }
@@ -181,7 +182,8 @@ export default function StudioBookings() {
   const confirmOnsitePayment = async () => {
     if (!recordingPaymentFor || paymentAmountInput <= 0) return;
     try {
-      await onsitePaymentMutation.mutateAsync({ id: recordingPaymentFor.id, amount: paymentAmountInput });
+      const paymentDate = new Date().toISOString().slice(0, 10); // Y-m-d, today
+      await onsitePaymentMutation.mutateAsync({ id: recordingPaymentFor.id, amount: paymentAmountInput, paymentDate });
       toast({ title: "Payment recorded", description: `Recorded onsite payment of ₱${paymentAmountInput.toLocaleString()}.` });
       setRecordingPaymentFor(null);
       setPaymentAmountInput(0);
@@ -385,19 +387,19 @@ export default function StudioBookings() {
             return (
               <div key={b.id} className={cn(
                 "bg-card rounded-2xl card-shadow border p-4 sm:p-5 transition-all",
-                b.status === "rejected" ? "border-border/40 opacity-80" : "border-border/50"
+                b.status === "cancelled" ? "border-border/40 opacity-80" : "border-border/50"
               )}>
                 {/* Compact scan row */}
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0",
-                      b.status === "rejected" ? "bg-muted text-muted-foreground" : "bg-secondary/10 text-secondary"
+                      b.status === "cancelled" ? "bg-muted text-muted-foreground" : "bg-secondary/10 text-secondary"
                     )}>
                       {b.clientName.split(" ").map((n) => n[0]).join("")}
                     </div>
                     <div className="min-w-0">
-                      <p className={cn("font-medium text-sm truncate", b.status === "rejected" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
+                      <p className={cn("font-medium text-sm truncate", b.status === "cancelled" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
                         {b.clientName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{b.packageName} · {b.eventType}</p>
@@ -406,7 +408,7 @@ export default function StudioBookings() {
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    <p className={cn("font-heading font-bold text-sm", b.status === "rejected" ? "text-muted-foreground" : "text-primary")}>
+                    <p className={cn("font-heading font-bold text-sm", b.status === "cancelled" ? "text-muted-foreground" : "text-primary")}>
                       ₱{b.totalPrice.toLocaleString()}
                     </p>
                     <StatusBadge status={b.status as any} />
@@ -449,7 +451,7 @@ export default function StudioBookings() {
                   </div>
                 )}
 
-                {b.status === "accepted" && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
+                {b.status === "confirmed" && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
                   <div className="flex items-center justify-between gap-3 p-2.5 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-900 dark:text-amber-400">Client submitted a GCash reference — needs review.</p>
                     <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => navigate("/studio/earnings")}>
@@ -462,7 +464,7 @@ export default function StudioBookings() {
                   <div className="space-y-3 mt-3 pt-3 border-t border-border/60">
                     <BookingTracker currentStage={displayStage} />
                     <div className="flex items-center justify-end gap-2 flex-wrap">
-                      {b.remainingBalance > 0 && (
+                      {b.remainingBalance > 0 && b.paymentPlan === "half" && b.paymentStatus !== "fully_paid" && (
                         <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
                           <DollarSign className="w-3.5 h-3.5" /> Record Payment
                         </Button>
@@ -552,7 +554,20 @@ export default function StudioBookings() {
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
               <h3 className="text-lg font-bold flex items-center gap-2"><DollarSign className="text-primary w-5 h-5"/> Record Onsite Payment</h3>
-              <p className="text-sm text-muted-foreground">Record manual cash/onsite payment to clear the remaining balance.</p>
+              <p className="text-sm text-muted-foreground">
+                Use this to log a cash or offline payment <strong>{recordingPaymentFor.clientName}</strong> already gave you in person for this booking. This only records that you received it — it does not charge the client.
+              </p>
+
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Booking total</span>
+                  <span className="font-medium">₱{recordingPaymentFor.totalPrice.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Remaining balance</span>
+                  <span className="font-semibold text-primary">₱{recordingPaymentFor.remainingBalance.toLocaleString()}</span>
+                </div>
+              </div>
 
               <div className="space-y-2">
                  <label className="text-sm font-medium">Amount Received (₱)</label>
@@ -560,6 +575,7 @@ export default function StudioBookings() {
                    type="number"
                    value={paymentAmountInput}
                    onChange={(e) => setPaymentAmountInput(Number(e.target.value))}
+                   max={recordingPaymentFor.remainingBalance}
                    className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm focus:ring-1 focus:ring-ring"
                  />
               </div>

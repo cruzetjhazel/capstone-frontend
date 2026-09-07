@@ -7,9 +7,10 @@ import {
   ArrowLeft, Calendar, User, Package, Mail,
   FileText, AlertTriangle, Loader2, Phone,
   Wand2, Check, Camera, MapPin, Users,
-  CreditCard, X, DollarSign, Clock, AlertCircle
+  CreditCard, X, DollarSign, AlertCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { getApiErrorMessage } from "@/services/clientProfileService";
 import { useRole } from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
@@ -193,7 +194,7 @@ export default function StudioBookingDetail() {
               <span className={`font-bold capitalize inline-flex items-center gap-1 ${
                 booking.status === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' :
                 booking.status === 'pending' ? 'text-amber-600 dark:text-amber-400' :
-                booking.status === 'rejected' || booking.status === 'cancelled' ? 'text-destructive' :
+                booking.status === 'cancelled' ? 'text-destructive' :
                 booking.status === 'expired' ? 'text-muted-foreground' : 'text-blue-600'
               }`}>
                 ● {booking.status}
@@ -268,31 +269,19 @@ export default function StudioBookingDetail() {
             )
           )}
 
-          {booking.status === "accepted" && !booking.hasActiveCancellationRequest && (
-            booking.paymentStatus === "pending_verification" ? (
-              <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col sm:flex-row sm:items-center gap-3 justify-between text-amber-800 dark:text-amber-300 text-sm">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                  <span>Client submitted a GCash reference — needs your review before this booking can confirm.</span>
-                </div>
-                <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0" onClick={() => navigate("/studio/earnings")}>
-                  Review Payment
-                </Button>
+          {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && booking.paymentStatus === "pending_verification" && (
+            <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col sm:flex-row sm:items-center gap-3 justify-between text-amber-800 dark:text-amber-300 text-sm">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <span>Client submitted a GCash reference — needs your review before this booking can confirm.</span>
               </div>
-            ) : booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid" ? (
-              <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 flex items-center gap-3 text-emerald-800 dark:text-emerald-300 text-sm">
-                <Check className="w-5 h-5 text-emerald-600 shrink-0" />
-                <span>Payment received — booking is finalizing confirmation.</span>
-              </div>
-            ) : (
-              <div className="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 flex items-center gap-3 text-blue-800 dark:text-blue-300 text-sm">
-                <Clock className="w-5 h-5 text-blue-600 shrink-0" />
-                <span>Request accepted. Awaiting client online deposit payment to confirm booking.</span>
-              </div>
-            )
+              <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0" onClick={() => navigate("/studio/earnings")}>
+                Review Payment
+              </Button>
+            </div>
           )}
 
-          {(booking.status === "confirmed" || booking.status === "completed") && !booking.hasActiveCancellationRequest && (
+          {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && (
             <div className="bg-emerald-500/10 p-5 rounded-xl border border-emerald-500/20 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-3">
                 <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-400 font-semibold text-sm">

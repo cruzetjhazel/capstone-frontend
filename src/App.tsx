@@ -27,7 +27,6 @@ import MyReports from "./pages/MyReports";
 import Notifications from "./pages/Notifications";
 
 // --- CLIENT PAGES IMPORTS ---
-import Dashboard from "./pages/client/ClientDashboard";
 import MyBookings from "./pages/client/ClientMyBookings";
 import BookingDetails from "./pages/client/ClientBookingDetails";
 import Favorites from "./pages/client/ClientFavorites";
@@ -162,7 +161,7 @@ const App = () => (
               <Route path="/about" element={<About />} />
 
               {/* CLIENT ROUTES */}
-              <Route path="/dashboard" element={<ProtectedRoute allowedRole="client"><Dashboard /></ProtectedRoute>} />
+              <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route path="/bookings" element={<ProtectedRoute allowedRole="client"><MyBookings /></ProtectedRoute>} />
               <Route path="/favorites" element={<ProtectedRoute allowedRole="client"><Favorites /></ProtectedRoute>} />
               <Route path="/reviews" element={<ProtectedRoute allowedRole="client"><Reviews /></ProtectedRoute>} />

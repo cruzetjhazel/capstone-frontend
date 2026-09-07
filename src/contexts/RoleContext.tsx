@@ -51,16 +51,18 @@ type RoleContextType = {
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 const USER_STORAGE_KEY = "app_user";
 
+// Clients have no dashboard anymore — "/" (the public Home page, personalized
+// via the navbar) IS their home. Studio/admin are unchanged.
 export const getRoleDashboardPath = (role: string) => {
   if (role === "admin") return "/admin";
   if (role === "studio") return "/studio";
-  return "/dashboard";
+  return "/";
 };
 
 /** Status-aware post-login/post-registration destination. Prefer this over getRoleDashboardPath. */
 export const getPostLoginPath = (user: User): string => {
   if (user.accountType === "administrator") return "/admin";
-  if (user.accountType === "client") return "/dashboard";
+  if (user.accountType === "client") return "/";
 
   // photographer
   const status = user.application?.status;

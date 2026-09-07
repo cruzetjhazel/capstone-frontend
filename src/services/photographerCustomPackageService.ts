@@ -6,15 +6,20 @@ export type CustomComponentStatus = "active" | "archived";
 interface RawConfig {
   enabled: boolean;
   base_fee: number | string | null;
+  buffer_minutes: number | string | null;
   updated_at: string;
 }
 export interface CustomPackageConfigRecord {
   enabled: boolean;
   baseFee: number | null;
+  // Applied to every custom-package booking this photographer receives —
+  // mirrors PackageRecord.bufferMinutes, which is per fixed package instead.
+  bufferMinutes: number;
 }
 export interface CustomPackageConfigInput {
   enabled: boolean;
   base_fee: number | null;
+  buffer_minutes?: number;
 }
 
 interface RawComponent {
@@ -23,6 +28,7 @@ interface RawComponent {
   tier_name: string | null;
   label: string;
   price_addition: number | string;
+  duration_minutes: number | string | null;
   status: CustomComponentStatus;
 }
 export interface CustomComponentRecord {
@@ -31,6 +37,11 @@ export interface CustomComponentRecord {
   tierName: string | null;
   label: string;
   priceAddition: number;
+  // Set only on the option(s) meant to represent a selectable photography
+  // coverage duration (minutes). Null on every other component (photo
+  // tiers, delivery tiers, flat add-ons). See CreateBookingAction::
+  // resolveCustomPackage() on the backend for how this is used.
+  durationMinutes: number | null;
   status: CustomComponentStatus;
 }
 export interface CustomComponentInput {
@@ -38,10 +49,15 @@ export interface CustomComponentInput {
   tier_name?: string | null;
   label: string;
   price_addition: number;
+  duration_minutes?: number | null;
 }
 
 function toConfig(raw: RawConfig): CustomPackageConfigRecord {
-  return { enabled: raw.enabled, baseFee: raw.base_fee === null ? null : Number(raw.base_fee) };
+  return {
+    enabled: raw.enabled,
+    baseFee: raw.base_fee === null ? null : Number(raw.base_fee),
+    bufferMinutes: raw.buffer_minutes == null ? 0 : Number(raw.buffer_minutes),
+  };
 }
 function toComponent(raw: RawComponent): CustomComponentRecord {
   return {
@@ -50,6 +66,7 @@ function toComponent(raw: RawComponent): CustomComponentRecord {
     tierName: raw.tier_name ?? null,
     label: raw.label,
     priceAddition: Number(raw.price_addition),
+    durationMinutes: raw.duration_minutes == null ? null : Number(raw.duration_minutes),
     status: raw.status,
   };
 }

@@ -17,7 +17,8 @@ import {
 } from "@/data/photographers";
 import { usePhotographer, usePhotographers } from "@/hooks/usePhotographers";
 import { useMonthAvailability, useAvailableStartTimes } from "@/hooks/usePhotographerAvailability";
-import { useToast } from "@/hooks/use-toast"; // 
+import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
 import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
 
@@ -70,10 +71,27 @@ export default function Booking() {
   const [customBuild, setCustomBuild] = useState<CustomBuild>(makeDefaultBuild());
   const [selectedAddOns, setSelectedAddOns] = useState<number[]>([]);
 
+  // Moved up from further down in this component (it originally lived after
+  // the loading/not-found early-returns below) — needed here, pre-return,
+  // because it now feeds the custom-duration availability revalidation hook
+  // a few lines down, and hooks can't follow a conditional return.
+  // A duration-bearing extra counts as "selected" either because the client
+  // explicitly picked it, or — just like the tier pill UI itself shows via
+  // isTierOptionActive further down — because it's the free/baseline option
+  // in its group and nothing else in that group has been picked yet. Without
+  // this fallback, a client who's happy with the default (Included) coverage
+  // duration sees it rendered as active but Continue stays disabled forever,
+  // since selectedExtraIds never actually contains a price-0 default.
+  const selectedDurationExtra = (() => {
+    const durationExtras = (rates.extras ?? []).filter((e) => (e as any).durationMinutes != null);
+    const explicit = durationExtras.find((e) => customBuild.selectedExtraIds.includes(e.id));
+    if (explicit) return explicit;
+    return durationExtras.find((e) => e.price === 0);
+  })();
+
   // Date & event details
   const [date, setDate] = useState<Date | undefined>();
   const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState(""); // optional — client rarely knows the exact end in advance
   
   const [eventType, setEventType] = useState("");
   const [specificEventType, setSpecificEventType] = useState(""); 
@@ -145,6 +163,25 @@ export default function Booking() {
     calendarPackageId
   );
 
+  // Custom-package revalidation only. Step 1's calendar/start-time list
+  // above intentionally stays on the fixed-package/general-availability
+  // fallback the whole time a client is on Date & Time — we don't know yet
+  // whether they'll end up choosing fixed or custom. Once they pick a real
+  // coverage duration in the Package step (selectedDurationExtra), this
+  // separately re-checks the start time they already picked against that
+  // real custom duration, so a slot that only looked open under the
+  // fixed-package placeholder duration gets caught before Review instead of
+  // failing opaquely at final submission.
+  const customDurationMinutesForRevalidation =
+    packageMode === "custom" ? (selectedDurationExtra as any)?.durationMinutes : undefined;
+
+  const { data: customStartTimesForRevalidation = [], isLoading: loadingCustomRevalidation } = useAvailableStartTimes(
+    p?.id,
+    dateStr,
+    undefined,
+    customDurationMinutesForRevalidation
+  );
+
   // Sorted so they render in order as tappable pills.
   const sortedStartTimes = useMemo(
     () => [...availableStartTimes].sort(),
@@ -213,6 +250,30 @@ export default function Booking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarPackageId]);
 
+  // Custom-package counterpart of the effect above. Fires once the client
+  // has selected a real coverage duration in the Package step: if the start
+  // time they picked back in Step 0 (under the general-availability
+  // placeholder) doesn't actually fit this real custom duration + the
+  // photographer's custom buffer, clear it and send them back to pick a new
+  // one — same pattern as the fixed-package case, just keyed off the real
+  // duration instead of a package id.
+  useEffect(() => {
+    if (packageMode !== "custom") return;
+    if (!date || !startTime || customDurationMinutesForRevalidation == null || loadingCustomRevalidation) return;
+    if (!customStartTimesForRevalidation.includes(startTime)) {
+      setStartTime("");
+      toast({
+        title: "Start time no longer available",
+        description: "Your selected coverage duration no longer fits this start time — please choose a new start time.",
+        variant: "destructive",
+      });
+      setStep(0);
+    }
+    // Only re-run when the real custom duration becomes known/changes —
+    // not on every background refetch of customStartTimesForRevalidation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packageMode, customDurationMinutesForRevalidation]);
+
   const alternativeProviders = useMemo<Photographer[]>(() => {
     if (!p || !date) return [];
     return allPhotographers
@@ -220,6 +281,26 @@ export default function Booking() {
       .filter((other) => !other.bookedSlots.some((s) => s.date === dateStr))
       .slice(0, 3);
   }, [p, date, dateStr, allPhotographers]);
+
+  // Group custom-package extras that share a tierName into single-select
+  // "pill" groups (e.g. Edited Photos: 50/100/200/300/Unlimited). Extras
+  // with no tierName stay as independent on/off toggles (e.g. RAW Files).
+  //
+  // Moved up from further down in this component (it originally lived after
+  // the loading/not-found early-returns below), for the same reason
+  // selectedDurationExtra was moved above: hooks can't follow a conditional
+  // return, or React throws "Rendered more hooks than during the previous
+  // render" once loadingPhotographer flips from true to false.
+  const tierGroups = useMemo(() => {
+    const groups = new Map<string, typeof rates.extras>();
+    for (const extra of rates.extras ?? []) {
+      const key = (extra as any).tierName as string | undefined;
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(extra);
+    }
+    return Array.from(groups.entries());
+  }, [rates.extras]);
 
   if (loadingPhotographer) {
     return (
@@ -245,21 +326,12 @@ export default function Booking() {
   };
 
   const customPrice = calculateCustomPrice(customBuild, rates);
-    // Group custom-package extras that share a tierName into single-select
-  // "pill" groups (e.g. Edited Photos: 50/100/200/300/Unlimited). Extras
-  // with no tierName stay as independent on/off toggles (e.g. RAW Files).
-  const tierGroups = useMemo(() => {
-    const groups = new Map<string, typeof rates.extras>();
-    for (const extra of rates.extras ?? []) {
-      const key = (extra as any).tierName as string | undefined;
-      if (!key) continue;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(extra);
-    }
-    return Array.from(groups.entries());
-  }, [rates.extras]);
-
   const flatExtras = (rates.extras ?? []).filter((e) => !(e as any).tierName);
+
+  // selectedDurationExtra is defined earlier in this component (pre-return) —
+  // see the comment there. Required before a custom booking can proceed:
+  // without it the backend has no way to reserve the photographer for the
+  // right length of time (see CreateBookingAction::resolveCustomPackage).
 
   // A group's "baseline" option (price 0) is the one shown as active when
   // nothing in that group has been explicitly picked yet.
@@ -293,7 +365,6 @@ export default function Booking() {
         if (dayConflict) return { ok: false, reason: "This date is fully booked — choose another date or try an alternative provider below." };
         if (!startTime) return { ok: false, reason: "Please choose a start time for your event." };
         if (!isStartTimeAvailable) return { ok: false, reason: "That start time isn't open — please pick a time the photographer is available." };
-        if (endTime && endTime <= startTime) return { ok: false, reason: "End time should be after the start time." };
         return { ok: true };
       case 1:
         if (!eventType) return { ok: false, reason: "Please choose an event type." };
@@ -315,6 +386,9 @@ export default function Booking() {
         return { ok: true };
       case 2:
         if (packageMode === "fixed" && !pkg) return { ok: false, reason: "Please select a package to continue." };
+        if (packageMode === "custom" && !selectedDurationExtra) {
+          return { ok: false, reason: "Please select your photography coverage duration to continue." };
+        }
         return { ok: true };
       case 3: return { ok: true };
       case 4: return { ok: true };
@@ -362,18 +436,16 @@ export default function Booking() {
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // TODO(backend): CreateBookingPayload doesn't declare end_time yet — cast
-      // here until bookingService.ts adds `end_time?: string` to the type.
-      const payload: CreateBookingPayload & { end_time?: string } = {
+      // end_time is intentionally not sent — CreateBookingRequest.php has no
+      // rule for it, and the photographer's reserved duration is derived
+      // server-side from the selected package (see estimatedEndTime below
+      // for the client-facing preview of that same duration).
+      const payload: CreateBookingPayload = {
         photographer_id: Number(p.id),
         event_type: toSlug(eventType) as CreateBookingPayload["event_type"],
         ...(eventType === "Other" ? { custom_event_type: specificEventType.trim() } : {}),
         event_date: dateStr,
         start_time: startTime,
-        // Optional — only sent when the client actually filled it in. Requires
-        // CreateBookingPayload (bookingService.ts) to have end_time?: string,
-        // and CreateBookingRequest.php to validate it as nullable.
-        ...(endTime ? { end_time: endTime } : {}),
         location_type: toSlug(locationType) as CreateBookingPayload["location_type"],
         ...(locationType !== "Studio" ? { event_address: eventAddress.trim() } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
@@ -414,6 +486,29 @@ export default function Booking() {
     const h12 = hh % 12 || 12;
     return `${h12}:${String(mm).padStart(2, "0")} ${period}`;
   };
+
+  // Client-facing preview of the reserved window. This mirrors — but does
+  // not replace — the server-side reservation logic in CreateBookingAction:
+  // fixed packages use Package.hours; custom packages use the coverage
+  // duration the client selected (selectedDurationExtra). Buffer time isn't
+  // shown here since the client doesn't need to see it, but it IS applied
+  // server-side (Package.buffer_minutes / CustomPackageConfig.buffer_minutes)
+  // when the photographer is actually reserved.
+  const durationHoursForEstimate =
+    packageMode === "fixed" ? pkg?.hours
+    : selectedDurationExtra ? (selectedDurationExtra as any).durationMinutes / 60
+    : undefined;
+
+  const estimatedEndTime =
+    startTime && durationHoursForEstimate
+      ? (() => {
+          const [hh, mm] = startTime.split(":").map(Number);
+          const totalMinutes = hh * 60 + mm + durationHoursForEstimate * 60;
+          const endH = Math.floor(totalMinutes / 60) % 24;
+          const endM = totalMinutes % 60;
+          return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+        })()
+      : "";
 
   return (
     <div className="min-h-screen bg-background relative">
@@ -504,9 +599,9 @@ export default function Booking() {
             {/* ===== Step 0: Date ===== */}
             {step === 0 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
-                <h3 className="font-heading font-semibold text-lg mb-1">Pick Your Event Date</h3>
+                <h3 className="font-heading font-semibold text-lg mb-1">Choose Your Start Time</h3>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Let's check if the date is open, then pick your start time. If you're not sure yet when the event will wrap up, that's fine — end time is optional and the photographer will confirm it based on your package and buffer time.
+                  Select when you'd like your photography session to begin. Your package's duration — chosen in a later step — will determine how long the photographer is reserved for.
                 </p>
 
                 <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
@@ -612,31 +707,6 @@ export default function Booking() {
                                 Every time shown here is open — tap one to select it. Scroll for more.
                               </p>
                             </>
-                          )}
-                        </div>
-
-                        <div className="p-5 rounded-xl border border-border">
-                          <div className="flex items-center gap-2 mb-3">
-                            <Clock className="w-4 h-4 text-muted-foreground" />
-                            <p className="font-medium text-sm">
-                              End Time <span className="text-muted-foreground font-normal">(optional)</span>
-                            </p>
-                          </div>
-                          <input
-                            type="time"
-                            value={endTime}
-                            onChange={(e) => setEndTime(e.target.value)}
-                            className={cn(
-                              "h-11 w-full rounded-lg border bg-background px-3 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary",
-                              endTime && startTime && endTime <= startTime ? "border-destructive" : "border-border"
-                            )}
-                          />
-                          {endTime && startTime && endTime <= startTime ? (
-                            <p className="text-[11px] text-destructive mt-2">End time should be after the start time.</p>
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground mt-2">
-                              Leave this blank if you're not sure yet — the photographer will confirm the expected end time based on your package and buffer time.
-                            </p>
                           )}
                         </div>
                       </div>
@@ -968,8 +1038,13 @@ export default function Booking() {
                   <div className="p-4 rounded-xl border border-border space-y-1">
                     <p><span className="text-muted-foreground">Event:</span> {eventType === "Other" ? specificEventType : eventType}</p>
                     <p><span className="text-muted-foreground">Date:</span> {date?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
-                    <p><span className="text-muted-foreground">Start time:</span> {prettyTime(startTime)}</p>
-                    {endTime && <p><span className="text-muted-foreground">End time (optional):</span> {prettyTime(endTime)}</p>}
+                    <p><span className="text-muted-foreground">Photography starts:</span> {prettyTime(startTime)}</p>
+                    {packageMode === "custom" && selectedDurationExtra && (
+                      <p><span className="text-muted-foreground">Coverage:</span> {selectedDurationExtra.label}</p>
+                    )}
+                    {estimatedEndTime && (
+                      <p><span className="text-muted-foreground">Estimated end:</span> {prettyTime(estimatedEndTime)}</p>
+                    )}
                     <p><span className="text-muted-foreground">Setting:</span> {locationType}</p>
                     {eventAddress && <p><span className="text-muted-foreground">Address:</span> {eventAddress}</p>}
                     {guestCount && <p><span className="text-muted-foreground">Guests:</span> ~{guestCount}</p>}
@@ -1017,7 +1092,7 @@ export default function Booking() {
               <div className="space-y-3 text-sm">
                 {date && <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span className="font-medium">{date.toLocaleDateString()}</span></div>}
                 {startTime && <div className="flex justify-between"><span className="text-muted-foreground">Start time</span><span className="font-medium">{prettyTime(startTime)}</span></div>}
-                {endTime && <div className="flex justify-between"><span className="text-muted-foreground">End time</span><span className="font-medium">{prettyTime(endTime)}</span></div>}
+                {estimatedEndTime && <div className="flex justify-between"><span className="text-muted-foreground">Est. end time</span><span className="font-medium">{prettyTime(estimatedEndTime)}</span></div>}
                 {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium">{eventType === "Other" && specificEventType ? specificEventType : eventType}</span></div>}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{packageMode === "fixed" ? (pkg ? `${pkg.name} Package` : "No package selected") : "Custom Package"}</span>

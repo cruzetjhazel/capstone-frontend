@@ -15,12 +15,21 @@ import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/data/photographers";
 import { useBooking } from "@/hooks/useBookings";
 import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 
 export default function BookingSent() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: booking, isLoading } = useBooking(id);
-  const { toast } = useToast();
+  // Renamed from `toast` — the shadcn/ui hook's toast() takes an object
+  // ({ title, description, variant }) and is a completely different API
+  // from react-hot-toast's toast.success()/toast.error() imported above.
+  // Destructuring this as `toast` shadowed the react-hot-toast import for
+  // the rest of the component, so `toast.success(...)` in the "See My
+  // Bookings" button below was silently throwing ("toast.success is not
+  // a function") and aborting before navigate("/bookings") ever ran —
+  // that's why the button appeared to do nothing.
+  const { toast: showToast } = useToast();
 
   const [status, setStatus] = useState<"pending" | "accepted" | "cancelled" | "rejected" | "expired">("pending");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -45,7 +54,7 @@ export default function BookingSent() {
 
   const handleCancelRequest = () => {
     if (!cancellationReason.trim()) {
-      toast({ title: "Reason required", description: "Please provide a reason for cancelling your booking request.", variant: "destructive" as never });
+      showToast({ title: "Reason required", description: "Please provide a reason for cancelling your booking request.", variant: "destructive" as never });
       return;
     }
 
@@ -55,7 +64,7 @@ export default function BookingSent() {
       setIsSubmittingCancel(false);
       setIsCancelModalOpen(false);
       setStatus("cancelled")
-      toast({ title: "Cancellation submitted", description: "Booking cancellation request submitted successfully." });
+      showToast({ title: "Cancellation submitted", description: "Booking cancellation request submitted successfully." });
     }, 800);
   };
 
@@ -218,8 +227,14 @@ export default function BookingSent() {
               </Button>
             )}
 
-            <Button onClick={() => navigate("/dashboard")} className="gap-1.5">
-              Go to Dashboard <ArrowRight className="w-4 h-4" />
+            <Button
+              onClick={() => {
+                toast.success("Redirecting to your bookings...");
+                navigate("/bookings");
+              }}
+              className="gap-1.5"
+            >
+              See My Bookings <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
         </div>

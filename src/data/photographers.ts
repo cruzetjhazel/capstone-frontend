@@ -44,7 +44,15 @@ export interface CustomRates {
   // PublicCustomPackageComponentResource.php, which sends both. Not consumed by
   // any renderer yet, but kept here so the data survives until the "Build Your
   // Own" calculator is updated to actually group by tier instead of flattening.
-  extras?: { id: string; label: string; price: number; type?: "flat_option" | "tier_option"; tierName?: string | null }[];
+  extras?: {
+    id: string; label: string; price: number; type?: "flat_option" | "tier_option"; tierName?: string | null;
+    // Present only on options meant to represent a selectable photography
+    // coverage duration (minutes). Booking.tsx uses this — not `type` or
+    // `tierName` — to find the client's duration choice and compute the
+    // review step's "Estimated end" preview. Mirrors the backend's
+    // custom_package_components.duration_minutes column.
+    durationMinutes?: number;
+  }[];
 }
 
 export const defaultCustomRates: CustomRates = {
@@ -313,11 +321,8 @@ export const eventTypes = [
 
 /** J&T-style booking progress stages (in order). */
 export const trackingStages = [
-  { id: "booked", label: "Booked", description: "Booking received — waiting for photographer to confirm" },
-  { id: "confirmed", label: "Confirmed", description: "Photographer accepted your booking" },
   { id: "event_day", label: "Event Day", description: "Photographer is covering your event" },
   { id: "editing", label: "Editing", description: "Photos are being edited and polished" },
-  { id: "ready", label: "Ready to Send", description: "Edits are complete — preparing your gallery" },
   { id: "delivered", label: "Delivered", description: "Your photos are available in your gallery" },
 ] as const;
 export type TrackingStage = typeof trackingStages[number]["id"];

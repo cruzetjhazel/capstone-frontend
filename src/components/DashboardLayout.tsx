@@ -1,12 +1,23 @@
 import { ReactNode } from "react";
 import { AppSidebar } from "./AppSidebar";
 import { DashboardHeader } from "./DashboardHeader";
+import { ClientLayout } from "./ClientLayout";
+import { useRole } from "@/contexts/RoleContext";
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { role } = useRole();
+
+  // Clients get the shared top navbar (same MarketingNavbar as the public
+  // Home page), no sidebar, no separate dashboard.
+  if (role === "client") {
+    return <ClientLayout>{children}</ClientLayout>;
+  }
+
+  // Studio and admin keep the existing sidebar + header shell, unchanged.
   return (
     <div className="min-h-screen flex w-full bg-background relative">
       <AppSidebar />
