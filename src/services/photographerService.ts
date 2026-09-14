@@ -36,8 +36,26 @@ interface RawPhotographerProfile {
   // Included here (optional) so normalizeProfile picks them up automatically
   // the moment the backend starts sending them, with no frontend change needed.
   rating?: number;
+  average_rating?: number | string | null;
   reviews_count?: number;
+  total_reviews?: number;
+  reviews?: RawReview[] | { data?: RawReview[] } | null;
   favorites_count?: number;
+}
+
+interface RawReview {
+  id?: number | string;
+  rating?: number | string | null;
+  comment?: string | null;
+  text?: string | null;
+  reply?: string | null;
+  photographer_reply?: string | null;
+  created_at?: string | null;
+  date?: string | null;
+  client?: { name?: string | null } | null;
+  user?: { name?: string | null } | null;
+  client_name?: string | null;
+  name?: string | null;
 }
 
 interface RawCustomPackage {
@@ -61,6 +79,13 @@ interface RawCustomPackage {
 
 function unwrapList<T>(data: T[] | { data: T[] }): T[] {
   return Array.isArray(data) ? data : data.data;
+}
+
+function unwrapApiData<T>(value: T | { data?: T }): T {
+  if (typeof value === "object" && value !== null && "data" in value && value.data !== undefined) {
+    return value.data as T;
+  }
+  return value as T;
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -127,12 +152,41 @@ function normalizePortfolioItem(item: RawPhotographerProfile["portfolio"][number
   return item.url ?? item.image_url ?? item.path ?? "";
 }
 
+function unwrapReviews(value: RawPhotographerProfile["reviews"]): RawReview[] {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value?.data) ? value.data : [];
+}
+
+function normalizeReview(raw: RawReview, index: number) {
+  const name = raw.client?.name ?? raw.user?.name ?? raw.client_name ?? raw.name ?? "Client";
+  const rating = Math.max(0, Math.min(5, toNumber(raw.rating)));
+  const date = raw.created_at ?? raw.date ?? "";
+  return {
+    id: String(raw.id ?? `review-${index}`),
+    name,
+    avatar: initialsFrom(name),
+    rating,
+    date,
+    text: raw.comment ?? raw.text ?? "",
+    reply: raw.reply ?? raw.photographer_reply ?? undefined,
+  };
+}
+
 /**
  * Maps the Laravel PhotographerPublicProfileResource shape into the
  * PublicProfile shape every page/component already renders
  * (Explore, Photographers, FeaturedStudiosSection, PhotographerProfile).
  */
 function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
+  const rawReviews = unwrapReviews(raw.reviews);
+  const reviewList = rawReviews.map(normalizeReview);
+  const calculatedRating = reviewList.length > 0
+    ? reviewList.reduce((sum, review) => sum + review.rating, 0) / reviewList.length
+    : 0;
+  const averageRating = raw.average_rating ?? raw.rating ?? calculatedRating;
+  const reviewCount = rawReviews.length > 0
+    ? rawReviews.length
+    : raw.reviews_count ?? raw.total_reviews ?? 0;
   const name = raw.business_name ?? "Unnamed Studio";
   const type: "Studio" | "Freelancer" =
     raw.photographer_type?.toLowerCase() === "freelancer" ? "Freelancer" : "Studio";
@@ -142,8 +196,8 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
     name,
     type,
     specialty: raw.services?.[0] ?? raw.style?.[0] ?? "Photography",
-    rating: toNumber(raw.rating),
-    reviews: toNumber(raw.reviews_count),
+    rating: toNumber(averageRating),
+    reviews: toNumber(reviewCount),
     priceMin: toNumber(raw.starting_price),
     priceMax: toNumber(raw.max_price),
     location: raw.location ?? raw.coverage_area ?? "Bulan, Sorsogon",
@@ -162,7 +216,7 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
       })
       .map(normalizePackage),
     bookedSlots: [], // fetched separately via /photographers/{id}/availability/*
-    reviewList: [],  // not returned by this resource
+    reviewList,
     portfolio: (raw.portfolio ?? []).map(normalizePortfolioItem).filter(Boolean),
     customRates: { ...defaultCustomRates, extras: [] }, // real extras merged in getById(); list() stays lightweight
     socials: {
@@ -199,12 +253,27 @@ export const photographerService = {
       const { data } = await photographerApi.getById(id);
       // Backend wraps every response as { data: ..., message: ... } — list()/featured()
       // already unwrap this via unwrapList(), getById() just never did.
-      const rawProfile = ((data as any)?.data ?? data) as RawPhotographerProfile;
+      const rawProfile = unwrapApiData<RawPhotographerProfile>(data);
       const profile = normalizeProfile(rawProfile);
+
+      if (profile.reviewList.length === 0) {
+        try {
+          const { data: reviewsResponse } = await photographerApi.getReviews(id);
+          const reviewsPayload = unwrapApiData<RawReview[] | { data?: RawReview[] }>(reviewsResponse);
+          const reviewList = unwrapReviews(reviewsPayload as RawPhotographerProfile["reviews"]).map(normalizeReview);
+          profile.reviewList = reviewList;
+          if (profile.reviews === 0) profile.reviews = reviewList.length;
+          if (profile.rating === 0 && reviewList.length > 0) {
+            profile.rating = Number((reviewList.reduce((sum, review) => sum + review.rating, 0) / reviewList.length).toFixed(1));
+          }
+        } catch {
+          // Public review endpoint is optional; retain the profile's empty state when unavailable.
+        }
+      }
 
       try {
         const { data: cp } = await photographerApi.getCustomPackage(id);
-        const raw = ((cp as any)?.data ?? cp) as RawCustomPackage;
+        const raw = unwrapApiData<RawCustomPackage>(cp);
         profile.customRates = {
           ...profile.customRates,
           baseFee: raw.config.enabled ? toNumber(raw.config.base_fee, defaultCustomRates.baseFee) : defaultCustomRates.baseFee,

@@ -5,7 +5,7 @@ import {
   Ban, Camera, Hourglass, ChevronLeft, ChevronRight,
   Calendar as CalendarIcon, Check, AlertTriangle,
   Clock, ExternalLink, X, MapPin, User, FileText, Loader2,
-  Search, Repeat, CalendarDays
+  Search, Repeat, CalendarDays, Plus, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -15,8 +15,15 @@ import { useBlockedDates, useCreateBlockedDate, useDeleteBlockedDate } from "@/h
 import { usePhotographerBookings } from "@/hooks/usePhotographerBookings";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 import { useNavigate } from "react-router-dom";
+import {
+  useBookingHours, useCreateBookingHour, useDeleteBookingHour, useUpdateSlotInterval,
+} from "@/hooks/useBookingHours";
+import { useAvailabilityWindows } from "@/hooks/useAvailabilityWindows";
 
-type DayStatus = "available" | "blocked" | "booked" | "pending" | "mixed";
+const BOOKING_HOUR_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const SLOT_INTERVAL_OPTIONS = [15, 20, 30, 45, 60];
+
+type DayStatus = "available" | "blocked" | "booked" | "pending" | "mixed" | "closed";
 type FilterKey = DayStatus | "past";
 
 const URGENT_HOLD_HOURS = 6;
@@ -67,7 +74,7 @@ function formatBlockLabel(block: any): string {
 function summarizeBookings(dayBookings: StudioBookingRecord[]): string {
   const counts: Record<string, number> = {};
   dayBookings.forEach((b) => {
-    const key = b.status === "accepted" ? "pending" : b.status;
+    const key = b.status;
     counts[key] = (counts[key] || 0) + 1;
   });
   return Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ");
@@ -79,8 +86,30 @@ export default function StudioCalendar() {
 
   const { data: blockedDates = [], isLoading: loadingBlocks } = useBlockedDates();
   const { data: bookings = [], isLoading: loadingBookings } = usePhotographerBookings();
+  const { data: availabilityWindows = [], isLoading: loadingWindows } = useAvailabilityWindows();
   const createBlock = useCreateBlockedDate();
   const deleteBlock = useDeleteBlockedDate();
+
+  // Usual Booking Hours — same hooks/service as before, now used directly here.
+  const { data: bookingHours = [] } = useBookingHours();
+  const createBookingHour = useCreateBookingHour();
+  const deleteBookingHour = useDeleteBookingHour();
+  const updateSlotInterval = useUpdateSlotInterval();
+  const [newBookingHourPeriod, setNewBookingHourPeriod] = useState<Record<number, { start: string; end: string }>>({});
+
+  const bookingHoursForDay = (day: number) =>
+    bookingHours.filter((h) => h.day_of_week === day).sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  const addBookingHourPeriod = async (day: number) => {
+    const draft = newBookingHourPeriod[day];
+    if (!draft?.start || !draft?.end) return;
+    try {
+      await createBookingHour.mutateAsync({ day_of_week: day, start_time: draft.start, end_time: draft.end });
+      setNewBookingHourPeriod((prev) => ({ ...prev, [day]: { start: "", end: "" } }));
+    } catch (error) {
+      toast({ title: "Couldn't add period", description: "Check for overlaps with an existing period.", variant: "destructive" as never });
+    }
+  };
 
   const [currentMonth, setCurrentMonth] = useState(() => {
     const t = new Date();
@@ -91,6 +120,7 @@ export default function StudioCalendar() {
   const [isBlocking, setIsBlocking] = useState(false);
   const [isConfirmingBlock, setIsConfirmingBlock] = useState(false);
   const [isConfirmingUnblock, setIsConfirmingUnblock] = useState(false);
+  const [periodToDelete, setPeriodToDelete] = useState<{ id: string; day: number; start: string; end: string } | null>(null);
   const [showBookingDetails, setShowBookingDetails] = useState<StudioBookingRecord | null>(null);
 
   const [blockReason, setBlockReason] = useState("");
@@ -145,11 +175,12 @@ export default function StudioCalendar() {
     booked: { bg: "bg-blue-500/10 hover:bg-blue-500/15 border-blue-500/20", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500", icon: Camera },
     pending: { bg: "bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/20", text: "text-amber-600 dark:text-amber-500", dot: "bg-amber-500", icon: Hourglass },
     mixed: { bg: "bg-blue-500/10 hover:bg-blue-500/15 border-blue-500/20", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500", icon: Camera },
+    closed: { bg: "bg-muted/40 hover:bg-muted/50 border-border/40", text: "text-muted-foreground", dot: "bg-muted-foreground/50", icon: Clock },
   };
 
   // Bookings that still meaningfully occupy a date — rejected/cancelled don't.
   const activeBookings = useMemo(
-    () => bookings.filter((b) => b.status !== "rejected" && b.status !== "cancelled"),
+    () => bookings.filter((b) => b.status !== "cancelled" && b.status !== "expired"),
     [bookings]
   );
 
@@ -167,6 +198,24 @@ export default function StudioCalendar() {
     return map;
   }, [blockedDates]);
 
+  // One-off AvailabilityWindow rows — mirrors AvailabilityService::resolvePeriods
+  // on the backend: these ADD bookable time to an otherwise-closed weekday
+  // (e.g. a photographer normally closed Wednesdays, opened for one specific
+  // Wednesday). Without this, the studio calendar disagreed with the public
+  // booking calendar on exactly these dates.
+  const windowsByDate = useMemo(() => {
+    const map: Record<string, (typeof availabilityWindows)[number][]> = {};
+    for (const w of availabilityWindows) (map[w.date] ??= []).push(w);
+    return map;
+  }, [availabilityWindows]);
+
+  // Mirrors AvailabilityService::resolvePeriods on the backend: once the
+  // photographer has configured ANY usual hours, a weekday with none of its
+  // own is closed (not "available") — this is what keeps this calendar in
+  // sync with the public booking calendar, which already enforces this.
+  const hasAnyBookingHours = bookingHours.length > 0;
+  const dayOfWeekForDateStr = (dateStr: string) => new Date(`${dateStr}T00:00:00`).getDay();
+
   const getDayStatus = (dateStr: string): DayStatus => {
     if (blockedByDate[dateStr]) return "blocked";
     const dayBookings = bookingsByDate[dateStr] || [];
@@ -174,6 +223,10 @@ export default function StudioCalendar() {
     if (dayBookings.length === 1) {
       const s = dayBookings[0].status;
       return s === "confirmed" || s === "completed" ? "booked" : "pending";
+    }
+    const hasOneOffWindow = !!windowsByDate[dateStr]?.length;
+    if (hasAnyBookingHours && bookingHoursForDay(dayOfWeekForDateStr(dateStr)).length === 0 && !hasOneOffWindow) {
+      return "closed";
     }
     return "available";
   };
@@ -290,7 +343,7 @@ export default function StudioCalendar() {
   // on this date can still be modified.
   const isPastSelected = selectedDateStr < todayStr();
 
-  const isCalendarLoading = loadingBlocks || loadingBookings;
+  const isCalendarLoading = loadingBlocks || loadingBookings || loadingWindows;
 
   // Search matches — client name or event type, current + future bookings first.
   const searchMatches = useMemo(() => {
@@ -317,6 +370,7 @@ export default function StudioCalendar() {
     { key: "blocked", label: "Blocked", icon: Ban, colorClass: "text-red-600 dark:text-red-400" },
     { key: "booked", label: "Booked", icon: Camera, colorClass: "text-blue-500" },
     { key: "pending", label: "Pending", icon: Hourglass, colorClass: "text-amber-500" },
+    { key: "closed", label: "No Hours Set", icon: Clock, colorClass: "text-muted-foreground" },
     { key: "past", label: "Past", icon: CalendarIcon, colorClass: "text-muted-foreground/60" },
   ];
 
@@ -518,7 +572,7 @@ export default function StudioCalendar() {
                                     key={b.id}
                                     className={cn(
                                       "w-1.5 h-1.5 rounded-full",
-                                      urgent ? "bg-red-500" : (b.status === "pending" || b.status === "accepted") ? "bg-amber-500" : "bg-blue-500"
+                                      urgent ? "bg-red-500" : b.status === "pending" ? "bg-amber-500" : "bg-blue-500"
                                     )}
                                   />
                                 );
@@ -570,7 +624,7 @@ export default function StudioCalendar() {
                               <p className="font-medium text-sm text-foreground mb-0.5">{evt.eventType}</p>
                               <p className="text-muted-foreground">Client: <span className="font-medium text-foreground">{evt.clientName}</span></p>
                             </div>
-                            {(evt.status === "pending" || evt.status === "accepted") && <Hourglass className="w-4 h-4 text-amber-500" />}
+                            {evt.status === "pending" && <Hourglass className="w-4 h-4 text-amber-500" />}
                             {(evt.status === "confirmed" || evt.status === "completed") && <Camera className="w-4 h-4 text-blue-500" />}
                           </div>
 
@@ -736,7 +790,111 @@ export default function StudioCalendar() {
             </div>
           </div>
         </div>
+
+        {/* Usual Booking Hours — same section style as the rest of this page,
+            using the existing useBookingHours hooks/service directly. */}
+        <div className="bg-card rounded-lg border border-border/50 p-5 card-shadow space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap border-b border-border/60 pb-3">
+            <div>
+              <h2 className="font-heading font-bold text-lg flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" /> Usual Booking Hours
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Set the days and hours when clients can start a booking. Days left blank are unavailable by default.
+                Use the calendar above to open or block specific one-off dates.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">Booking Interval</label>
+                <p className="text-[11px] text-muted-foreground/80">Controls how frequently available start times appear to clients.</p>
+              </div>
+              <select
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                defaultValue={60}
+                onChange={(e) => updateSlotInterval.mutate(Number(e.target.value))}
+              >
+                {SLOT_INTERVAL_OPTIONS.map((m) => <option key={m} value={m}>{m} minutes</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {BOOKING_HOUR_DAYS.map((label, day) => (
+              <div key={day} className="p-3 rounded-md border border-border/40 bg-muted/20">
+                <p className="font-medium text-sm mb-2">{label}</p>
+
+                {bookingHoursForDay(day).length === 0 && (
+                  <p className="text-xs text-muted-foreground mb-2">Unavailable — no hours set.</p>
+                )}
+
+                <div className="space-y-1.5">
+                  {bookingHoursForDay(day).map((h) => (
+                    <div key={h.id} className="flex items-center justify-between text-xs bg-background border border-border/40 rounded px-2 py-1.5">
+                      <span>{h.start_time}–{h.end_time}</span>
+                      <button onClick={() => setPeriodToDelete({ id: h.id, day, start: h.start_time, end: h.end_time })} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <input type="time" className="h-8 rounded border border-input px-1.5 text-xs w-[6.5rem]"
+                    value={newBookingHourPeriod[day]?.start || ""}
+                    onChange={(e) => setNewBookingHourPeriod((p) => ({ ...p, [day]: { ...p[day], start: e.target.value } }))} />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <input type="time" className="h-8 rounded border border-input px-1.5 text-xs w-[6.5rem]"
+                    value={newBookingHourPeriod[day]?.end || ""}
+                    onChange={(e) => setNewBookingHourPeriod((p) => ({ ...p, [day]: { ...p[day], end: e.target.value } }))} />
+                  <Button size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => addBookingHourPeriod(day)} disabled={createBookingHour.isPending}>
+                    <Plus className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* CONFIRMATION MODAL: Delete Booking Hour Period */}
+      {periodToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-xl shadow-lg w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-border/60 bg-destructive/5">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="w-5 h-5" />
+                <h2 className="font-heading font-bold text-md uppercase tracking-wide">Remove Period</h2>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setPeriodToDelete(null)} className="h-8 w-8 rounded-full" disabled={deleteBookingHour.isPending}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="p-6 space-y-2">
+              <p className="text-sm font-medium text-foreground">
+                Remove <span className="font-bold">{BOOKING_HOUR_DAYS[periodToDelete.day]} {periodToDelete.start}–{periodToDelete.end}</span> from your Usual Booking Hours?
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Clients will no longer be able to start new bookings in this window. Any bookings already confirmed within it are not affected.
+              </p>
+            </div>
+            <div className="p-4 border-t border-border/60 bg-muted/10 flex justify-end gap-3">
+              <Button variant="outline" size="sm" onClick={() => setPeriodToDelete(null)} disabled={deleteBookingHour.isPending}>Cancel</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deleteBookingHour.isPending}
+                onClick={() => {
+                  deleteBookingHour.mutate(periodToDelete.id, { onSuccess: () => setPeriodToDelete(null) });
+                }}
+              >
+                {deleteBookingHour.isPending ? "Removing..." : "Remove Period"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CONFIRMATION MODAL: Block Out Date */}
       {isConfirmingBlock && (

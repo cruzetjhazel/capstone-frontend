@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { paymentService, type PhotographerPayment } from "@/services/paymentService";
 import { photographerBookingService, type StudioBookingRecord } from "@/services/photographerBookingService";
+import { paymentReferenceService, type PaymentReference } from "@/services/paymentReferenceService";
 
 type DisplayStatus = "confirmed" | "needs_review" | "rejected" | "processing";
 
@@ -71,6 +72,62 @@ export default function StudioEarnings() {
   const [onsiteNotes, setOnsiteNotes] = useState("");
   const [isRecordingOnsite, setIsRecordingOnsite] = useState(false);
 
+  const [isRefModalOpen, setIsRefModalOpen] = useState(false);
+  const [references, setReferences] = useState<PaymentReference[]>([]);
+  const [isLoadingRefs, setIsLoadingRefs] = useState(false);
+  const [refNumber, setRefNumber] = useState("");
+  const [refAmount, setRefAmount] = useState("");
+  const [refDate, setRefDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isSubmittingRef, setIsSubmittingRef] = useState(false);
+  const [isInvalidatingRefId, setIsInvalidatingRefId] = useState<string | null>(null);
+
+  const loadReferences = async () => {
+    setIsLoadingRefs(true);
+    try {
+      setReferences(await paymentReferenceService.list());
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load payment references.");
+    } finally {
+      setIsLoadingRefs(false);
+    }
+  };
+
+  const handleRegisterReference = async () => {
+    if (!refNumber.trim() || !refAmount) {
+      toast.error("Enter the reference number and amount received.");
+      return;
+    }
+    setIsSubmittingRef(true);
+    try {
+      await paymentReferenceService.register({
+        reference_number: refNumber.trim(),
+        amount_received: Number(refAmount),
+        payment_date: refDate,
+      });
+      toast.success("Payment reference recorded.");
+      setRefNumber("");
+      setRefAmount("");
+      loadReferences();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not record this reference.");
+    } finally {
+      setIsSubmittingRef(false);
+    }
+  };
+
+  const handleInvalidateReference = async (id: string) => {
+    setIsInvalidatingRefId(id);
+    try {
+      await paymentReferenceService.invalidate(id);
+      toast.success("Reference invalidated.");
+      loadReferences();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not invalidate this reference.");
+    } finally {
+      setIsInvalidatingRefId(null);
+    }
+  };
+
   const loadPayments = async () => {
     setIsLoading(true);
     setLoadError(null);
@@ -86,6 +143,7 @@ export default function StudioEarnings() {
 
   useEffect(() => {
     loadPayments();
+    loadReferences();
   }, []);
 
   // Dynamic Statistics
@@ -248,6 +306,10 @@ export default function StudioEarnings() {
             <h1 className="text-2xl font-heading font-bold">Earnings</h1>
             <p className="text-sm text-muted-foreground mt-1">Track your studio's revenue and pending payments.</p>
           </div>
+          <Button variant="outline" onClick={() => setIsRefModalOpen(true)}>
+            <ShieldCheck className="w-4 h-4 mr-2" />
+            Register Payment Reference
+          </Button>
         </div>
 
         {isLoading && (
@@ -639,6 +701,87 @@ export default function StudioEarnings() {
                   {isRecordingOnsite ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   Confirm Payment
                 </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* OVERLAY: Register Payment Reference Modal */}
+        {isRefModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-card w-full max-w-md p-6 rounded-xl shadow-2xl border border-border/50 flex flex-col space-y-4 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold font-heading">Register Payment Reference</h3>
+                <button onClick={() => setIsRefModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Enter the GCash reference number and amount you actually received. When a client submits a
+                payment with a matching reference number and amount, their booking confirms automatically.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">GCash Reference Number</label>
+                  <Input value={refNumber} onChange={(e) => setRefNumber(e.target.value)} placeholder="e.g. 1234567890123" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Amount Received</label>
+                    <Input type="number" min="0.01" step="0.01" value={refAmount} onChange={(e) => setRefAmount(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Date Received</label>
+                    <Input type="date" max={new Date().toISOString().split("T")[0]} value={refDate} onChange={(e) => setRefDate(e.target.value)} />
+                  </div>
+                </div>
+                <Button className="w-full" onClick={handleRegisterReference} disabled={isSubmittingRef}>
+                  {isSubmittingRef ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Record Reference
+                </Button>
+              </div>
+
+              <div className="border-t border-border/50 pt-4 space-y-2">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Registered References</p>
+                {isLoadingRefs && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                  </div>
+                )}
+                {!isLoadingRefs && references.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">No references recorded yet.</p>
+                )}
+                {!isLoadingRefs && references.map((ref) => (
+                  <div key={ref.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{ref.referenceNumber}</p>
+                      <p className="text-xs text-muted-foreground">{money(ref.amountReceived)} · {ref.paymentDate}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={cn(
+                        "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                        ref.status === "available" && "bg-success/10 text-success border-success/20",
+                        ref.status === "used" && "bg-muted text-muted-foreground border-border",
+                        ref.status === "matched" && "bg-primary/10 text-primary border-primary/20",
+                        ref.status === "invalidated" && "bg-destructive/10 text-destructive border-destructive/20",
+                      )}>
+                        {ref.status}
+                      </span>
+                      {ref.status === "available" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-destructive hover:text-destructive"
+                          onClick={() => handleInvalidateReference(ref.id)}
+                          disabled={isInvalidatingRefId === ref.id}
+                        >
+                          {isInvalidatingRefId === ref.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Invalidate"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

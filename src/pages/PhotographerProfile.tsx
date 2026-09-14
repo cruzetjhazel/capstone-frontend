@@ -440,6 +440,12 @@ export default function PhotographerProfile() {
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">{review.text}</p>
+                {review.reply && (
+                  <div className="mt-4 border-l-2 border-primary/30 pl-4">
+                    <p className="text-xs font-semibold text-foreground">Photographer reply</p>
+                    <p className="text-sm text-muted-foreground mt-1">{review.reply}</p>
+                  </div>
+                )}
               </div>
             ))}
             {p.reviewList.length > 5 && (

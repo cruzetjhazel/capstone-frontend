@@ -2,25 +2,23 @@ import { useParams, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
-import { useBookings, useRequestBookingCancellation } from "@/hooks/useBookings";
+import { useBookings, useRequestBookingCancellation, useRequestBookingReschedule, useRequestBookingModification } from "@/hooks/useBookings";
 import { usePhotographer } from "@/hooks/usePhotographers";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
+import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft,
   Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
-  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, type LucideIcon
+  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, type LucideIcon
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
 type RequestType = "reschedule" | "cancel" | "modify" | null;
 
-// Backend doesn't support reschedule/modify requests yet — only cancellation
-// (App\Actions\Booking\RequestBookingCancellationAction). Flip this once those
-// endpoints ship; nothing else in this file needs to change.
-const RESCHEDULE_MODIFY_ENABLED = false;
+const RESCHEDULE_MODIFY_ENABLED = true;
 
 const formatPrice = (price: number) => {
   return new Intl.NumberFormat("en-PH", {
@@ -41,23 +39,37 @@ const formatTime = (timeString: string) => {
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hour12}:${minutes} ${period}`;
 };
-// Client-facing Service Progress — 3 stages only, matching the backend
-// ServiceTrackerStatus enum exactly (event_day/editing/delivered). Booking
+// Client-facing Service Progress — 4 stages. "confirmed_paid" is a
+// frontend-only display stage (service_status is still null, but the
+// booking is Confirmed and payment is settled) — never sent to or received
+// from the backend. The other 3 map directly to ServiceTrackerStatus. Booking
 // status (pending/confirmed/completed/cancelled/expired) is shown separately
 // via the badge above, not as a tracker stage.
-     const SERVICE_PROGRESS_STEPS: { id: "event_day" | "editing" | "delivered"; label: string; description: string; icon: LucideIcon }[] = [
+     const SERVICE_PROGRESS_STEPS: { id: "confirmed_paid" | "upcoming" | "event_day" | "editing" | "delivered" | "completed"; label: string; description: string; icon: LucideIcon }[] = [
+       { id: "confirmed_paid", label: "Confirmed & Paid", description: "Your booking is confirmed and payment is settled", icon: CheckCircle2 },
+       { id: "upcoming", label: "Upcoming", description: "Waiting for your event date to arrive", icon: Clock },
        { id: "event_day", label: "Event Day", description: "It's photoshoot day!", icon: Camera },
        { id: "editing", label: "Editing", description: "Photos are currently being processed", icon: Wand2 },
        { id: "delivered", label: "Delivered", description: "All files have been delivered", icon: PackageCheck },
+       { id: "completed", label: "Completed", description: "This booking is concluded", icon: CheckCircle2 },
      ];
 
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
   const { data: bookings = [] } = useBookings(user?.email);
+  
   const { data: payments = [] } = usePaymentsForBooking(id);
+  const { data: myReviews = [] } = useMyReviews();
+  const submitReviewMutation = useSubmitReview();
   const { toast } = useToast();
   const cancelMutation = useRequestBookingCancellation();
+  const rescheduleMutation = useRequestBookingReschedule();
+  const modifyMutation = useRequestBookingModification();
+  const isSubmittingRequest = cancelMutation.isPending || rescheduleMutation.isPending || modifyMutation.isPending;
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState("");
 
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [requestFormType, setRequestFormType] = useState<RequestType>(null);
@@ -70,15 +82,18 @@ export default function BookingDetails() {
   const { data: photographer } = usePhotographer(booking?.photographerId);
   const hasVerifiedPayment = payments.some((p) => !!p.verifiedAt);
 
-  // Modification Timing Rule: Up to 7 days before event date (reschedule/modify only —
-  // cancellation eligibility is a separate, backend-enforced rule, below).
+  // Modification Timing Rule: Up to 7 days before event date, AND only
+  // before the service has actually started (serviceStatus is still unset —
+  // event_day/editing/delivered all mean the service has begun). Cancellation
+  // eligibility is a separate, backend-enforced rule, below.
   const canModifyOrReschedule = useMemo(() => {
     if (!booking?.date) return false;
+    if (booking?.serviceStatus && booking.serviceStatus !== "upcoming") return false;
     const eventDate = new Date(booking.date);
     const today = new Date();
     const diffDays = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays >= 7;
-  }, [booking?.date]);
+  }, [booking?.date, booking?.serviceStatus]);
 
   if (!booking) {
     return (
@@ -100,9 +115,14 @@ export default function BookingDetails() {
   const amountPaid = Math.max(0, booking.subtotal - remainingBalance);
   const hasActiveRequest = booking.hasActiveRequest;
 
-  // Matches RequestBookingCancellationAction: only pending/accepted bookings
-  // can have a cancellation requested.
-  const canRequestCancellation = booking.status === "pending" || booking.status === "confirmed";
+  // Matches RequestBookingCancellationAction / Booking::isEligibleForCancellationRequest:
+  // Pending is always cancellable; Confirmed only before the service has
+  // started (serviceStatus unset or Upcoming — event_day/editing/delivered/
+  // completed all mean the service has begun and cancellation is no longer
+  // available).
+  const canRequestCancellation =
+    booking.status === "pending" ||
+    (booking.status === "confirmed" && (!booking.serviceStatus || booking.serviceStatus === "upcoming"));
 
   const customBuild = booking.customBuild || {
     baseFee: 5000,
@@ -130,21 +150,27 @@ export default function BookingDetails() {
   const handleFinalSubmit = async () => {
     if (!requestFormType) return;
 
-    if (requestFormType !== "cancel") {
-      toast({
-        title: "Not available yet",
-        description: "Reschedule and modification requests aren't available yet. Please contact the studio directly for now.",
-        variant: "destructive" as never,
-      });
-      return;
-    }
-
     try {
-      await cancelMutation.mutateAsync({ id: booking.id, reason });
-      toast({
-        title: "Cancellation requested",
-        description: "Your cancellation request has been sent to the studio for review.",
-      });
+      if (requestFormType === "cancel") {
+        await cancelMutation.mutateAsync({ id: booking.id, reason });
+        toast({
+          title: "Cancellation requested",
+          description: "Your cancellation request has been sent to the studio for review.",
+        });
+      } else if (requestFormType === "reschedule") {
+        const [datePart, timePart] = preferredDate.split("T");
+        await rescheduleMutation.mutateAsync({ id: booking.id, eventDate: datePart, startTime: timePart, reason });
+        toast({
+          title: "Reschedule requested",
+          description: "Your requested date and time has been sent to the studio for review.",
+        });
+      } else if (requestFormType === "modify") {
+        await modifyMutation.mutateAsync({ id: booking.id, type: modificationOption, reason });
+        toast({
+          title: "Modification requested",
+          description: "Your request has been sent to the studio for review.",
+        });
+      }
       setRequestModalOpen(false);
       setRequestFormType(null);
       setIsConfirming(false);
@@ -166,9 +192,12 @@ export default function BookingDetails() {
   };
 
   const getCurrentStepIndex = (b: any) => {
-    if (b.status === "completed" || b.serviceStatus === "delivered") return 2;
-    if (b.serviceStatus === "editing") return 1;
-    if (b.serviceStatus === "event_day") return 0;
+    if (b.status === "completed" || b.serviceStatus === "completed") return 5;
+    if (b.serviceStatus === "delivered") return 4;
+    if (b.serviceStatus === "editing") return 3;
+    if (b.serviceStatus === "event_day") return 2;
+    if (b.serviceStatus === "upcoming") return 1;
+    if (b.status === "confirmed" && (b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid")) return 0;
     return -1;
   };
 
@@ -234,15 +263,21 @@ export default function BookingDetails() {
                     <Loader2 className="w-3.5 h-3.5 animate-spin" /> Payment Under Review
                   </span>
                 )}
-                {booking.status === "confirmed" && (
+                {booking.status === "confirmed" &&
+                  (booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid") && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Payment Confirmed
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Payment Verified
                   </span>
                 )}
                 {booking.status === "completed" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Completed
                   </span>
+                )}
+                {booking.status === "completed" && !myReviews.some((r) => r.bookingId === String(booking.id)) && (
+                  <Button size="sm" className="text-xs rounded-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setShowReviewModal(true)}>
+                    <Star className="w-3.5 h-3.5" /> Review & Rate
+                  </Button>
                 )}
                 {booking.status === "expired" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
@@ -308,7 +343,7 @@ export default function BookingDetails() {
               <p className="text-xs sm:text-sm text-foreground">
                 {currentStep >= 0
                   ? SERVICE_PROGRESS_STEPS[currentStep].description
-                  : "Your event hasn't happened yet — this will update once your photographer marks Event Day."}
+                  : "Once your payment is confirmed, your service progress will appear here."}
               </p>
             </div>
           </div>
@@ -426,7 +461,11 @@ export default function BookingDetails() {
                 {!canRequestCancellation && (
                   <div className="mb-4 mt-3 p-3 bg-muted text-muted-foreground text-xs rounded-lg border border-border flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <p>Cancellation requests are only available before the studio confirms your booking.</p>
+                    <p>
+                      {booking.serviceStatus
+                        ? "Cancellation is no longer available once the service has started."
+                        : "Cancellation requests are only available before the studio confirms your booking."}
+                    </p>
                   </div>
                 )}
 
@@ -586,7 +625,7 @@ export default function BookingDetails() {
             <button
               onClick={() => { setRequestModalOpen(false); setRequestFormType(null); setIsConfirming(false); }}
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-              disabled={cancelMutation.isPending}
+              disabled={isSubmittingRequest}
             >
               <X className="w-5 h-5" />
             </button>
@@ -599,9 +638,9 @@ export default function BookingDetails() {
                   The studio will be notified and this booking will be placed in a pending state until they review it.
                 </p>
                 <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={cancelMutation.isPending}>Back</Button>
-                  <Button onClick={handleFinalSubmit} disabled={cancelMutation.isPending}>
-                    {cancelMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
+                  <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={isSubmittingRequest}>Back</Button>
+                  <Button onClick={handleFinalSubmit} disabled={isSubmittingRequest}>
+                    {isSubmittingRequest ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
                   </Button>
                 </div>
               </div>
@@ -675,6 +714,66 @@ export default function BookingDetails() {
           </div>
         </div>
       )}
+
+      {/* MODAL: Review & Rate */}
+      {showReviewModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Star className="text-primary w-5 h-5" /> Review {fallbackName}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Share how your {booking.eventType} session went. This will be visible to other clients.
+              </p>
+
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" onClick={() => setReviewRating(n)} className="p-0.5" aria-label={`${n} star${n > 1 ? "s" : ""}`}>
+                    <Star className={cn("w-7 h-7 transition-colors", n <= reviewRating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30")} />
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Your review</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="What stood out about your experience?"
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:ring-1 focus:ring-ring resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <Button variant="outline" onClick={() => { setShowReviewModal(false); setReviewRating(0); setReviewComment(""); }} disabled={submitReviewMutation.isPending}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (reviewRating < 1) {
+                      toast({ title: "Rating required", description: "Please select a star rating.", variant: "destructive" as never });
+                      return;
+                    }
+                    try {
+                      await submitReviewMutation.mutateAsync({ booking_id: Number(booking.id), rating: reviewRating, comment: reviewComment });
+                      toast({ title: "Review submitted", description: "Thanks for sharing your experience!" });
+                      setShowReviewModal(false);
+                      setReviewRating(0);
+                      setReviewComment("");
+                    } catch (error) {
+                      toast({ title: "Something went wrong", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" as never });
+                    }
+                  }}
+                  disabled={submitReviewMutation.isPending}
+                >
+                  {submitReviewMutation.isPending ? "Submitting…" : "Submit Review"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
     </DashboardLayout>
   );
 }

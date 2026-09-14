@@ -6,6 +6,7 @@
 // statuses the API returns), which meant bookingService.ts's `as BookingStatus`
 // cast on live API responses was silently unchecked. Fixed to match.
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "expired";
+export type BookingPaymentStatus = "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
 
 // New: track where the creative production is at!
 export type ServiceStatus = "event_day" | "editing" | "delivered" | null;
@@ -48,6 +49,7 @@ export interface BookingRecord {
   dueNow: number;
   balance: number;
   paymentOption: string;
+  paymentStatus?: BookingPaymentStatus;
   status: BookingStatus;
   createdAt: string;
   

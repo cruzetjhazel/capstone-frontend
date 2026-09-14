@@ -6,9 +6,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { BookingTracker } from "@/components/BookingTracker";
 import {
   Check, DollarSign, AlertCircle, ArrowRight,
-  Search, SlidersHorizontal, ArrowUpDown,
+  Search, SlidersHorizontal, ArrowUpDown, Receipt, X, PackageCheck,
 } from "lucide-react";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
+
+// Mirrors backend UpdateServiceTrackerStatusAction::ALLOWED_TRANSITIONS —
+// see the same const in StudioBookingDetails.tsx for the full explanation.
+const MANUAL_TRACKER_TRANSITIONS: Partial<Record<TrackingStage, TrackingStage>> = {
+  upcoming: "event_day",
+  event_day: "editing",
+  editing: "delivered",
+};
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
@@ -20,8 +28,10 @@ import {
   useApproveCancellation,
   useRejectCancellation,
   useUpdateServiceTracker,
+  useMarkServiceCompleted,
   useRecordOnsitePayment,
 } from "@/hooks/usePhotographerBookings";
+import { usePayments, useVerifyPayment, useRejectPayment } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 
 type FilterTab = "All" | "Pending" | "Confirmed" | "In Progress" | "Completed" | "Cancelled" | "Expired";
@@ -41,7 +51,7 @@ function isPendingHoldExpired(b: StudioBookingRecord): boolean {
 // status exists for this, so we derive it from the same tracker data the
 // card's "Update status" control already reads.
 function isServiceInProgress(b: StudioBookingRecord): boolean {
-  return b.status === "confirmed" && !!b.serviceStatus && b.serviceStatus !== trackingStages[0]?.id;
+  return b.status === "confirmed" && (b.serviceStatus === "event_day" || b.serviceStatus === "editing" || b.serviceStatus === "delivered");
 }
 
 function parseBookingDateTime(b: StudioBookingRecord): number {
@@ -73,6 +83,7 @@ export default function StudioBookings() {
   const approveCancelMutation = useApproveCancellation();
   const rejectCancelMutation = useRejectCancellation();
   const trackerMutation = useUpdateServiceTracker();
+  const completeMutation = useMarkServiceCompleted();
   const onsitePaymentMutation = useRecordOnsitePayment();
 
   const [filter, setFilter] = useState<FilterTab>("All");
@@ -91,6 +102,51 @@ export default function StudioBookings() {
   const [paymentAmountInput, setPaymentAmountInput] = useState<number>(0);
   const [cancellationActionFor, setCancellationActionFor] = useState<{ type: "approve" | "reject"; booking: StudioBookingRecord } | null>(null);
   const [pendingTrackerChange, setPendingTrackerChange] = useState<{ booking: StudioBookingRecord; stage: TrackingStage } | null>(null);
+  
+  const paymentsQuery = usePayments();
+  const verifyPaymentMutation = useVerifyPayment();
+  const rejectPaymentMutation = useRejectPayment();
+  const [reviewingPaymentFor, setReviewingPaymentFor] = useState<StudioBookingRecord | null>(null);
+  const [paymentActionNotes, setPaymentActionNotes] = useState("");
+
+  const paymentToReview = reviewingPaymentFor
+    ? (paymentsQuery.data ?? []).find(
+        (p) =>
+          p.bookingId === reviewingPaymentFor.id &&
+          p.matchingStatus !== "matched" &&
+          p.matchingStatus !== "manually_verified" &&
+          p.matchingStatus !== "rejected"
+      )
+    : undefined;
+
+  const isPaymentActionMutating = verifyPaymentMutation.isPending || rejectPaymentMutation.isPending;
+
+  const confirmVerifyPayment = async () => {
+    if (!paymentToReview) return;
+    try {
+      await verifyPaymentMutation.mutateAsync({ paymentId: paymentToReview.id, notes: paymentActionNotes || undefined });
+      toast({ title: "Payment verified", description: "The booking is now marked as paid." });
+      setReviewingPaymentFor(null);
+      setPaymentActionNotes("");
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
+
+  const confirmRejectPayment = async () => {
+    if (!paymentToReview || !paymentActionNotes.trim()) {
+      toast({ title: "Notes required", description: "Please explain why this payment is being rejected.", variant: "destructive" as never });
+      return;
+    }
+    try {
+      await rejectPaymentMutation.mutateAsync({ paymentId: paymentToReview.id, notes: paymentActionNotes });
+      toast({ title: "Payment rejected", description: "The client has been asked to resubmit." });
+      setReviewingPaymentFor(null);
+      setPaymentActionNotes("");
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
 
   const packageOptions = useMemo(
     () => Array.from(new Set(bookings.map((b) => b.packageName).filter(Boolean))),
@@ -207,6 +263,15 @@ export default function StudioBookings() {
     setPendingTrackerChange(null);
   };
 
+  const handleMarkCompleted = async (id: string) => {
+    try {
+      await completeMutation.mutateAsync(id);
+      toast({ title: "Booking completed", description: "The client can now leave a review." });
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
+
   const confirmCancellationDecision = async () => {
     if (!cancellationActionFor) return;
     try {
@@ -223,7 +288,7 @@ export default function StudioBookings() {
     }
   };
 
-  const isMutating = acceptMutation.isPending || rejectMutation.isPending || approveCancelMutation.isPending || rejectCancelMutation.isPending || onsitePaymentMutation.isPending;
+    const isMutating = acceptMutation.isPending || rejectMutation.isPending || approveCancelMutation.isPending || rejectCancelMutation.isPending || onsitePaymentMutation.isPending || completeMutation.isPending;
 
   return (
     <DashboardLayout>
@@ -382,7 +447,12 @@ export default function StudioBookings() {
           {visible.map((b) => {
             const holdExpired = b.status === "pending" && isPendingHoldExpired(b);
             const showTracker = (b.status === "confirmed" || b.status === "completed") && !b.hasActiveCancellationRequest;
+            const isPaymentSatisfied = b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid";
             const displayStage = (b.serviceStatus ?? trackingStages[0].id) as TrackingStage;
+            const trackerStage = (b.serviceStatus ?? (isPaymentSatisfied ? trackingStages[0].id : undefined)) as TrackingStage | undefined;
+            const nextManualStage = b.serviceStatus
+              ? MANUAL_TRACKER_TRANSITIONS[b.serviceStatus as TrackingStage]
+              : undefined;
 
             return (
               <div key={b.id} className={cn(
@@ -433,6 +503,15 @@ export default function StudioBookings() {
                   </div>
                 </div>
 
+                {b.status === "confirmed" && (
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-3 pt-3 border-t border-border/60 text-xs text-muted-foreground">
+                    <span>Total <strong className="text-foreground">₱{b.totalPrice.toLocaleString()}</strong></span>
+                    <span>Paid <strong className="text-emerald-600">₱{b.amountPaid.toLocaleString()}</strong></span>
+                    <span>Remaining <strong className={b.remainingBalance > 0 ? "text-amber-600" : "text-foreground"}>₱{b.remainingBalance.toLocaleString()}</strong></span>
+                    <span className="capitalize">Payment <strong className="text-foreground">{(b.paymentStatus ?? "pending").replace("_", " ")}</strong></span>
+                  </div>
+                )}
+
                 {/* Only surface what needs the owner's attention below the row */}
                 {b.hasActiveCancellationRequest && (
                   <div className="flex items-center justify-between gap-3 p-3 mt-3 rounded-lg bg-destructive/10 border border-destructive/20">
@@ -454,30 +533,61 @@ export default function StudioBookings() {
                 {b.status === "confirmed" && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
                   <div className="flex items-center justify-between gap-3 p-2.5 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-900 dark:text-amber-400">Client submitted a GCash reference — needs review.</p>
-                    <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => navigate("/studio/earnings")}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setReviewingPaymentFor(b)}>
                       Review Payment
                     </Button>
                   </div>
                 )}
 
+                {b.status === "confirmed" && !b.hasActiveCancellationRequest && b.remainingBalance > 0 &&
+                  b.paymentStatus !== "pending_verification" && b.paymentStatus !== "fully_paid" && b.paymentStatus !== "partially_paid" && (
+                  <div className="flex items-center gap-2 p-2.5 mt-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <DollarSign className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <p className="text-xs text-blue-900 dark:text-blue-400">Awaiting client's deposit payment — nothing paid yet.</p>
+                  </div>
+                )}
+
                 {showTracker && (
                   <div className="space-y-3 mt-3 pt-3 border-t border-border/60">
-                    <BookingTracker currentStage={displayStage} />
-                    <div className="flex items-center justify-end gap-2 flex-wrap">
-                      {b.remainingBalance > 0 && b.paymentPlan === "half" && b.paymentStatus !== "fully_paid" && (
-                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
-                          <DollarSign className="w-3.5 h-3.5" /> Record Payment
-                        </Button>
-                      )}
-                      <select
-                        value={displayStage}
-                        onChange={(e) => setPendingTrackerChange({ booking: b, stage: e.target.value as TrackingStage })}
-                        className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:ring-1 ring-primary"
-                        disabled={trackerMutation.isPending}
-                      >
-                        {trackingStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                      </select>
-                    </div>
+                    <BookingTracker currentStage={trackerStage} />
+                    {b.status === "confirmed" && (
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        {b.remainingBalance > 0 && b.paymentStatus !== "fully_paid" && (
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
+                            <DollarSign className="w-3.5 h-3.5" /> Record Payment
+                          </Button>
+                        )}
+                        {nextManualStage ? (
+                          <select
+                            value={displayStage}
+                            onChange={(e) => setPendingTrackerChange({ booking: b, stage: e.target.value as TrackingStage })}
+                            className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:ring-1 ring-primary"
+                            disabled={trackerMutation.isPending}
+                          >
+                            <option value={displayStage}>
+                              {trackingStages.find((s) => s.id === displayStage)?.label ?? displayStage}
+                            </option>
+                            <option value={nextManualStage}>
+                              {trackingStages.find((s) => s.id === nextManualStage)?.label ?? nextManualStage}
+                            </option>
+                          </select>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic px-1">
+                            {b.serviceStatus === "delivered" ? "Awaiting completion" : "Advances automatically"}
+                          </span>
+                        )}
+                        {b.serviceStatus === "delivered" && (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => handleMarkCompleted(b.id)}
+                            disabled={isMutating}
+                          >
+                            <PackageCheck className="w-3.5 h-3.5" /> Mark Service as Completed
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -606,6 +716,79 @@ export default function StudioBookings() {
                   {trackerMutation.isPending ? "Updating…" : "Confirm Update"}
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: Review Payment */}
+        {reviewingPaymentFor && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
+              <div className="flex items-start justify-between">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <Receipt className="text-primary w-5 h-5" /> Review Payment
+                </h3>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setReviewingPaymentFor(null); setPaymentActionNotes(""); }} disabled={isPaymentActionMutating}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {!paymentToReview ? (
+                <p className="text-sm text-muted-foreground">
+                  {paymentsQuery.isLoading ? "Loading payment details…" : "No pending payment found for this booking."}
+                </p>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Client</span>
+                      <span className="font-medium">{reviewingPaymentFor.clientName}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-semibold text-primary">₱{paymentToReview.amount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Reference #</span>
+                      <span className="font-medium">{paymentToReview.referenceNumber ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Payer Name</span>
+                      <span className="font-medium">{paymentToReview.payerName ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Payment Date</span>
+                      <span className="font-medium">{paymentToReview.paymentDate}</span>
+                    </div>
+                    {paymentToReview.notes && (
+                      <div className="pt-1 border-t border-border/50 mt-1">
+                        <span className="text-muted-foreground">Notes: </span>
+                        <span>{paymentToReview.notes}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Verification Notes (required to reject)</label>
+                    <textarea
+                      value={paymentActionNotes}
+                      onChange={(e) => setPaymentActionNotes(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:ring-1 focus:ring-ring resize-none"
+                      placeholder="Optional for verify, required for reject"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 justify-end pt-2">
+                    <Button variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={confirmRejectPayment} disabled={isPaymentActionMutating}>
+                      {rejectPaymentMutation.isPending ? "Rejecting…" : "Reject"}
+                    </Button>
+                    <Button onClick={confirmVerifyPayment} disabled={isPaymentActionMutating}>
+                      {verifyPaymentMutation.isPending ? "Verifying…" : "Verify Payment"}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

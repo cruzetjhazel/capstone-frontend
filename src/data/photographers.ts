@@ -20,6 +20,7 @@ export interface Review {
   rating: number;
   date: string;
   text: string;
+  reply?: string;
 }
 
 export interface BookedSlot {
@@ -319,11 +320,13 @@ export const eventTypes = [
   "Family Portrait", "Couples Shoot", "Corporate Event", "Product Shoot", "Other",
 ];
 
-/** J&T-style booking progress stages (in order). */
 export const trackingStages = [
-  { id: "event_day", label: "Event Day", description: "Photographer is covering your event" },
-  { id: "editing", label: "Editing", description: "Photos are being edited and polished" },
-  { id: "delivered", label: "Delivered", description: "Your photos are available in your gallery" },
+  { id: "confirmed_paid", label: "Confirmed & Paid", description: "Booking is confirmed and payment is settled", selectable: true },
+  { id: "upcoming", label: "Upcoming", description: "Waiting for the event date to arrive", selectable: true },
+  { id: "event_day", label: "Event Day", description: "Photographer is covering your event", selectable: true },
+  { id: "editing", label: "Editing", description: "Photos are being edited and polished", selectable: true },
+  { id: "delivered", label: "Delivered", description: "Your photos are available in your gallery", selectable: true },
+  { id: "completed", label: "Completed", description: "This booking is concluded", selectable: false },
 ] as const;
 export type TrackingStage = typeof trackingStages[number]["id"];
 

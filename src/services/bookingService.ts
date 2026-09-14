@@ -37,6 +37,8 @@ type RawBooking = {
   cancellation_decision: "approved" | "rejected" | null;
   remaining_balance: number;
   created_at: string;
+  service_status: "event_day" | "editing" | "delivered" | null;
+  has_reviewed: boolean;
 };
 
 // Pass through unchanged — confirmed against BookingResource.php / BookingStatus enum
@@ -91,8 +93,8 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     status: mapStatus(raw.status),
     paymentStatus: raw.payment_status,
     createdAt: raw.created_at,
-    serviceStatus: "not_started",
-    hasReviewed: false,
+    serviceStatus: raw.service_status,
+    hasReviewed: raw.has_reviewed,
     // Extra fields ClientBookingDetails.tsx reads via (booking as any):
     packageType: raw.is_custom_package ? "custom" : "standard",
     customBuild: raw.is_custom_package
@@ -300,6 +302,32 @@ export const bookingService = {
       "POST",
       { reason }
     );
+    return toBookingRecord(raw);
+  },
+
+  reschedule: async (bookingId: string, eventDate: string, startTime: string, reason: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(
+      `/client/bookings/${bookingId}/reschedule`,
+      "POST",
+      { event_date: eventDate, start_time: startTime, reason }
+    );
+    return toBookingRecord(raw);
+  },
+
+  requestModification: async (bookingId: string, type: string, reason: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(
+      `/client/bookings/${bookingId}/request-modification`,
+      "POST",
+      { type, reason }
+    );
+    return toBookingRecord(raw);
+  },
+
+  modify: async (
+    bookingId: string,
+    payload: Partial<{ location_type: string; event_address: string; guest_count: number; special_requests: string }>
+  ): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}`, "PATCH", payload);
     return toBookingRecord(raw);
   },
 

@@ -38,6 +38,18 @@ type RawStudioBooking = {
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;
   cancellation_decided_at: string | null;
+  reschedule_request: {
+    requested_event_date: string | null;
+    requested_start_time: string | null;
+    requested_at: string;
+    decision: "approved" | "rejected" | null;
+    decided_at: string | null;
+  } | null;
+  modification_request: {
+    type: string;
+    reason: string;
+    requested_at: string;
+  } | null;
   payment_plan: "half" | "full" | null;
   payment_status: PhotographerPaymentStatus | null;
   remaining_balance: number;
@@ -70,6 +82,9 @@ export interface StudioBookingRecord {
   rejectionReason: string | null;
   cancellationReason: string | null;
   hasActiveCancellationRequest: boolean;
+  hasPendingRescheduleRequest: boolean;
+  pendingReschedule: { eventDate: string; startTime: string } | null;
+  pendingModification: { type: string; reason: string } | null;
   paymentPlan: "half" | "full" | null;
   paymentStatus: PhotographerPaymentStatus | null;
   remainingBalance: number;
@@ -107,6 +122,16 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
     rejectionReason: raw.rejection_reason,
     cancellationReason: raw.cancellation_reason,
     hasActiveCancellationRequest: !!raw.cancellation_requested_at && !raw.cancellation_decision,
+    hasPendingRescheduleRequest: !!raw.reschedule_request && !raw.reschedule_request.decision,
+    pendingReschedule: raw.reschedule_request && !raw.reschedule_request.decision
+      ? {
+          eventDate: raw.reschedule_request.requested_event_date ?? "",
+          startTime: raw.reschedule_request.requested_start_time ?? "",
+        }
+      : null,
+    pendingModification: raw.modification_request
+      ? { type: raw.modification_request.type, reason: raw.modification_request.reason }
+      : null,
     paymentPlan: raw.payment_plan,
     paymentStatus: raw.payment_status,
     remainingBalance,
@@ -159,10 +184,29 @@ export const photographerBookingService = {
     return toStudioBooking(res.data.data);
   },
 
+  approveReschedule: async (id: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/reschedule/approve`);
+    return toStudioBooking(res.data.data);
+  },
+
+  rejectReschedule: async (id: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/reschedule/reject`);
+    return toStudioBooking(res.data.data);
+  },
+
   // NOTE: `status` must match the real ServiceTrackerStatus enum cases —
-  // unconfirmed, currently sourced from the frontend's local trackingStages ids.
+  // // unconfirmed, currently sourced from the frontend's local trackingStages ids.
   updateServiceTracker: async (id: string, status: string): Promise<StudioBookingRecord> => {
     const res = await api.patch(`/photographer/bookings/${id}/service-tracker`, { service_status: status });
+    return toStudioBooking(res.data.data);
+  },
+
+  // Explicit completion step: Confirmed -> Completed, only valid once
+  // serviceStatus === "delivered". Backed by MarkServiceCompletedAction /
+  // POST /photographer/bookings/{id}/complete — separate from the service
+  // tracker on purpose (BookingStatus and ServiceTrackerStatus stay distinct).
+  markCompleted: async (id: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/complete`);
     return toStudioBooking(res.data.data);
   },
 

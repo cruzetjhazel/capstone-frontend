@@ -6,7 +6,10 @@ export const photographerApi = {
     api.get<PaginatedResponse<Photographer> | Photographer[]>("/photographers", { params }),
 
   getById: (id: string) =>
-    api.get<Photographer>(`/photographers/${id}`),
+    api.get<Photographer>(`/photographers/${id}`, { params: { include: "reviews" } }),
+
+  getReviews: (id: string) =>
+    api.get(`/photographers/${id}/reviews`),
 
   featured: () =>
     api.get<Photographer[]>("/photographers/featured"),

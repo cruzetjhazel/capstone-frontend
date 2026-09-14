@@ -48,3 +48,27 @@ export function useRequestBookingCancellation() {
     },
   });
 }
+
+export function useRequestBookingReschedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, eventDate, startTime, reason }: { id: string; eventDate: string; startTime: string; reason: string }) =>
+      bookingService.reschedule(id, eventDate, startTime, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+}
+
+export function useRequestBookingModification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, type, reason }: { id: string; type: string; reason: string }) =>
+      bookingService.requestModification(id, type, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+}

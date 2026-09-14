@@ -379,12 +379,12 @@ export default function Profile() {
       {/* Change Password Modal */}
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 p-6 space-y-4">
-            <div className="flex items-center gap-2 text-primary">
+          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-2 text-primary p-6 pb-4 shrink-0">
               <Key className="w-5 h-5" />
               <h3 className="text-base font-heading font-bold">Change Password</h3>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 px-6 overflow-y-auto">
               <div className="space-y-1">
                 <Label className="text-xs">Current Password</Label>
                 <Input type="password" value={passwordData.current} onChange={(e) => setPasswordData({ ...passwordData, current: e.target.value })} />
@@ -398,7 +398,7 @@ export default function Profile() {
                 <Input type="password" value={passwordData.confirm} onChange={(e) => setPasswordData({ ...passwordData, confirm: e.target.value })} />
               </div>
             </div>
-            <div className="flex gap-2 justify-end pt-2">
+            <div className="flex gap-2 justify-end p-6 pt-4 shrink-0">
               <Button variant="outline" size="sm" disabled={isChangingPassword} onClick={() => {
                 setShowPasswordModal(false); setPasswordData({ current: "", new: "", confirm: "" });
               }}>Cancel</Button>
@@ -413,30 +413,32 @@ export default function Profile() {
       {/* Safeguard Modal: Active Commitments Block */}
       {showBlockedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/50 p-6">
-            <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mb-4">
-              <AlertTriangle className="w-5 h-5" />
+          <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/50 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="p-6 pb-0 overflow-y-auto">
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h3 className="font-heading font-bold text-lg mb-2">You can't deactivate your account right now</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                You still have active commitments linked to your account:
+              </p>
+              <ul className="text-sm space-y-2 mb-6 bg-muted/40 p-3 rounded-lg border border-border/50">
+                {upcomingBookings > 0 && (
+                  <li className="flex items-center text-foreground font-medium">
+                    • {upcomingBookings} upcoming booking{upcomingBookings > 1 ? "s" : ""}
+                  </li>
+                )}
+                {pendingPayments > 0 && (
+                  <li className="flex items-center text-foreground font-medium">
+                    • {pendingPayments} pending payment{pendingPayments > 1 ? "s" : ""}
+                  </li>
+                )}
+              </ul>
+              <p className="text-xs text-muted-foreground mb-6">
+                Please complete or cancel these commitments before deactivating your account.
+              </p>
             </div>
-            <h3 className="font-heading font-bold text-lg mb-2">You can't deactivate your account right now</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              You still have active commitments linked to your account:
-            </p>
-            <ul className="text-sm space-y-2 mb-6 bg-muted/40 p-3 rounded-lg border border-border/50">
-              {upcomingBookings > 0 && (
-                <li className="flex items-center text-foreground font-medium">
-                  • {upcomingBookings} upcoming booking{upcomingBookings > 1 ? "s" : ""}
-                </li>
-              )}
-              {pendingPayments > 0 && (
-                <li className="flex items-center text-foreground font-medium">
-                  • {pendingPayments} pending payment{pendingPayments > 1 ? "s" : ""}
-                </li>
-              )}
-            </ul>
-            <p className="text-xs text-muted-foreground mb-6">
-              Please complete or cancel these commitments before deactivating your account.
-            </p>
-            <div className="flex justify-end">
+            <div className="flex justify-end p-6 pt-4 shrink-0 border-t border-border/50">
               <Button size="sm" onClick={() => setShowBlockedModal(false)}>Got it</Button>
             </div>
           </div>
@@ -446,34 +448,36 @@ export default function Profile() {
       {/* Deactivation Confirmation Modal */}
       {showDeactivateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-destructive/30 p-6 space-y-4">
-            <div className="flex items-center gap-3 text-destructive">
+          <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-destructive/30 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-3 text-destructive p-6 pb-4 shrink-0">
               <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <h3 className="text-base font-heading font-bold">Deactivate Account</h3>
             </div>
 
-            <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
-              <li>Your profile will be hidden.</li>
-              <li>You won't receive new bookings.</li>
-              <li>Your booking history and payments will be preserved.</li>
-              <li>You can reactivate your account by contacting support or logging in again.</li>
-            </ul>
+            <div className="space-y-4 px-6 overflow-y-auto">
+              <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
+                <li>Your profile will be hidden.</li>
+                <li>You won't receive new bookings.</li>
+                <li>Your booking history and payments will be preserved.</li>
+                <li>You can reactivate your account by contacting support or logging in again.</li>
+              </ul>
 
-            <div className="space-y-2">
-              <Label className="text-xs">
-                To proceed, type <strong className="text-foreground">DEACTIVATE</strong> below:
-              </Label>
-              <Input
-                value={deactivateConfirmWord}
-                onChange={(e) => setDeactivateConfirmWord(e.target.value)}
-                placeholder="DEACTIVATE"
-                className="border-destructive/40 focus-visible:ring-destructive text-sm font-medium"
-              />
+              <div className="space-y-2">
+                <Label className="text-xs">
+                  To proceed, type <strong className="text-foreground">DEACTIVATE</strong> below:
+                </Label>
+                <Input
+                  value={deactivateConfirmWord}
+                  onChange={(e) => setDeactivateConfirmWord(e.target.value)}
+                  placeholder="DEACTIVATE"
+                  className="border-destructive/40 focus-visible:ring-destructive text-sm font-medium"
+                />
+              </div>
             </div>
 
-            <div className="flex gap-2 justify-end pt-2">
+            <div className="flex gap-2 justify-end p-6 pt-4 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -498,17 +502,19 @@ export default function Profile() {
       {/* Success Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 p-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-6 h-6" />
+          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 max-h-[85vh] flex flex-col overflow-hidden text-center">
+            <div className="p-6 overflow-y-auto">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <h3 className="font-heading font-bold text-xl mb-2">Account Deactivated</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Your account has been successfully deactivated. Your information has been safely preserved. Thank you for using SnapBook.
+              </p>
+              <Button size="sm" className="w-full" onClick={handleFinalizeLogout}>
+                Continue
+              </Button>
             </div>
-            <h3 className="font-heading font-bold text-xl mb-2">Account Deactivated</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Your account has been successfully deactivated. Your information has been safely preserved. Thank you for using SnapBook.
-            </p>
-            <Button size="sm" className="w-full" onClick={handleFinalizeLogout}>
-              Continue
-            </Button>
           </div>
         </div>
       )}

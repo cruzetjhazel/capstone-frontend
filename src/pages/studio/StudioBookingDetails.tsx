@@ -3,11 +3,22 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { BookingTracker } from "@/components/BookingTracker";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
+
+// Mirrors backend UpdateServiceTrackerStatusAction::ALLOWED_TRANSITIONS.
+// The manual tracker can only move one step forward, and only from these
+// two stages — Upcoming, Event Day, and Completed are all system/action
+// driven (BookingObserver, RunServiceProgressTransitionsAction,
+// MarkServiceCompletedAction respectively) and are never manually settable.
+const MANUAL_TRACKER_TRANSITIONS: Partial<Record<TrackingStage, TrackingStage>> = {
+  upcoming: "event_day",
+  event_day: "editing",
+  editing: "delivered",
+};
 import {
   ArrowLeft, Calendar, User, Package, Mail,
   FileText, AlertTriangle, Loader2, Phone,
   Wand2, Check, Camera, MapPin, Users,
-  CreditCard, X, DollarSign, AlertCircle
+  CreditCard, X, DollarSign, AlertCircle, PackageCheck
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
@@ -20,9 +31,13 @@ import {
   useRejectBooking,
   useApproveCancellation,
   useRejectCancellation,
+  useApproveReschedule,
+  useRejectReschedule,
   useUpdateServiceTracker,
+  useMarkServiceCompleted,
   useRecordOnsitePayment,
 } from "@/hooks/usePhotographerBookings";
+import { usePayments, useVerifyPayment, useRejectPayment } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 import { useState } from "react";
 
@@ -46,16 +61,62 @@ export default function StudioBookingDetail() {
   const rejectMutation = useRejectBooking();
   const approveCancelMutation = useApproveCancellation();
   const rejectCancelMutation = useRejectCancellation();
+  const approveRescheduleMutation = useApproveReschedule();
+  const rejectRescheduleMutation = useRejectReschedule();
   const trackerMutation = useUpdateServiceTracker();
+  const completeMutation = useMarkServiceCompleted();
   const onsitePaymentMutation = useRecordOnsitePayment();
 
-  const [activeModal, setActiveModal] = useState<"accept" | "reject" | "record_onsite" | "approve_cancel" | "reject_cancel" | null>(null);
+  const [activeModal, setActiveModal] = useState<"accept" | "reject" | "record_onsite" | "approve_cancel" | "reject_cancel" | "approve_reschedule" | "reject_reschedule" | "review_payment" | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [onsitePaymentInput, setOnsitePaymentInput] = useState<number>(0);
   const [pendingTrackerStage, setPendingTrackerStage] = useState<TrackingStage | null>(null);
+  const [paymentActionNotes, setPaymentActionNotes] = useState("");
 
-  const isMutating = acceptMutation.isPending || rejectMutation.isPending || approveCancelMutation.isPending || rejectCancelMutation.isPending || onsitePaymentMutation.isPending || trackerMutation.isPending;
+  const paymentsQuery = usePayments();
+  const verifyPaymentMutation = useVerifyPayment();
+  const rejectPaymentMutation = useRejectPayment();
 
+  const isMutating = acceptMutation.isPending || rejectMutation.isPending || approveCancelMutation.isPending || rejectCancelMutation.isPending || approveRescheduleMutation.isPending || rejectRescheduleMutation.isPending || onsitePaymentMutation.isPending || trackerMutation.isPending || completeMutation.isPending;
+  const isPaymentActionMutating = verifyPaymentMutation.isPending || rejectPaymentMutation.isPending;
+
+  const paymentToReview = booking
+    ? (paymentsQuery.data ?? []).find(
+        (p) =>
+          p.bookingId === booking.id &&
+          p.matchingStatus !== "matched" &&
+          p.matchingStatus !== "manually_verified" &&
+          p.matchingStatus !== "rejected"
+      )
+    : undefined;
+
+  const handleConfirmVerifyPayment = async () => {
+    if (!paymentToReview) return;
+    try {
+      await verifyPaymentMutation.mutateAsync({ paymentId: paymentToReview.id, notes: paymentActionNotes || undefined });
+      toast({ title: "Payment verified", description: "The booking is now marked as paid." });
+      setActiveModal(null);
+      setPaymentActionNotes("");
+    } catch (error) {
+      toast({ title: "Something went wrong", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" as never });
+    }
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!paymentToReview || !paymentActionNotes.trim()) {
+      toast({ title: "Notes required", description: "Please explain why this payment is being rejected.", variant: "destructive" as never });
+      return;
+    }
+    try {
+      await rejectPaymentMutation.mutateAsync({ paymentId: paymentToReview.id, notes: paymentActionNotes });
+      toast({ title: "Payment rejected", description: "The client has been asked to resubmit." });
+      setActiveModal(null);
+      setPaymentActionNotes("");
+    } catch (error) {
+      toast({ title: "Something went wrong", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" as never });
+    }
+  };
+  
   if (roleLoading || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -139,6 +200,15 @@ export default function StudioBookingDetail() {
     setPendingTrackerStage(null);
   };
 
+  const handleMarkCompleted = async () => {
+    try {
+      await completeMutation.mutateAsync(booking.id);
+      toast({ title: "Booking completed", description: "The client can now leave a review." });
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
+
   const handleCancellationDecision = async (approve: boolean) => {
     try {
       if (approve) {
@@ -154,7 +224,32 @@ export default function StudioBookingDetail() {
     }
   };
 
+  const handleRescheduleDecision = async (approve: boolean) => {
+    try {
+      if (approve) {
+        await approveRescheduleMutation.mutateAsync(booking.id);
+        toast({ title: "Reschedule approved", description: "The booking has been updated to the new date and time." });
+      } else {
+        await rejectRescheduleMutation.mutateAsync(booking.id);
+        toast({ title: "Reschedule request rejected", description: "The booking keeps its original date and time." });
+      }
+      setActiveModal(null);
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
+
+  // "Confirmed & Paid" (trackingStages[0]) should only show as active once
+  // // payment is actually settled — the payment banners above already cover
+  // the unpaid case; the tracker stays untouched (nothing active) until then.
+  const isPaymentSatisfied = booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid";
   const displayStage = (booking.serviceStatus ?? trackingStages[0].id) as TrackingStage;
+  const trackerStage = (booking.serviceStatus ?? (isPaymentSatisfied ? trackingStages[0].id : undefined)) as TrackingStage | undefined;
+  // The only stage a studio user can manually advance to from here, if any —
+  // keeps the dropdown from offering transitions the backend will reject.
+  const nextManualStage = booking.serviceStatus
+    ? MANUAL_TRACKER_TRANSITIONS[booking.serviceStatus as TrackingStage]
+    : undefined;
 
   return (
     <DashboardLayout>
@@ -193,6 +288,7 @@ export default function StudioBookingDetail() {
               <span className="text-muted-foreground block mb-0.5">Booking Status</span>
               <span className={`font-bold capitalize inline-flex items-center gap-1 ${
                 booking.status === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' :
+                booking.status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' :
                 booking.status === 'pending' ? 'text-amber-600 dark:text-amber-400' :
                 booking.status === 'cancelled' ? 'text-destructive' :
                 booking.status === 'expired' ? 'text-muted-foreground' : 'text-blue-600'
@@ -231,6 +327,39 @@ export default function StudioBookingDetail() {
               <div className="flex gap-2 shrink-0 self-end sm:self-center">
                 <Button size="sm" variant="outline" onClick={() => setActiveModal("reject_cancel")}>Keep Booking</Button>
                 <Button size="sm" variant="destructive" onClick={() => setActiveModal("approve_cancel")}>Approve Cancellation</Button>
+              </div>
+            </div>
+          )}
+
+          {booking.hasPendingRescheduleRequest && booking.pendingReschedule && (
+            <div className="bg-blue-500/10 p-5 rounded-xl border border-blue-500/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Calendar className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">Client Requested Reschedule</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    New date/time requested: <strong>{booking.pendingReschedule.eventDate} at {booking.pendingReschedule.startTime}</strong>
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0 self-end sm:self-center">
+                <Button size="sm" variant="outline" onClick={() => setActiveModal("reject_reschedule")}>Keep Original</Button>
+                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setActiveModal("approve_reschedule")}>Approve Reschedule</Button>
+              </div>
+            </div>
+          )}
+
+          {booking.pendingModification && (
+            <div className="bg-amber-500/10 p-5 rounded-xl border border-amber-500/30 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+                  Client Requested a Modification ({booking.pendingModification.type})
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">"{booking.pendingModification.reason}"</p>
+                <p className="text-[11px] text-amber-800/70 dark:text-amber-400/70 mt-1 italic">
+                  For your awareness only — coordinate details directly with the client. There's no approve/reject action for modifications.
+                </p>
               </div>
             </div>
           )}
@@ -275,11 +404,19 @@ export default function StudioBookingDetail() {
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>Client submitted a GCash reference — needs your review before this booking can confirm.</span>
               </div>
-              <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0" onClick={() => navigate("/studio/earnings")}>
+              <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0" onClick={() => setActiveModal("review_payment")}>
                 Review Payment
               </Button>
             </div>
           )}
+
+            {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && booking.remainingBalance > 0 &&
+              booking.paymentStatus !== "pending_verification" && booking.paymentStatus !== "fully_paid" && booking.paymentStatus !== "partially_paid" && (
+              <div className="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 flex items-center gap-3 text-blue-800 dark:text-blue-300 text-sm">
+                <DollarSign className="w-5 h-5 text-blue-600 shrink-0" />
+                <span>Confirmed, but the client hasn't paid their deposit yet.</span>
+              </div>
+            )}
 
           {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && (
             <div className="bg-emerald-500/10 p-5 rounded-xl border border-emerald-500/20 space-y-4">
@@ -300,19 +437,57 @@ export default function StudioBookingDetail() {
               <div className="space-y-3 pt-1">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-emerald-800/80 dark:text-emerald-400/80 uppercase tracking-wider">Update Service Tracker Stage</span>
-                  <select
-                    value={displayStage}
-                    onChange={(e) => setPendingTrackerStage(e.target.value as TrackingStage)}
-                    className="h-8 rounded-md border border-emerald-500/30 bg-background px-3 text-xs font-medium focus:ring-1 ring-primary cursor-pointer shadow-sm"
-                    disabled={trackerMutation.isPending}
-                  >
-                    {trackingStages.map((s) => (
-                      <option key={s.id} value={s.id}>{s.label}</option>
-                    ))}
-                  </select>
+                  {nextManualStage ? (
+                    <select
+                      value={displayStage}
+                      onChange={(e) => setPendingTrackerStage(e.target.value as TrackingStage)}
+                      className="h-8 rounded-md border border-emerald-500/30 bg-background px-3 text-xs font-medium focus:ring-1 ring-primary cursor-pointer shadow-sm"
+                      disabled={trackerMutation.isPending}
+                    >
+                      <option value={displayStage}>
+                        {trackingStages.find((s) => s.id === displayStage)?.label ?? displayStage}
+                      </option>
+                      <option value={nextManualStage}>
+                        {trackingStages.find((s) => s.id === nextManualStage)?.label ?? nextManualStage}
+                      </option>
+                    </select>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">
+                      {booking.serviceStatus === "delivered" ? "Awaiting completion" : "Advances automatically"}
+                    </span>
+                  )}
                 </div>
-                <BookingTracker currentStage={displayStage} />
+                <BookingTracker currentStage={trackerStage} />
               </div>
+
+              {booking.serviceStatus === "delivered" && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
+                  <p className="text-xs text-emerald-800/80 dark:text-emerald-400/80">
+                    Photos delivered. Conclude this booking once everything is squared away.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                    onClick={handleMarkCompleted}
+                    disabled={isMutating}
+                  >
+                    <PackageCheck className="w-3.5 h-3.5" />
+                    {completeMutation.isPending ? "Completing…" : "Mark Service as Completed"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {booking.status === "completed" && (
+            <div className="bg-emerald-500/10 p-5 rounded-xl border border-emerald-500/20 space-y-4">
+              <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-400 font-semibold text-sm border-b border-emerald-500/20 pb-3">
+                <PackageCheck className="w-5 h-5" /> Booking Completed
+              </div>
+              <BookingTracker currentStage={trackerStage} />
+              <p className="text-xs text-emerald-800/70 dark:text-emerald-400/70">
+                This booking is concluded. The client has been able to leave a review since it was marked Completed.
+              </p>
             </div>
           )}
 
@@ -608,6 +783,50 @@ export default function StudioBookingDetail() {
         </div>
       )}
 
+      {/* MODAL: Reschedule decision */}
+      {(activeModal === "approve_reschedule" || activeModal === "reject_reschedule") && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-card border border-border/60 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0", activeModal === "approve_reschedule" ? "bg-blue-500/10" : "bg-muted")}>
+                  <Calendar className={cn("w-5 h-5", activeModal === "approve_reschedule" ? "text-blue-600" : "text-muted-foreground")} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">{activeModal === "approve_reschedule" ? "Approve Reschedule?" : "Keep Original Date?"}</h3>
+                  {booking.pendingReschedule && (
+                    <p className="text-xs text-muted-foreground">
+                      Requested: {booking.pendingReschedule.eventDate} at {booking.pendingReschedule.startTime}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveModal(null)} disabled={isMutating}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {activeModal === "approve_reschedule"
+                ? "This will move the booking to the client's requested date and time, if that slot is still available. The client will be notified."
+                : "This will reject the reschedule request and keep the booking on its original date and time. The client will be notified."}
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setActiveModal(null)} disabled={isMutating}>Back</Button>
+              <Button
+                className={activeModal === "approve_reschedule" ? "bg-blue-600 hover:bg-blue-700 text-white" : undefined}
+                variant={activeModal === "approve_reschedule" ? undefined : "default"}
+                onClick={() => handleRescheduleDecision(activeModal === "approve_reschedule")}
+                disabled={isMutating}
+              >
+                {isMutating ? "Processing…" : activeModal === "approve_reschedule" ? "Approve Reschedule" : "Keep Original"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Record Onsite Payment */}
       {activeModal === "record_onsite" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-4">
@@ -650,6 +869,74 @@ export default function StudioBookingDetail() {
               <Button variant="outline" onClick={() => setActiveModal(null)} disabled={isMutating}>Cancel</Button>
               <Button className="bg-primary text-primary-foreground" onClick={handleConfirmOnsitePayment} disabled={isMutating}>
                 {isMutating ? "Saving…" : "Record Payment"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Review Payment */}
+      {activeModal === "review_payment" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-card border border-border/60 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">Review Payment</h3>
+                  <p className="text-xs text-muted-foreground">Verify or reject this client's submitted payment.</p>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setActiveModal(null); setPaymentActionNotes(""); }} disabled={isPaymentActionMutating}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {!paymentToReview ? (
+              <p className="text-sm text-muted-foreground">
+                {paymentsQuery.isLoading ? "Loading payment details…" : "No pending payment found for this booking."}
+              </p>
+            ) : (
+              <>
+                <div className="p-3 bg-muted/30 rounded-lg text-xs space-y-1.5 border border-border/40">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Amount:</span>
+                    <span className="font-bold text-primary">₱{paymentToReview.amount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Reference #:</span>
+                    <span className="font-semibold">{paymentToReview.referenceNumber ?? "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Payer Name:</span>
+                    <span className="font-semibold">{paymentToReview.payerName ?? "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Payment Date:</span>
+                    <span className="font-semibold">{paymentToReview.paymentDate}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">Verification Notes (required to reject)</label>
+                  <textarea
+                    value={paymentActionNotes}
+                    onChange={(e) => setPaymentActionNotes(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={handleConfirmRejectPayment} disabled={isPaymentActionMutating || !paymentToReview}>
+                {rejectPaymentMutation.isPending ? "Rejecting…" : "Reject"}
+              </Button>
+              <Button className="bg-primary text-primary-foreground" onClick={handleConfirmVerifyPayment} disabled={isPaymentActionMutating || !paymentToReview}>
+                {verifyPaymentMutation.isPending ? "Verifying…" : "Verify Payment"}
               </Button>
             </div>
           </div>

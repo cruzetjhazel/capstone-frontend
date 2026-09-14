@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { ProfileOverlay } from "@/components/ProfileOverlay";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -54,7 +53,6 @@ function ClientMenuLink({
 export default function MarketingNavbar({ solid = false }: Props) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(solid);
-  const [profileOverlayOpen, setProfileOverlayOpen] = useState(false);
   const { user, logout } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -165,16 +163,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
 
                 {isClient ? (
                   <>
-                    {/* My Profile opens the overlay directly — highlighted while it's open,
-                        since it has no route of its own to match against. */}
-                    <DropdownMenuItem
-                      onClick={() => setProfileOverlayOpen(true)}
-                      className={cn(profileOverlayOpen && "bg-primary/10 text-primary focus:bg-primary/15 focus:text-primary")}
-                    >
-                      <User className={cn("w-4 h-4 mr-2", profileOverlayOpen && "text-primary")} /> My Profile
-                      {profileOverlayOpen && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                    </DropdownMenuItem>
-
+                    <ClientMenuLink to="/profile" icon={User} label="My Profile" active={isActivePath("/profile")} />
                     <ClientMenuLink to="/bookings" icon={Calendar} label="My Bookings" active={isActivePath("/bookings")} />
                     <ClientMenuLink to="/favorites" icon={Heart} label="Favorites" active={isActivePath("/favorites")} />
                     <ClientMenuLink to="/reviews" icon={Star} label="My Reviews" active={isActivePath("/reviews")} />
@@ -257,9 +246,14 @@ export default function MarketingNavbar({ solid = false }: Props) {
                       <Link to="/notifications" onClick={() => setOpen(false)}>
                         <Button variant="outline" className="w-full"><Bell className="w-4 h-4 mr-2" />Notifications</Button>
                       </Link>
-                      <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setProfileOverlayOpen(true); }}>
-                        <User className="w-4 h-4 mr-2" />My Profile
-                      </Button>
+                      <Link to="/profile" onClick={() => setOpen(false)}>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full", isActivePath("/profile") && "bg-primary/10 text-primary border-primary/30")}
+                        >
+                          <User className="w-4 h-4 mr-2" />My Profile
+                        </Button>
+                      </Link>
                       <Link to="/bookings" onClick={() => setOpen(false)}>
                         <Button
                           variant="outline"
@@ -326,9 +320,6 @@ export default function MarketingNavbar({ solid = false }: Props) {
         </div>
       )}
 
-      {isClient && (
-        <ProfileOverlay open={profileOverlayOpen} onClose={() => setProfileOverlayOpen(false)} />
-      )}
     </header>
   );
 }

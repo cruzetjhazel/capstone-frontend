@@ -85,7 +85,7 @@ export default function BookingPay() {
   // A payment can only be submitted once the photographer has accepted the
   // booking and no payment is already in progress or settled (mirrors
   // SubmitPaymentAction's own checks — this is a UX gate, not the real guard).
-  const canPay = paymentInfo.booking_status === "accepted" && paymentInfo.payment_status === "pending";
+  const canPay = paymentInfo.booking_status === "confirmed" && paymentInfo.payment_status === "pending";
 
   if (!canPay) {
     const reason =

@@ -47,11 +47,23 @@ export function useRejectCancellation() {
   return useBookingMutation((id: string) => photographerBookingService.rejectCancellation(id), (id) => id);
 }
 
+export function useApproveReschedule() {
+  return useBookingMutation((id: string) => photographerBookingService.approveReschedule(id), (id) => id);
+}
+
+export function useRejectReschedule() {
+  return useBookingMutation((id: string) => photographerBookingService.rejectReschedule(id), (id) => id);
+}
+
 export function useUpdateServiceTracker() {
   return useBookingMutation(
     ({ id, status }: { id: string; status: string }) => photographerBookingService.updateServiceTracker(id, status),
     ({ id }) => id
   );
+}
+
+export function useMarkServiceCompleted() {
+  return useBookingMutation((id: string) => photographerBookingService.markCompleted(id), (id) => id);
 }
 
 export function useRecordOnsitePayment() {

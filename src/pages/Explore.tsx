@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown } from "lucide-react";
+import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import MarketingNavbar from "@/components/MarketingNavbar";
@@ -39,6 +39,7 @@ export default function Explore() {
   const activeService = searchParams.get("service") || "All";
   const urlDate = searchParams.get("date") || "";
   const urlLocation = searchParams.get("location") || "";
+  const urlName = searchParams.get("name") || "";
   const activeType = searchParams.get("type") || "All";
   const activePriceIdx = Number(searchParams.get("price") || 0);
   const activeRatingIdx = Number(searchParams.get("rating") || 0);
@@ -75,12 +76,19 @@ export default function Explore() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
   // 3. SMART FILTERING: Handles fuzzy matching so the SearchBar never breaks
   const filtered = useMemo(() => {
     const pf = priceFilters[activePriceIdx];
     const rf = ratingFilters[activeRatingIdx];
     
     const results = allPhotographers.filter((s) => {
+      // Photographer Name Match
+      if (urlName) {
+        const q = urlName.toLowerCase().trim();
+        if (!s.name.toLowerCase().includes(q)) return false;
+      }
+
       // Smart Service/Name Match (Case insensitive, partial match against services or the provider's own name)
       if (activeService !== "All") {
         const q = activeService.toLowerCase();
@@ -92,8 +100,7 @@ export default function Explore() {
       // Exact Type Match
       if (activeType !== "All" && s.type !== activeType) return false;
       
-      // Budget: strict containment on priceMin (the same field price sorting uses),
-      // so anything that passes this filter is guaranteed to fall inside the bracket.
+      // Budget: strict containment on priceMin
       if (pf.min > 0 || pf.max < Infinity) {
         if (s.priceMin < pf.min || s.priceMin > pf.max) return false;
       }
@@ -121,7 +128,7 @@ export default function Explore() {
       case "reviews": results.sort((a, b) => b.reviews - a.reviews); break;
     }
     return results;
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, urlDate, allPhotographers]);
+  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, urlDate, urlName, allPhotographers]);
 
   const activeFilterCount = [
     activeService !== "All",
@@ -136,12 +143,12 @@ export default function Explore() {
     params.delete("type");
     params.delete("price");
     params.delete("rating");
+    params.delete("name");
     // We intentionally don't delete date/location so the user's primary search remains
     setSearchParams(params, { replace: true });
   };
 
-  // Filters-popover-only reset: clears secondary filters (type/price/rating), leaves
-  // What/When/Where alone since those are the search bar's own criteria, not filters.
+  // Filters-popover-only reset
   const clearFilters = () => {
     const params = new URLSearchParams(searchParams);
     params.delete("type");
@@ -150,6 +157,7 @@ export default function Explore() {
     setSearchParams(params, { replace: true });
     setOpenPanel(null);
   };
+
   const ChipRow = <T extends string>({
     label,
     options,
@@ -210,11 +218,32 @@ export default function Explore() {
             initialLocation={urlLocation}
           />
 
-          <div ref={panelRef} className="relative flex flex-wrap items-center justify-center gap-2 text-sm">
+          <div ref={panelRef} className="relative flex flex-wrap items-center justify-center gap-2 text-sm w-full max-w-2xl">
+            {/* Compact Photographer Name Search Input */}
+            <div className="relative flex items-center bg-card border border-border rounded-full px-3 h-9 min-w-[200px] sm:min-w-[260px] flex-1 text-sm focus-within:border-primary/50 transition-colors shadow-2xs">
+              <Search className="w-3.5 h-3.5 text-muted-foreground mr-2 shrink-0" />
+              <input
+                type="text"
+                placeholder="Search photographer name..."
+                value={urlName}
+                onChange={(e) => setParam("name", e.target.value)}
+                className="w-full text-xs text-foreground placeholder:text-muted-foreground bg-transparent focus:outline-none"
+              />
+              {urlName && (
+                <button
+                  onClick={() => setParam("name", "")}
+                  className="p-0.5 hover:text-foreground text-muted-foreground rounded-full"
+                  aria-label="Clear photographer name search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
             <button
               onClick={() => setOpenPanel(openPanel === "filters" ? null : "filters")}
               className={cn(
-                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors",
+                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors bg-card",
                 (openPanel === "filters" || activeFilterCount > 0) && "text-foreground border-primary/50"
               )}
             >
@@ -230,7 +259,7 @@ export default function Explore() {
             <button
               onClick={() => setOpenPanel(openPanel === "sort" ? null : "sort")}
               className={cn(
-                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors",
+                "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors bg-card",
                 openPanel === "sort" && "text-foreground border-primary/50"
               )}
             >
@@ -240,7 +269,7 @@ export default function Explore() {
 
             {/* Filters popover */}
             {openPanel === "filters" && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[320px] sm:w-[420px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
+              <div className="absolute top-full right-0 sm:right-auto mt-2 w-[320px] sm:w-[420px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
                   <div>
@@ -282,7 +311,7 @@ export default function Explore() {
 
             {/* Sort popover */}
             {openPanel === "sort" && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[220px] text-left bg-card border border-border rounded-2xl p-2 animate-fade-in shadow-xl z-50">
+              <div className="absolute top-full right-0 mt-2 w-[220px] text-left bg-card border border-border rounded-2xl p-2 animate-fade-in shadow-xl z-50">
                 {sortOptions.map((opt) => (
                   <button
                     key={opt}
@@ -318,8 +347,16 @@ export default function Explore() {
         </div>
 
         {/* Active filter chips */}
-        {activeFilterCount > 0 && (
+        {(activeFilterCount > 0 || urlName) && (
           <div className="flex gap-2 flex-wrap mb-4">
+            {urlName && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                "{urlName}"
+                <button onClick={() => setParam("name", "")} aria-label="Remove name search" className="hover:bg-primary/20 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             {activeService !== "All" && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {activeService}
@@ -382,12 +419,12 @@ export default function Explore() {
             <Camera className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
             <h3 className="font-heading font-semibold mb-1 text-lg">No photographers match your current search</h3>
             <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">Try adjusting your date, budget, or provider type.</p>
-            {allPhotographers.length > 0 && activeFilterCount > 0 && (
+            {allPhotographers.length > 0 && (activeFilterCount > 0 || urlName) && (
               <p className="text-xs text-muted-foreground mb-6">
                 {allPhotographers.length} photographer{allPhotographers.length === 1 ? "" : "s"} found without these filters
               </p>
             )}
-            <Button variant="outline" onClick={activeFilterCount > 0 ? clearFilters : clearAll} className="rounded-full">Clear filters</Button>
+            <Button variant="outline" onClick={activeFilterCount > 0 || urlName ? clearAll : clearFilters} className="rounded-full">Clear filters</Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">

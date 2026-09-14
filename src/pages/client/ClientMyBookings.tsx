@@ -5,21 +5,26 @@ import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
 import { usePhotographers } from "@/hooks/usePhotographers";
+import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
+import { useToast } from "@/hooks/use-toast";
 import {
   Calendar as CalendarIcon, Clock, MapPin, ChevronRight, CalendarX, History as HistoryIcon,
   Check, Camera, Wand2, PackageCheck, CheckCircle2, XCircle, Clock3, type LucideIcon,
+  CreditCard, Star,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 
-// Client-facing Service Progress — 3 stages only, matching the backend
-// ServiceTrackerStatus enum exactly (event_day/editing/delivered), identical
-// to ClientBookingDetails.tsx's SERVICE_PROGRESS_STEPS. Booking status
-// (pending/confirmed/completed/cancelled/expired) is shown separately via
-// the badge, not as a tracker stage.
+// Client-facing Service Progress — 4 stages, identical to
+// ClientBookingDetails.tsx's SERVICE_PROGRESS_STEPS. "Confirmed & Paid" is a
+// frontend-only display stage; the rest map to the backend ServiceTrackerStatus
+// enum. Booking status is shown separately via the badge, not as a tracker stage.
 const TRACKING_STEPS: { label: string; icon: LucideIcon }[] = [
+  { label: "Confirmed & Paid", icon: CheckCircle2 },
+  { label: "Upcoming", icon: Clock },
   { label: "Event Day", icon: Camera },
   { label: "Editing", icon: Wand2 },
   { label: "Delivered", icon: PackageCheck },
+  { label: "Completed", icon: CheckCircle2 },
 ];
 
 const isToday = (dateString: string) => {
@@ -32,9 +37,12 @@ const isToday = (dateString: string) => {
 
 // Identical to ClientBookingDetails.tsx's getCurrentStepIndex — do not diverge.
 function getCurrentStepIndex(b: any) {
-  if (b.status === "completed" || b.serviceStatus === "delivered") return 2;
-  if (b.serviceStatus === "editing") return 1;
-  if (b.serviceStatus === "event_day") return 0;
+  if (b.status === "completed" || b.serviceStatus === "completed") return 5;
+  if (b.serviceStatus === "delivered") return 4;
+  if (b.serviceStatus === "editing") return 3;
+  if (b.serviceStatus === "event_day") return 2;
+  if (b.serviceStatus === "upcoming") return 1;
+  if (b.status === "confirmed" && (b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid")) return 0;
   return -1;
 }
 
@@ -87,6 +95,39 @@ function getSessionLabel(booking: any) {
 function getProviderRoleLabel(photographer?: any) {
   const type = photographer?.type ?? photographer?.role ?? photographer?.accountType;
   return typeof type === "string" && type.toLowerCase() === "studio" ? "Studio" : "Photographer";
+}
+
+function getPaymentSummary(booking: any) {
+  const total = Math.max(0, Number(booking.totalPrice ?? booking.subtotal ?? 0));
+  const remaining = booking.status === "completed" || booking.paymentStatus === "fully_paid"
+    ? 0
+    : Math.max(0, Number(booking.dueNow ?? booking.balance ?? 0));
+  return { total, paid: Math.max(0, total - remaining), remaining };
+}
+
+function PaymentSummary({ booking }: { booking: any }) {
+  const summary = getPaymentSummary(booking);
+  return (
+    <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
+      <span>Total <strong className="text-foreground">₱{summary.total.toLocaleString()}</strong></span>
+      <span>Paid <strong className="text-emerald-600">₱{summary.paid.toLocaleString()}</strong></span>
+      <span>Remaining <strong className={summary.remaining > 0 ? "text-amber-600" : "text-foreground"}>₱{summary.remaining.toLocaleString()}</strong></span>
+    </div>
+  );
+}
+
+function ClientPaymentAction({ booking, prominent = false }: { booking: any; prominent?: boolean }) {
+  const { remaining } = getPaymentSummary(booking);
+  const canPay = booking.status === "confirmed" && remaining > 0 && booking.paymentStatus !== "pending_verification";
+  if (!canPay) return null;
+  return (
+    <Link to={`/booking/${booking.id}/pay`}>
+      <Button size="sm" className={cn("gap-1.5 rounded-xl", prominent && "bg-amber-600 hover:bg-amber-700 text-white")}>
+        <CreditCard className="w-3.5 h-3.5" />
+        {booking.paymentStatus === "partially_paid" ? "Pay Remaining" : "Pay Now"}
+      </Button>
+    </Link>
+  );
 }
 
 function isImageUrl(value?: string) {
@@ -200,12 +241,20 @@ function CurrentBookingCard({ booking, photographer }: { booking: any; photograp
 
         <div className="flex sm:flex-col items-start sm:items-end gap-3 shrink-0">
           <StatusPill status={booking.status} date={booking.date} />
+          <ClientPaymentAction booking={booking} prominent />
           <Link to={`/booking/${booking.id}/details`}>
-            <Button size="sm" className="gap-1.5 rounded-xl">
+            <Button variant="outline" size="sm" className="gap-1.5 rounded-xl">
               View Details <ChevronRight className="w-3.5 h-3.5" />
             </Button>
           </Link>
         </div>
+      </div>
+
+      <div className="relative mt-5 pt-4 border-t border-primary/10 space-y-2">
+        <PaymentSummary booking={booking} />
+        {booking.paymentStatus === "pending_verification" && (
+          <p className="text-xs text-amber-700">Payment is under review.</p>
+        )}
       </div>
 
       {showTracker && (
@@ -217,7 +266,9 @@ function CurrentBookingCard({ booking, photographer }: { booking: any; photograp
   );
 }
 
-function HistoryBookingRow({ booking, photographer }: { booking: any; photographer?: any }) {
+function HistoryBookingRow({
+  booking, photographer, reviewed, onReview,
+}: { booking: any; photographer?: any; reviewed: boolean; onReview: () => void }) {
   const sessionLabel = getSessionLabel(booking);
   const roleLabel = getProviderRoleLabel(photographer);
 
@@ -238,6 +289,13 @@ function HistoryBookingRow({ booking, photographer }: { booking: any; photograph
 
       <div className="flex flex-col items-end gap-2 shrink-0">
         <StatusPill status={booking.status} date={booking.date} />
+        <PaymentSummary booking={booking} />
+        <ClientPaymentAction booking={booking} />
+        {booking.status === "completed" && !reviewed && (
+          <Button size="sm" className="gap-1.5 text-xs h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-white" onClick={onReview}>
+            <Star className="w-3.5 h-3.5" /> Review & Rate
+          </Button>
+        )}
         <Link to={`/booking/${booking.id}/details`}>
           <Button variant="outline" size="sm" className="gap-1 text-xs h-7 rounded-lg">
             View Details <ChevronRight className="w-3 h-3" />
@@ -271,7 +329,35 @@ export default function MyBookings() {
   const { user } = useRole();
   const { data: bookings = [], isLoading } = useBookings(user?.email);
   const { data: allPhotographers = [] } = usePhotographers();
+  const { data: myReviews = [] } = useMyReviews();
+  const submitReviewMutation = useSubmitReview();
+  const { toast } = useToast();
   const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [reviewFor, setReviewFor] = useState<any>(null);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState("");
+
+  const reviewedBookingIds = new Set(myReviews.map((r) => String(r.bookingId)));
+
+  const handleSubmitReview = async () => {
+    if (!reviewFor || reviewRating < 1) {
+      toast({ title: "Rating required", description: "Please select a star rating.", variant: "destructive" as never });
+      return;
+    }
+    try {
+      await submitReviewMutation.mutateAsync({
+        booking_id: Number(reviewFor.id),
+        rating: reviewRating,
+        comment: reviewComment,
+      });
+      toast({ title: "Review submitted", description: "Thanks for sharing your experience!" });
+      setReviewFor(null);
+      setReviewRating(0);
+      setReviewComment("");
+    } catch (error) {
+      toast({ title: "Something went wrong", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" as never });
+    }
+  };
 
   const safeBookings = bookings || [];
   const activeBookings = safeBookings
@@ -350,12 +436,61 @@ export default function MyBookings() {
               ) : (
                 <div className="space-y-3">
                   {filteredHistory.map((b) => (
-                    <HistoryBookingRow key={b.id} booking={b} photographer={photographerFor(b)} />
+                    <HistoryBookingRow
+                      key={b.id}
+                      booking={b}
+                      photographer={photographerFor(b)}
+                      reviewed={reviewedBookingIds.has(String(b.id))}
+                      onReview={() => setReviewFor(b)}
+                    />
                   ))}
                 </div>
               )}
             </section>
           </>
+        )}
+
+        {/* MODAL: Review & Rate */}
+        {reviewFor && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Star className="text-primary w-5 h-5" /> Review {reviewFor.photographerName}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Share how your {reviewFor.eventType} session went. This will be visible to other clients.
+              </p>
+
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" onClick={() => setReviewRating(n)} className="p-0.5" aria-label={`${n} star${n > 1 ? "s" : ""}`}>
+                    <Star className={cn("w-7 h-7 transition-colors", n <= reviewRating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30")} />
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Your review</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="What stood out about your experience?"
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:ring-1 focus:ring-ring resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <Button variant="outline" onClick={() => { setReviewFor(null); setReviewRating(0); setReviewComment(""); }} disabled={submitReviewMutation.isPending}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSubmitReview} disabled={submitReviewMutation.isPending}>
+                  {submitReviewMutation.isPending ? "Submitting…" : "Submit Review"}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </ClientLayout>

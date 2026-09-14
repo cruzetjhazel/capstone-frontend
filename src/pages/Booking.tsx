@@ -17,6 +17,7 @@ import {
 } from "@/data/photographers";
 import { usePhotographer, usePhotographers } from "@/hooks/usePhotographers";
 import { useMonthAvailability, useAvailableStartTimes } from "@/hooks/usePhotographerAvailability";
+import { useClientProfile } from "@/hooks/useClientProfile";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
@@ -57,6 +58,9 @@ export default function Booking() {
   const navigate = useNavigate();
   const { user, role } = useRole();
   const { toast } = useToast();
+  // phone_number isn't on RoleContext's User (that's just the account-level
+  // /auth/me shape) — it lives on the client profile record instead.
+  const { data: clientProfile } = useClientProfile();
 
   const { data: photographer, isLoading: loadingPhotographer } = usePhotographer(id);
   const { data: allPhotographers = [] } = usePhotographers();
@@ -106,6 +110,16 @@ export default function Booking() {
   const [contactName, setContactName] = useState(user?.name || "");
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState(user?.email || "");
+
+  // contactName/contactEmail can init synchronously from useRole()'s user,
+  // but the phone number comes from a separate query that resolves after
+  // mount — so it's filled in via effect once it arrives. Only fills an
+  // empty field, so it won't stomp on anything the client already typed.
+  useEffect(() => {
+    if (clientProfile?.phoneNumber && !contactPhone) {
+      setContactPhone(clientProfile.phoneNumber);
+    }
+  }, [clientProfile]);
 
   // Modal & Submission States
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -188,6 +202,41 @@ export default function Booking() {
     [availableStartTimes]
   );
   const isStartTimeAvailable = startTime !== "" && availableStartTimes.some((t) => t.slice(0, 5) === startTime);
+
+  // AM/PM is purely a display grouping of the SAME sortedStartTimes the
+  // server already validated against booking hours, blocked dates, existing
+  // bookings, and the selected package's duration+buffer — no availability
+  // logic changes here, just bucketing by hour.
+  const TIME_PERIODS = [
+    { key: "am" as const, label: "AM", dot: "bg-amber-500" },
+    { key: "pm" as const, label: "PM", dot: "bg-indigo-400" },
+  ];
+  type TimePeriodKey = (typeof TIME_PERIODS)[number]["key"];
+
+  const startTimesByPeriod = useMemo(() => {
+    const groups: Record<TimePeriodKey, string[]> = { am: [], pm: [] };
+    for (const t of sortedStartTimes) {
+      const hour = Number(t.slice(0, 2));
+      if (hour >= 0 && hour < 12) groups.am.push(t);
+      else groups.pm.push(t);
+    }
+    return groups;
+  }, [sortedStartTimes]);
+
+  const [activePeriod, setActivePeriod] = useState<TimePeriodKey>("am");
+
+  // Keep the active tab in sync with the date: jump to whichever period the
+  // already-picked start time falls in, or fall back to the first period
+  // that actually has open slots for this date/package.
+  useEffect(() => {
+    if (startTime && availableStartTimes.some((t) => t.slice(0, 5) === startTime)) {
+      const hour = Number(startTime.slice(0, 2));
+      setActivePeriod(hour < 12 ? "am" : "pm");
+      return;
+    }
+    if (startTimesByPeriod.am.length) setActivePeriod("am");
+    else if (startTimesByPeriod.pm.length) setActivePeriod("pm");
+  }, [dateStr, startTimesByPeriod, startTime, availableStartTimes]);
 
   const isDateUnavailable = (d: Date) => {
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -664,12 +713,13 @@ export default function Booking() {
                             <p className="text-xs text-muted-foreground mt-0.5">Now pick your event start time below.</p>
                           </div>
                         </div>
-
                         <div className="p-5 rounded-xl border border-border">
-                          <div className="flex items-center justify-between gap-2 mb-3">
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-4 h-4 text-primary" />
-                              <p className="font-medium text-sm">Start Time *</p>
+                          <div className="flex items-center justify-between gap-2 mb-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                <Clock className="w-4 h-4 text-primary" />
+                              </div>
+                              <p className="font-medium text-sm">Available Start Times</p>
                             </div>
                             {!loadingStartTimes && availableStartTimes.length > 0 && (
                               <span className="text-[11px] text-muted-foreground">{availableStartTimes.length} open</span>
@@ -686,26 +736,66 @@ export default function Booking() {
                             </p>
                           ) : (
                             <>
-                              <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-                                {sortedStartTimes.map((t) => (
-                                  <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => setStartTime(t)}
-                                    className={cn(
-                                      "shrink-0 px-3 py-2 rounded-lg border text-sm font-medium whitespace-nowrap transition-colors",
-                                      startTime === t
-                                        ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                                        : "border-primary/30 bg-primary/5 text-foreground hover:border-primary/60 hover:bg-primary/10"
-                                    )}
-                                  >
-                                    {prettyTime(t)}
-                                  </button>
-                                ))}
+                              {/* Segmented Morning / Afternoon / Evening tabs */}
+                              <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 mb-3">
+                                {TIME_PERIODS.map((period) => {
+                                  const slots = startTimesByPeriod[period.key];
+                                  const isActive = activePeriod === period.key;
+                                  return (
+                                    <button
+                                      key={period.key}
+                                      type="button"
+                                      disabled={slots.length === 0}
+                                      onClick={() => setActivePeriod(period.key)}
+                                      className={cn(
+                                        "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                                        isActive
+                                          ? "bg-card text-foreground shadow-sm"
+                                          : slots.length === 0
+                                          ? "text-muted-foreground/40 cursor-not-allowed"
+                                          : "text-muted-foreground hover:text-foreground"
+                                      )}
+                                    >
+                                      <span className={cn("w-1.5 h-1.5 rounded-full", period.dot)} />
+                                      {period.label}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                              <p className="text-[11px] text-muted-foreground mt-3">
-                                Every time shown here is open — tap one to select it. Scroll for more.
-                              </p>
+
+                              {startTimesByPeriod[activePeriod].length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-3 text-center">
+                                  No {TIME_PERIODS.find((p) => p.key === activePeriod)?.label.toLowerCase()} start times on this date.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  {startTimesByPeriod[activePeriod].map((t) => (
+                                    <button
+                                      key={t}
+                                      type="button"
+                                      onClick={() => setStartTime(t)}
+                                      className={cn(
+                                        "relative px-2 py-2.5 rounded-lg border text-sm font-medium transition-colors text-center",
+                                        startTime === t
+                                          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                          : "border-primary/30 bg-primary/5 text-foreground hover:border-primary/60 hover:bg-primary/10"
+                                      )}
+                                    >
+                                      {prettyTime(t)}
+                                      {startTime === t && (
+                                        <Check className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2" />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {startTime && (
+                                <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center gap-2">
+                                  <Check className="w-4 h-4 text-primary shrink-0" />
+                                  <p className="text-sm font-medium">Start Time: {prettyTime(startTime)}</p>
+                                </div>
+                              )}
                             </>
                           )}
                         </div>

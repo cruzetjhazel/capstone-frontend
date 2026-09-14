@@ -3,13 +3,15 @@ import { cn } from "@/lib/utils";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
 
 interface BookingTrackerProps {
-  currentStage: TrackingStage;
+  currentStage: TrackingStage | undefined;
   compact?: boolean;
 }
 
 /**
- * J&T-style horizontal progress tracker.
- * Shows all 6 stages (Booked → Confirmed → Event Day → Editing → Ready → Delivered).
+ * horizontal progress tracker.
+ * Renders whatever stages are in `trackingStages` (currently Confirmed & Paid →
+ * Event Day → Editing → Delivered). Pass `currentStage={undefined}` to show no
+ * stage as active yet (e.g. before payment is confirmed).
  */
 export function BookingTracker({ currentStage, compact = false }: BookingTrackerProps) {
   const currentIdx = trackingStages.findIndex((s) => s.id === currentStage);
