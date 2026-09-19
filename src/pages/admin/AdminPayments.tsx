@@ -3,7 +3,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import {
   DollarSign, Clock, Search, Filter,
   Eye, X, AlertTriangle, CheckCircle2,
-  CreditCard, FileText, Ban, ShieldCheck, Loader2,
+  CreditCard, FileText, Ban, ShieldCheck, Loader2, ReceiptText,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,13 @@ import toast from "react-hot-toast";
 import {
   useAdminPayments,
   useAdminForceCancelBooking,
+  useAdminRecordRefund,
 } from "@/hooks/useAdminPayments";
 import {
   getApiErrorMessage,
   type AdminPayment,
   type PaymentMatchingStatus,
+  type RefundStatus,
 } from "@/services/adminPaymentService";
 
 const MATCHING_STATUS_LABELS: Record<PaymentMatchingStatus, string> = {
@@ -40,6 +42,14 @@ const MATCHING_STATUS_STYLES: Record<PaymentMatchingStatus, { color: string; ico
 
 const NON_CANCELLABLE_BOOKING_STATUSES = ["cancelled", "completed", "rejected"];
 
+const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
+  none: "No refund",
+  pending: "Refund pending",
+  partial: "Partially refunded",
+  full: "Fully refunded",
+  denied: "Refund denied",
+};
+
 function paymentDisplayId(id: number) {
   return `PAY-${String(id).padStart(4, "0")}`;
 }
@@ -51,6 +61,12 @@ export default function AdminPayments() {
   const { toast } = useToast();
   const { data: payments = [], isLoading, isError, error } = useAdminPayments();
   const forceCancelMutation = useAdminForceCancelBooking();
+  const recordRefundMutation = useAdminRecordRefund();
+
+  const [isRefunding, setIsRefunding] = useState(false);
+  const [refundStatus, setRefundStatus] = useState<"pending" | "partial" | "full" | "denied">("full");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundNotes, setRefundNotes] = useState("");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | PaymentMatchingStatus>("All");
@@ -118,6 +134,56 @@ export default function AdminPayments() {
 
   const cancelDisabled =
     !!selectedPayment && NON_CANCELLABLE_BOOKING_STATUSES.includes(selectedPayment.booking.status);
+
+  const openRefundForm = () => {
+    setRefundStatus("full");
+    setRefundAmount(String(selectedPayment?.amount ?? ""));
+    setRefundNotes("");
+    setIsRefunding(true);
+  };
+
+  const handleRecordRefund = () => {
+    if (!selectedPayment) return;
+    const needsAmount = refundStatus === "partial" || refundStatus === "full";
+    const amountNum = Number(refundAmount);
+
+    if (needsAmount && (!refundAmount || Number.isNaN(amountNum) || amountNum <= 0)) {
+      toast({ title: "Enter a valid refund amount", variant: "destructive" });
+      return;
+    }
+    if (needsAmount && amountNum > selectedPayment.amount) {
+      toast({ title: "Refund amount can't exceed the amount paid", variant: "destructive" });
+      return;
+    }
+
+    recordRefundMutation.mutate(
+      {
+        paymentId: selectedPayment.id,
+        input: {
+          refund_status: refundStatus,
+          ...(needsAmount ? { refund_amount: amountNum } : {}),
+          ...(refundNotes.trim() ? { refund_notes: refundNotes.trim() } : {}),
+        },
+      },
+      {
+        onSuccess: (updated) => {
+          setIsRefunding(false);
+          setSelectedPayment(updated);
+          toast({
+            title: "Refund status recorded",
+            description: `${bookingDisplayId(selectedPayment.bookingId)} marked as "${REFUND_STATUS_LABELS[refundStatus]}". Remember: this only records the decision — actually sending the money back still happens manually.`,
+          });
+        },
+        onError: (err) => {
+          toast({
+            title: "Couldn't record refund",
+            description: getApiErrorMessage(err),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   return (
     <DashboardLayout>
@@ -352,6 +418,16 @@ export default function AdminPayments() {
                       <p className="text-sm">{selectedPayment.verificationNotes}</p>
                     </div>
                   )}
+                  {selectedPayment.refundStatus !== "none" && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Refund</p>
+                      <p className="text-sm font-semibold">
+                        {REFUND_STATUS_LABELS[selectedPayment.refundStatus]}
+                        {selectedPayment.refundAmount != null && ` — ₱${selectedPayment.refundAmount.toLocaleString()}`}
+                      </p>
+                      {selectedPayment.refundNotes && <p className="text-xs text-muted-foreground mt-0.5">{selectedPayment.refundNotes}</p>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -362,15 +438,25 @@ export default function AdminPayments() {
                   ? "This booking cannot be cancelled from its current status."
                   : "Force-cancelling sets the booking and payment status to cancelled. No automatic GCash refund is processed — handle it manually."}
               </p>
-              <Button
-                onClick={openCancelConfirm}
-                variant="outline"
-                className="gap-2 shrink-0 bg-background text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
-                disabled={cancelDisabled}
-              >
-                <Ban className="w-4 h-4" />
-                Force Cancel Booking
-              </Button>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  onClick={openRefundForm}
+                  variant="outline"
+                  className="gap-2 bg-background"
+                >
+                  <ReceiptText className="w-4 h-4" />
+                  Record Refund
+                </Button>
+                <Button
+                  onClick={openCancelConfirm}
+                  variant="outline"
+                  className="gap-2 bg-background text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
+                  disabled={cancelDisabled}
+                >
+                  <Ban className="w-4 h-4" />
+                  Force Cancel Booking
+                </Button>
+              </div>
             </div>
 
             {isConfirmingCancel && (
@@ -411,6 +497,81 @@ export default function AdminPayments() {
                         <Ban className="w-4 h-4" />
                       )}
                       Confirm Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isRefunding && (
+              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-background/90 backdrop-blur-sm animate-in fade-in duration-200 rounded-2xl p-4">
+                <div className="bg-card border border-border/50 rounded-xl shadow-2xl w-full max-w-sm flex flex-col animate-in zoom-in-95 duration-200 p-6 space-y-4">
+                  <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-1">
+                    <ReceiptText className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-lg font-bold font-heading text-center">Record Refund</h3>
+                  <p className="text-xs text-muted-foreground text-center">
+                    This only records a decision for <span className="font-mono font-bold text-foreground">{bookingDisplayId(selectedPayment.bookingId)}</span> —
+                    it does not send money. Actually refunding the client (e.g. a GCash send) still happens manually.
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground">Status</label>
+                    <select
+                      value={refundStatus}
+                      onChange={(e) => setRefundStatus(e.target.value as typeof refundStatus)}
+                      className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="pending">Pending review</option>
+                      <option value="partial">Partial refund</option>
+                      <option value="full">Full refund</option>
+                      <option value="denied">Denied</option>
+                    </select>
+                  </div>
+
+                  {(refundStatus === "partial" || refundStatus === "full") && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Amount (max ₱{selectedPayment.amount.toLocaleString()})
+                      </label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={selectedPayment.amount}
+                        value={refundAmount}
+                        onChange={(e) => setRefundAmount(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <Textarea
+                    placeholder="Notes (optional) — e.g. reason, evidence reviewed, who approved this"
+                    value={refundNotes}
+                    onChange={(e) => setRefundNotes(e.target.value)}
+                    className="text-sm"
+                    rows={3}
+                  />
+
+                  <div className="flex gap-3 pt-1">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setIsRefunding(false)}
+                      disabled={recordRefundMutation.isPending}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      className="flex-1 gap-2"
+                      onClick={handleRecordRefund}
+                      disabled={recordRefundMutation.isPending}
+                    >
+                      {recordRefundMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ReceiptText className="w-4 h-4" />
+                      )}
+                      Save
                     </Button>
                   </div>
                 </div>

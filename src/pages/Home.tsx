@@ -140,15 +140,15 @@ function HeroSection() {
                   Explore Studios
                 </Button>
               </Link>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="lg"
+                className="font-medium px-8 border-white/30 text-white hover:bg-white/10 rounded-lg bg-transparent"
                 onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
               >
-                <Button variant="outline" size="lg" className="font-medium px-8 border-white/30 text-white hover:bg-white/10 rounded-lg bg-transparent">
-                  How It Works
-                  <ChevronDown className="w-4 h-4 ml-1.5" />
-                </Button>
-              </button>
+                How It Works
+                <ChevronDown className="w-4 h-4 ml-1.5" />
+              </Button>
 
             </div>
           </div>

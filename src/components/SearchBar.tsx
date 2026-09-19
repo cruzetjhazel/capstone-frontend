@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Camera } from "lucide-react";
+import { Search, Camera, MapPin } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { usePhotographers } from "@/hooks/usePhotographers";
@@ -15,6 +15,16 @@ interface Props {
 
 type Panel = "what" | "when" | "where" | null;
 
+// Common municipalities/cities clients search from, shown as quick picks —
+// but the input itself is free text, so any location can be typed in.
+const LOCATION_PRESETS = [
+  "Bulan, Sorsogon",
+  "Irosin, Sorsogon",
+  "Sorsogon City, Sorsogon",
+  "Legazpi, Albay",
+  "Anywhere",
+];
+
 export default function SearchBar({
   initialService = "",
   initialDate = "",
@@ -24,7 +34,7 @@ export default function SearchBar({
   const navigate = useNavigate();
   const [service, setService] = useState(initialService);
   const [date, setDate] = useState<Date | undefined>(initialDate ? new Date(initialDate) : undefined);
-  const location = "Bulan, Sorsogon";
+  const [location, setLocation] = useState(initialLocation || "Bulan, Sorsogon");
   const { data: allPhotographers = [] } = usePhotographers();
   const allServices = useMemo(
     () => Array.from(new Set(allPhotographers.flatMap((p) => p.services))).sort((a, b) => a.localeCompare(b)),
@@ -65,7 +75,7 @@ export default function SearchBar({
     const params = new URLSearchParams();
     if (service) params.set("service", service);
     if (date) params.set("date", date.toISOString().split("T")[0]);
-    if (location) params.set("location", location);
+    if (location && location !== "Anywhere") params.set("location", location);
     setPanel(null);
     navigate(`/explore?${params.toString()}`);
   };
@@ -108,15 +118,7 @@ export default function SearchBar({
         <div className="w-px bg-border my-2" />
         <Pill id="when" label="when" value={dateLabel === "add date" ? "" : dateLabel} placeholder="add date" />
         <div className="w-px bg-border my-2" />
-        <div
-          className={cn(
-            "flex-1 min-w-0 text-left cursor-not-allowed",
-            compact ? "px-4 py-2 sm:px-5 sm:py-2.5" : "px-5 py-3 sm:px-6 sm:py-3.5"
-          )}
-        >
-          <span className="text-[11px] sm:text-xs font-semibold text-foreground block">where</span>
-          <span className="text-xs sm:text-sm truncate block text-muted-foreground">{location}</span>
-        </div>
+        <Pill id="where" label="where" value={location === "Bulan, Sorsogon" ? "" : location} placeholder="Bulan, Sorsogon" />
 
         <div className={cn("flex items-center gap-1 pr-2", compact ? "py-1.5" : "py-2")}>
           {hasAnyInput && (
@@ -219,6 +221,40 @@ export default function SearchBar({
           </div>
 
           </div>
+      )}
+
+      {/* ===== WHERE panel ===== */}
+      {panel === "where" && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-[420px] max-w-[92vw] bg-card rounded-3xl border border-border shadow-2xl z-50 p-6 animate-fade-in max-h-[70vh] overflow-y-auto">
+          <h3 className="font-heading font-bold text-primary mb-1">Where's the event?</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            Search isn't limited to Bulan — type any city, municipality, or province, or pick a quick option below.
+          </p>
+
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && setPanel(null)}
+            placeholder="e.g. Sorsogon City, Sorsogon"
+            className="w-full px-4 py-3 rounded-full border border-border bg-card text-sm focus:outline-none focus:border-primary mb-4"
+            autoFocus
+          />
+
+          <p className="text-xs text-muted-foreground/70 uppercase tracking-wider mb-2">Quick picks</p>
+          <div className="space-y-1">
+            {LOCATION_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                onClick={() => { setLocation(preset); setPanel(null); }}
+                className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-muted text-left transition-colors"
+              >
+                <MapPin className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-sm font-semibold">{preset}</p>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
   formatPrice, defaultCustomRates, type Photographer, type CustomRates,
@@ -22,8 +23,16 @@ import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
 import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
+import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 
 const steps = ["Date & Time", "Event Info", "Package", "Add-ons", "Review"];
+
+// Flat platform fee added to every booking on top of the package/add-on
+// subtotal — mirrors config/platform.php's PLATFORM_FEE on the backend
+// (CreateBookingAction sets the authoritative amount; this is just for
+// showing an accurate preview before the booking is actually created).
+// This is NOT an insurance product — see the disclaimer next to it below.
+const PLATFORM_FEE = 30;
 
 // Strictly mapped to SRS Section 7.11
 const systemEventTypes = [
@@ -45,7 +54,19 @@ function makeDefaultBuild(): CustomBuild {
   return { selectedExtraIds: [] };
 }
 
-function calculateCustomPrice(b: CustomBuild, r: CustomRates): number {
+function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | null): number {
+  // Sliding-hours mode: price scales off hours instead of a picked duration
+  // extra — mirrors CreateBookingAction::resolveCustomPackage's hourly
+  // branch. Duration-bearing extras don't apply here (there's nothing to
+  // pick — the slider IS the duration), but any other flat/tier extra still
+  // stacks on top exactly as before.
+  if (r.hourlyRate != null && hours != null) {
+    const flatExtrasPrice = (r.extras ?? [])
+      .filter((e) => b.selectedExtraIds.includes(e.id) && (e as any).durationMinutes == null)
+      .reduce((sum, e) => sum + e.price, 0);
+    return r.baseFee + r.hourlyRate * hours + flatExtrasPrice;
+  }
+
   const extrasPrice = (r.extras ?? [])
     .filter((e) => b.selectedExtraIds.includes(e.id))
     .reduce((sum, e) => sum + e.price, 0);
@@ -74,6 +95,17 @@ export default function Booking() {
   const [selectedPkg, setSelectedPkg] = useState<number>(initialPkg);
   const [customBuild, setCustomBuild] = useState<CustomBuild>(makeDefaultBuild());
   const [selectedAddOns, setSelectedAddOns] = useState<number[]>([]);
+  // Sliding-hours picker state — only relevant when rates.hourlyRate is set
+  // (see calculateCustomPrice). Defaulted once the photographer's rates
+  // load, below.
+  const [customHours, setCustomHours] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (rates.hourlyRate != null && customHours == null) {
+      setCustomHours(rates.minHours ?? 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rates.hourlyRate]);
 
   // Moved up from further down in this component (it originally lived after
   // the loading/not-found early-returns below) — needed here, pre-return,
@@ -102,7 +134,33 @@ export default function Booking() {
   
   // Refined Location State (Section 7.12)
   const [locationType, setLocationType] = useState(locationTypes[0]);
-  const [eventAddress, setEventAddress] = useState("");
+  const [eventAddress, setEventAddress] = useState(""); // "Specific Address / Venue"
+
+  const [provinces, setProvinces] = useState<Province[]>([]);
+  const [citiesMunicipalities, setCitiesMunicipalities] = useState<CityMunicipality[]>([]);
+  const [barangays, setBarangays] = useState<Barangay[]>([]);
+  const [provinceId, setProvinceId] = useState<number | null>(null);
+  const [cityMunicipalityId, setCityMunicipalityId] = useState<number | null>(null);
+  const [barangayId, setBarangayId] = useState<number | null>(null);
+
+  useEffect(() => {
+    locationService.getProvinces().then(setProvinces).catch(() => setProvinces([]));
+  }, []);
+
+  useEffect(() => {
+    setCityMunicipalityId(null);
+    setBarangayId(null);
+    setCitiesMunicipalities([]);
+    if (provinceId == null) return;
+    locationService.getCitiesMunicipalities(provinceId).then(setCitiesMunicipalities).catch(() => setCitiesMunicipalities([]));
+  }, [provinceId]);
+
+  useEffect(() => {
+    setBarangayId(null);
+    setBarangays([]);
+    if (cityMunicipalityId == null) return;
+    locationService.getBarangays(cityMunicipalityId).then(setBarangays).catch(() => setBarangays([]));
+  }, [cityMunicipalityId]);
   
   const [guestCount, setGuestCount] = useState("");
   const [notes, setNotes] = useState("");
@@ -187,7 +245,9 @@ export default function Booking() {
   // fixed-package placeholder duration gets caught before Review instead of
   // failing opaquely at final submission.
   const customDurationMinutesForRevalidation =
-    packageMode === "custom" ? (selectedDurationExtra as any)?.durationMinutes : undefined;
+    packageMode === "custom"
+      ? (rates.hourlyRate != null ? (customHours ?? rates.minHours ?? 1) * 60 : (selectedDurationExtra as any)?.durationMinutes)
+      : undefined;
 
   const { data: customStartTimesForRevalidation = [], isLoading: loadingCustomRevalidation } = useAvailableStartTimes(
     p?.id,
@@ -374,7 +434,7 @@ export default function Booking() {
     setSelectedAddOns((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]);
   };
 
-  const customPrice = calculateCustomPrice(customBuild, rates);
+  const customPrice = calculateCustomPrice(customBuild, rates, customHours);
   const flatExtras = (rates.extras ?? []).filter((e) => !(e as any).tierName);
 
   // selectedDurationExtra is defined earlier in this component (pre-return) —
@@ -421,8 +481,11 @@ export default function Booking() {
         
         // Location Validation per SRS Section 7.12
         if (!locationType) return { ok: false, reason: "Please select a location type." };
-        if ((locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") && !eventAddress.trim()) {
-          return { ok: false, reason: "Please provide the full event address for your selected location type." };
+        if (locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") {
+          if (!provinceId) return { ok: false, reason: "Please select a province." };
+          if (!cityMunicipalityId) return { ok: false, reason: "Please select a city/municipality." };
+          if (!barangayId) return { ok: false, reason: "Please select a barangay." };
+          if (!eventAddress.trim()) return { ok: false, reason: "Please provide the specific address / venue." };
         }
         
         if (!contactName.trim() || !contactPhone.trim() || !contactEmail.trim())
@@ -435,6 +498,14 @@ export default function Booking() {
         return { ok: true };
       case 2:
         if (packageMode === "fixed" && !pkg) return { ok: false, reason: "Please select a package to continue." };
+        if (packageMode === "custom" && rates.hourlyRate != null) {
+          const min = rates.minHours ?? 1;
+          const max = rates.maxHours ?? 12;
+          if (customHours == null || customHours < min || customHours > max) {
+            return { ok: false, reason: `Please choose between ${min} and ${max} coverage hours.` };
+          }
+          return { ok: true };
+        }
         if (packageMode === "custom" && !selectedDurationExtra) {
           return { ok: false, reason: "Please select your photography coverage duration to continue." };
         }
@@ -496,7 +567,12 @@ export default function Booking() {
         event_date: dateStr,
         start_time: startTime,
         location_type: toSlug(locationType) as CreateBookingPayload["location_type"],
-        ...(locationType !== "Studio" ? { event_address: eventAddress.trim() } : {}),
+        ...(locationType !== "Studio" ? {
+          province_id: provinceId!,
+          city_municipality_id: cityMunicipalityId!,
+          barangay_id: barangayId!,
+          event_address: eventAddress.trim(),
+        } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
         ...(notes.trim() ? { special_requests: notes.trim() } : {}),
         ...(packageMode === "fixed"
@@ -508,7 +584,14 @@ export default function Booking() {
             }
           : {
               is_custom_package: true,
-              custom_component_ids: customBuild.selectedExtraIds.map(Number),
+              custom_component_ids: customBuild.selectedExtraIds
+                // In hourly mode there's no duration extra to send — the
+                // slider's value (custom_hours below) IS the duration, and
+                // CreateBookingAction::resolveCustomPackage's hourly branch
+                // only expects flat/tier extras here, not a duration one.
+                .filter((extraId) => rates.hourlyRate == null || !(rates.extras ?? []).find((e) => e.id === extraId && (e as any).durationMinutes != null))
+                .map(Number),
+              ...(rates.hourlyRate != null && customHours != null ? { custom_hours: customHours } : {}),
             }),
       };
 
@@ -545,6 +628,7 @@ export default function Booking() {
   // when the photographer is actually reserved.
   const durationHoursForEstimate =
     packageMode === "fixed" ? pkg?.hours
+    : rates.hourlyRate != null ? (customHours ?? rates.minHours ?? 1)
     : selectedDurationExtra ? (selectedDurationExtra as any).durationMinutes / 60
     : undefined;
 
@@ -891,12 +975,43 @@ export default function Booking() {
                 </div>
 
                 {(locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") && (
-                  <div className="space-y-2 animate-fade-in">
-                    <Label htmlFor="address">Event Address *</Label>
-                    <div className="relative">
-                      <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-                      <Input id="address" className="pl-9" placeholder="Enter complete venue or location address"
-                        value={eventAddress} onChange={(e) => setEventAddress(e.target.value)} />
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-2">
+                      <Label htmlFor="province">Province *</Label>
+                      <select id="province" value={provinceId ?? ""} onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                        <option value="">Select province…</option>
+                        {provinces.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="cityMunicipality">City / Municipality *</Label>
+                      <select id="cityMunicipality" value={cityMunicipalityId ?? ""} disabled={!provinceId}
+                        onChange={(e) => setCityMunicipalityId(e.target.value ? Number(e.target.value) : null)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                        <option value="">Select city/municipality…</option>
+                        {citiesMunicipalities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="barangay">Barangay *</Label>
+                      <select id="barangay" value={barangayId ?? ""} disabled={!cityMunicipalityId}
+                        onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                        <option value="">Select barangay…</option>
+                        {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="address">Specific Address / Venue *</Label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                        <Input id="address" className="pl-9" placeholder="Street, building, venue name, or other details"
+                          value={eventAddress} onChange={(e) => setEventAddress(e.target.value)} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -996,7 +1111,35 @@ export default function Booking() {
                       <span>These rates are set by <strong>{p.name}</strong>. Base fee starts at {formatPrice(rates.baseFee)}.</span>
                     </div>
 
-                    {tierGroups.map(([tierName, groupExtras]) => (
+                    {rates.hourlyRate != null && (
+                      <div className="p-4 rounded-xl border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-heading font-semibold">Coverage hours</p>
+                          <p className="text-sm font-medium">
+                            {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"}
+                            <span className="text-muted-foreground font-normal ml-1">
+                              (+{formatPrice(rates.hourlyRate * (customHours ?? rates.minHours ?? 1))})
+                            </span>
+                          </p>
+                        </div>
+                        <Slider
+                          min={rates.minHours ?? 1}
+                          max={rates.maxHours ?? 12}
+                          step={1}
+                          value={[customHours ?? rates.minHours ?? 1]}
+                          onValueChange={([v]) => setCustomHours(v)}
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{rates.minHours ?? 1} hr</span>
+                          <span>{rates.maxHours ?? 12} hrs</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {formatPrice(rates.baseFee)} base + {formatPrice(rates.hourlyRate)}/hour
+                        </p>
+                      </div>
+                    )}
+
+                    {rates.hourlyRate == null && tierGroups.map(([tierName, groupExtras]) => (
                       <div key={tierName} className="space-y-2">
                         <p className="text-sm font-heading font-semibold">{tierName}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -1129,14 +1272,24 @@ export default function Booking() {
                     <p><span className="text-muted-foreground">Event:</span> {eventType === "Other" ? specificEventType : eventType}</p>
                     <p><span className="text-muted-foreground">Date:</span> {date?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
                     <p><span className="text-muted-foreground">Photography starts:</span> {prettyTime(startTime)}</p>
-                    {packageMode === "custom" && selectedDurationExtra && (
+                    {packageMode === "custom" && rates.hourlyRate != null && (
+                      <p><span className="text-muted-foreground">Coverage:</span> {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"}</p>
+                    )}
+                    {packageMode === "custom" && rates.hourlyRate == null && selectedDurationExtra && (
                       <p><span className="text-muted-foreground">Coverage:</span> {selectedDurationExtra.label}</p>
                     )}
                     {estimatedEndTime && (
                       <p><span className="text-muted-foreground">Estimated end:</span> {prettyTime(estimatedEndTime)}</p>
                     )}
                     <p><span className="text-muted-foreground">Setting:</span> {locationType}</p>
-                    {eventAddress && <p><span className="text-muted-foreground">Address:</span> {eventAddress}</p>}
+                    {locationType !== "Studio" && (
+                      <p><span className="text-muted-foreground">Location:</span> {[
+                        barangays.find((b) => b.id === barangayId)?.name,
+                        citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
+                        provinces.find((p) => p.id === provinceId)?.name,
+                      ].filter(Boolean).join(", ")}</p>
+                    )}
+                    {eventAddress && <p><span className="text-muted-foreground">Specific Address / Venue:</span> {eventAddress}</p>}
                     {guestCount && <p><span className="text-muted-foreground">Guests:</span> ~{guestCount}</p>}
                   </div>
                   <div className="p-4 rounded-xl border border-border">
@@ -1196,10 +1349,23 @@ export default function Booking() {
                 ))}
               </div>
               <div className="border-t border-border mt-4 pt-4 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-heading font-semibold">Total</span>
-                  <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal)}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium">{formatPrice(subtotal)}</span>
                 </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Platform fee</span>
+                  <span className="font-medium">{formatPrice(PLATFORM_FEE)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                  <span className="font-heading font-semibold">Total</span>
+                  <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal + PLATFORM_FEE)}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
+                  The ₱{PLATFORM_FEE} platform fee funds Bulan's dispute-handling and no-show support process.
+                  It is <strong>not an insurance product</strong> and does not by itself guarantee a refund —
+                  refunds are reviewed and recorded by an admin case-by-case.
+                </p>
               </div>
 
               <div className="mt-5 space-y-2">

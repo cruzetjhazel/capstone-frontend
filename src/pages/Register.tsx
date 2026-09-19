@@ -305,6 +305,7 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [phoneTouched, setPhoneTouched] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Client — about you
   const [profilePicture, setProfilePicture] = useState<File | null>(null);
@@ -581,7 +582,8 @@ export default function Register() {
     !!name.trim() &&
     isValidEmail(email) &&
     isValidPhilippinePhone(normalizePhilippinePhone(phone)) &&
-    (isResumingApplication || (isStrongPassword(password) && password === confirmPassword));
+    (isResumingApplication || (isStrongPassword(password) && password === confirmPassword)) &&
+    (isResumingApplication || termsAccepted);
 
   const canClientStep3 = !!clientAddress.trim() && !!city.trim() && !!province.trim();
 
@@ -686,6 +688,7 @@ export default function Register() {
           address: clientAddress.trim(),
           city: city.trim(),
           province: province.trim(),
+          terms_accepted: termsAccepted,
         }),
       });
       data = await response.json().catch(() => ({}));
@@ -731,6 +734,7 @@ export default function Register() {
           password: password,
           password_confirmation: confirmPassword,
           photographer_type: accountType, // "freelancer" | "studio"
+          terms_accepted: termsAccepted,
         }),
       });
       const data = await parseApiResponse(response);
@@ -947,6 +951,23 @@ export default function Register() {
                       : <p className="text-xs text-destructive">Passwords do not match</p>
                   )}
                 </Field>
+
+                {!isResumingApplication && (
+                  <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={termsAccepted}
+                      onCheckedChange={(v) => setTermsAccepted(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-muted-foreground leading-relaxed">
+                      I agree to Bulan's{" "}
+                      <Link to="/terms" target="_blank" className="text-primary font-medium hover:underline">
+                        Terms &amp; Conditions
+                      </Link>
+                      .
+                    </span>
+                  </label>
+                )}
 
                 {apiError && accountType !== "client" && (
                   <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">

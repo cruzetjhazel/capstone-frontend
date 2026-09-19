@@ -28,6 +28,9 @@ type RawBooking = {
   event_date: string;
   start_time: string;
   event_address: string | null;
+  province: { id: number; name: string } | null;
+  city_municipality: { id: number; name: string } | null;
+  barangay: { id: number; name: string } | null;
   guest_count: number | null;
   subtotal: string;
   total_price: string;
@@ -149,7 +152,10 @@ export interface CreateBookingPayload {
   event_date: string;         // "YYYY-MM-DD", today or later
   start_time: string;         // "HH:mm"
   location_type: "studio" | "client_location" | "outdoor_location" | "other";
-  event_address?: string;     // required unless location_type === "studio"
+  province_id?: number;       // required unless location_type === "studio"
+  city_municipality_id?: number; // required unless location_type === "studio"
+  barangay_id?: number;       // required unless location_type === "studio"
+  event_address?: string;     // "Specific Address / Venue" — required unless location_type === "studio"
   guest_count?: number;       // min 1
   special_requests?: string;  // max 2000 chars
   // Fixed package:
@@ -157,6 +163,9 @@ export interface CreateBookingPayload {
   // OR custom package:
   is_custom_package?: boolean;
   custom_component_ids?: number[];
+  // Present when the client used the sliding-hours picker instead of a
+  // discrete duration option — see CreateBookingAction::resolveCustomPackage.
+  custom_hours?: number;
   add_on_ids?: number[];      // fixed-package bookings only
 }
 

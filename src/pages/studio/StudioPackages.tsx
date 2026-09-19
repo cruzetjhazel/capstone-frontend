@@ -810,7 +810,7 @@ function CustomPackageDrawer({
   updateConfig, createComponent, updateComponentMut, archiveComponentMut,
   errToast,
 }: {
-  customConfig: { enabled: boolean; baseFee: number | null; bufferMinutes: number } | undefined;
+  customConfig: { enabled: boolean; baseFee: number | null; bufferMinutes: number; hourlyRate?: number | null; minHours?: number | null; maxHours?: number | null } | undefined;
   components: CustomComponentRecord[];
   onClose: () => void;
   onToggleEnabled: (checked: boolean) => void;
@@ -832,6 +832,25 @@ function CustomPackageDrawer({
   const [bufferMinutes, setBufferMinutes] = useState<number>(customConfig?.bufferMinutes ?? 0);
   useEffect(() => setBufferMinutes(customConfig?.bufferMinutes ?? 0), [customConfig?.bufferMinutes]);
   const bufferDirty = Number(bufferMinutes) !== Number(customConfig?.bufferMinutes ?? 0);
+
+  // Optional "sliding hours" pricing — when hourlyRate is set (non-empty),
+  // clients see an hours slider instead of picking a discrete duration
+  // option (see Booking.tsx). Leaving hourlyRate blank keeps the existing
+  // duration-tier picker behavior unchanged.
+  const [hourlyEnabled, setHourlyEnabled] = useState<boolean>(customConfig?.hourlyRate != null);
+  useEffect(() => setHourlyEnabled(customConfig?.hourlyRate != null), [customConfig?.hourlyRate]);
+  const [hourlyRate, setHourlyRate] = useState<number>(customConfig?.hourlyRate ?? 0);
+  useEffect(() => setHourlyRate(customConfig?.hourlyRate ?? 0), [customConfig?.hourlyRate]);
+  const [minHours, setMinHours] = useState<number>(customConfig?.minHours ?? 1);
+  useEffect(() => setMinHours(customConfig?.minHours ?? 1), [customConfig?.minHours]);
+  const [maxHours, setMaxHours] = useState<number>(customConfig?.maxHours ?? 8);
+  useEffect(() => setMaxHours(customConfig?.maxHours ?? 8), [customConfig?.maxHours]);
+  const hourlyDirty =
+    hourlyEnabled !== (customConfig?.hourlyRate != null)
+    || Number(hourlyRate) !== Number(customConfig?.hourlyRate ?? 0)
+    || Number(minHours) !== Number(customConfig?.minHours ?? 1)
+    || Number(maxHours) !== Number(customConfig?.maxHours ?? 8);
+  const hourlyRangeError = hourlyEnabled && Number(maxHours) < Number(minHours) ? "Max hours can't be less than min hours." : "";
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingFields, setEditingFields] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
@@ -873,6 +892,22 @@ function CustomPackageDrawer({
       toast({ title: "Buffer time updated." });
     } catch (err) {
       errToast(err, "Couldn't update buffer time.");
+    }
+  };
+
+  const saveHourlyPricing = async () => {
+    if (hourlyRangeError) return;
+    try {
+      await updateConfig.mutateAsync({
+        enabled: customConfig?.enabled ?? false,
+        base_fee: customConfig?.baseFee ?? null,
+        hourly_rate: hourlyEnabled ? Number(hourlyRate) || 0 : null,
+        min_hours: hourlyEnabled ? Number(minHours) || 1 : null,
+        max_hours: hourlyEnabled ? Number(maxHours) || 8 : null,
+      });
+      toast({ title: "Sliding-hours pricing updated." });
+    } catch (err) {
+      errToast(err, "Couldn't update sliding-hours pricing.");
     }
   };
 
@@ -1029,7 +1064,51 @@ function CustomPackageDrawer({
         </div>
       </div>
 
-      {/* Tier groups */}
+      {/* Sliding-hours pricing */}
+      <div className="space-y-2 p-3 rounded-lg border border-border">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold">Sliding-Hours Pricing</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Let clients drag a slider to pick coverage length instead of choosing a fixed duration option below.
+            </p>
+          </div>
+          <Switch checked={hourlyEnabled} onCheckedChange={setHourlyEnabled} />
+        </div>
+
+        {hourlyEnabled && (
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div className="space-y-1">
+              <Label className="text-[11px]">Rate / hour (₱)</Label>
+              <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Min hours</Label>
+              <Input type="number" min={1} max={24} className="h-9 text-sm" value={minHours} onChange={(e) => setMinHours(Number(e.target.value) || 1)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Max hours</Label>
+              <Input type="number" min={1} max={24} className="h-9 text-sm" value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value) || 1)} />
+            </div>
+          </div>
+        )}
+        {hourlyRangeError && <p className="text-[11px] text-destructive">{hourlyRangeError}</p>}
+
+        <Button
+          size="sm"
+          variant={hourlyDirty ? "default" : "outline"}
+          className="h-9 text-xs gap-1 mt-1"
+          disabled={!hourlyDirty || !!hourlyRangeError || updateConfig.isPending}
+          onClick={saveHourlyPricing}
+        >
+          {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+        </Button>
+      </div>
+
+      {/* Tier groups — still configurable even when sliding-hours pricing
+          is on; duration-tagged options just aren't required from clients
+          in that mode (see Booking.tsx), so leaving this visible doesn't
+          hurt and avoids photographers losing already-configured tiers. */}
       <div className="space-y-4 pt-2 border-t border-border/50">
         <div className="flex items-center justify-between pt-2">
           <Label className="text-xs font-semibold">Rate Tiers</Label>

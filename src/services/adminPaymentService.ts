@@ -28,6 +28,8 @@ export type BookingPaymentStatus =
   | "failed"
   | "cancelled";
 
+export type RefundStatus = "none" | "pending" | "partial" | "full" | "denied";
+
 export interface AdminPayment {
   id: number;
   bookingId: number;
@@ -51,6 +53,10 @@ export interface AdminPayment {
   verifiedAt: string | null;
   verificationAction: string | null;
   verificationNotes: string | null;
+  refundStatus: RefundStatus;
+  refundAmount: number | null;
+  refundNotes: string | null;
+  refundedAt: string | null;
   createdAt: string;
 }
 
@@ -73,6 +79,10 @@ interface RawPayment {
   verified_at: string | null;
   verification_action: string | null;
   verification_notes: string | null;
+  refund_status: string;
+  refund_amount: string | number | null;
+  refund_notes: string | null;
+  refunded_at: string | null;
   created_at: string;
 }
 
@@ -100,6 +110,10 @@ function mapPayment(raw: RawPayment): AdminPayment {
     verifiedAt: raw.verified_at,
     verificationAction: raw.verification_action,
     verificationNotes: raw.verification_notes,
+    refundStatus: (raw.refund_status ?? "none") as RefundStatus,
+    refundAmount: raw.refund_amount == null ? null : Number(raw.refund_amount),
+    refundNotes: raw.refund_notes,
+    refundedAt: raw.refunded_at,
     createdAt: raw.created_at,
   };
 }
@@ -117,6 +131,15 @@ export const adminPaymentService = {
       reason,
     });
     return data;
+  },
+
+  /**
+   * Records (does not process) a refund decision for a payment — see
+   * RecordPaymentRefundAction.php. amount is required for "partial"/"full".
+   */
+  async recordRefund(paymentId: number, input: { refund_status: Exclude<RefundStatus, "none">; refund_amount?: number; refund_notes?: string }): Promise<AdminPayment> {
+    const { data } = await api.post(`/admin/payments/${paymentId}/refund`, input);
+    return mapPayment(data.data);
   },
 };
 

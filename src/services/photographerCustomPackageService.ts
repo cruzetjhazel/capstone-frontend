@@ -7,6 +7,9 @@ interface RawConfig {
   enabled: boolean;
   base_fee: number | string | null;
   buffer_minutes: number | string | null;
+  hourly_rate?: number | string | null;
+  min_hours?: number | null;
+  max_hours?: number | null;
   updated_at: string;
 }
 export interface CustomPackageConfigRecord {
@@ -15,11 +18,20 @@ export interface CustomPackageConfigRecord {
   // Applied to every custom-package booking this photographer receives —
   // mirrors PackageRecord.bufferMinutes, which is per fixed package instead.
   bufferMinutes: number;
+  // Optional sliding-hours pricing — see CustomPackageDrawer in
+  // StudioPackages.tsx and Booking.tsx's slider UI. null means this
+  // photographer only uses the discrete duration-tier picker.
+  hourlyRate: number | null;
+  minHours: number | null;
+  maxHours: number | null;
 }
 export interface CustomPackageConfigInput {
   enabled: boolean;
   base_fee: number | null;
   buffer_minutes?: number;
+  hourly_rate?: number | null;
+  min_hours?: number | null;
+  max_hours?: number | null;
 }
 
 interface RawComponent {
@@ -57,6 +69,9 @@ function toConfig(raw: RawConfig): CustomPackageConfigRecord {
     enabled: raw.enabled,
     baseFee: raw.base_fee === null ? null : Number(raw.base_fee),
     bufferMinutes: raw.buffer_minutes == null ? 0 : Number(raw.buffer_minutes),
+    hourlyRate: raw.hourly_rate == null ? null : Number(raw.hourly_rate),
+    minHours: raw.min_hours ?? null,
+    maxHours: raw.max_hours ?? null,
   };
 }
 function toComponent(raw: RawComponent): CustomComponentRecord {

@@ -18,3 +18,16 @@ export function useAdminForceCancelBooking() {
     },
   });
 }
+
+export function useAdminRecordRefund() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ paymentId, input }: {
+      paymentId: number;
+      input: { refund_status: "pending" | "partial" | "full" | "denied"; refund_amount?: number; refund_notes?: string };
+    }) => adminPaymentService.recordRefund(paymentId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payments"] });
+    },
+  });
+}

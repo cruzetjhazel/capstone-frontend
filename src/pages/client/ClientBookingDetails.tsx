@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft,
   Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
-  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, type LucideIcon
+  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -268,6 +268,14 @@ export default function BookingDetails() {
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Payment Verified
                   </span>
+                )}
+                {booking.status === "confirmed" &&
+                  (booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid") && (
+                  <Link to={`/report-problem?bookingId=${booking.id}&noShow=1`}>
+                    <Button size="sm" variant="outline" className="text-xs rounded-full gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Report a no-show
+                    </Button>
+                  </Link>
                 )}
                 {booking.status === "completed" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">

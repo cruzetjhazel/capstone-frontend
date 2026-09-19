@@ -62,6 +62,12 @@ interface RawCustomPackage {
   config: {
     enabled: boolean;
     base_fee: number | string | null;
+    // Optional sliding-hours pricing — see PublicCustomPackageConfigResource.php.
+    // Null/absent means this photographer only offers the discrete duration-
+    // component picker (unchanged existing behavior).
+    hourly_rate?: number | string | null;
+    min_hours?: number | null;
+    max_hours?: number | null;
   };
   // Confirmed against PublicCustomPackageComponentResource.php — it actually sends
   // type + tier_name too, previously dropped when flattened into `extras` below.
@@ -277,6 +283,9 @@ export const photographerService = {
         profile.customRates = {
           ...profile.customRates,
           baseFee: raw.config.enabled ? toNumber(raw.config.base_fee, defaultCustomRates.baseFee) : defaultCustomRates.baseFee,
+          hourlyRate: raw.config.enabled && raw.config.hourly_rate != null ? toNumber(raw.config.hourly_rate) : null,
+          minHours: raw.config.enabled ? (raw.config.min_hours ?? null) : null,
+          maxHours: raw.config.enabled ? (raw.config.max_hours ?? null) : null,
           extras: raw.config.enabled
             ? raw.components.map((c) => ({
                 id: String(c.id),

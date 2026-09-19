@@ -18,6 +18,11 @@ export default function ReportProblem() {
   
   // URL Pre-fill Logic (System Requirement: Pre-populated booking reference)
   const [prefilledBooking, setPrefilledBooking] = useState<string | null>(searchParams.get("bookingId"));
+  // Client protection: a booking's "Report a no-show" button links here with
+  // ?bookingId=X&noShow=1 — this pre-selects the no-show reason and a
+  // refund request so the client doesn't have to hunt through the generic
+  // report form during what's already a stressful situation.
+  const isNoShowShortcut = searchParams.get("noShow") === "1";
 
   // Form State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,11 +31,11 @@ export default function ReportProblem() {
   
   // Field State
   const [target, setTarget] = useState(prefilledBooking ? "booking" : "");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(isNoShowShortcut ? "Photographer no-show (didn't appear)" : "");
   const [otherReason, setOtherReason] = useState("");
   const [referenceId, setReferenceId] = useState(prefilledBooking || "");
   const [details, setDetails] = useState("");
-  const [resolution, setResolution] = useState("");
+  const [resolution, setResolution] = useState(isNoShowShortcut ? "refund" : "");
   const [files, setFiles] = useState<File[]>([]);
 
   // System Requirement: Dynamic Target Options based on Role (Studio/Freelancer vs Client)
@@ -64,6 +69,7 @@ export default function ReportProblem() {
         ];
       case "booking":
         return [
+          "Photographer no-show (didn't appear)",
           "Fake booking",
           "Unfair cancellation",
           "Severe quality issues",
@@ -102,12 +108,12 @@ export default function ReportProblem() {
 
   // Reset dependent fields when target changes
   useEffect(() => {
-    if (!prefilledBooking) {
+    if (!prefilledBooking && !isNoShowShortcut) {
       setReason("");
       setOtherReason("");
       setReferenceId("");
     }
-  }, [target, prefilledBooking]);
+  }, [target, prefilledBooking, isNoShowShortcut]);
 
   // Hide + clear the custom "Please specify" value whenever Reason moves off "Other"
   useEffect(() => {

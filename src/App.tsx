@@ -15,6 +15,7 @@ import Home from "./pages/Home";
 import Explore from "./pages/Explore";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import TermsAndConditions from "./pages/TermsAndConditions";
 import ResetPassword from "./pages/ResetPassword";
 import Photographers from "./pages/Photographers";
 import PhotographerProfile from "./pages/PhotographerProfile";
@@ -155,6 +156,7 @@ const App = () => (
               <Route path="/explore" element={<Explore />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/terms" element={<TermsAndConditions />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/photographers" element={<Photographers />} />
               <Route path="/photographers/:id" element={<PhotographerProfile />} />

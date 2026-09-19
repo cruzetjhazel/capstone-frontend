@@ -36,6 +36,12 @@ export interface BookedSlot {
  */
 export interface CustomRates {
   baseFee: number;
+  // Optional sliding-hours pricing mode — when set, Booking.tsx shows an
+  // hours slider instead of requiring a discrete duration option below.
+  // null/undefined means this photographer only uses the discrete picker.
+  hourlyRate?: number | null;
+  minHours?: number | null;
+  maxHours?: number | null;
   photoTiers: { label: string; value: number; price: number }[];
   photographerTiers: { label: string; value: number; price: number }[];
   deliveryTiers: { id: string; label: string; price: number }[];
@@ -58,6 +64,9 @@ export interface CustomRates {
 
 export const defaultCustomRates: CustomRates = {
   baseFee: 1500,
+  hourlyRate: null,
+  minHours: null,
+  maxHours: null,
   photoTiers: [
     { label: "50 photos", value: 50, price: 0 },
     { label: "100 photos", value: 100, price: 800 },
