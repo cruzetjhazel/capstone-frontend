@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
-import { env, AUTH_TOKEN_KEY } from "@/config/env";
+import { env } from "@/config/env";
+import { getAuthToken, clearAuthToken } from "@/lib/tokenStorage";
 
 /**
  * Shared Axios instance for all Laravel API requests.
@@ -18,7 +19,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -32,7 +33,7 @@ api.interceptors.response.use(
     const url = error.config?.url ?? "";
 
     if (status === 401 && !url.includes("/login") && !url.includes("/register")) {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+      clearAuthToken();
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }

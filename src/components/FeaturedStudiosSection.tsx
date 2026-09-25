@@ -21,7 +21,7 @@ export default function FeaturedStudiosSection() {
         <div className="text-center mb-12">
           <p className="text-xs uppercase tracking-[0.2em] text-white/60 mb-2">Bulan • Sorsogon</p>
           <h2 className="text-3xl sm:text-4xl font-heading font-bold text-white">Featured Photography Studios</h2>
-          <p className="text-white/70 mt-2 text-sm">Verified studios ranked by what clients favor most</p>
+          <p className="text-white/70 mt-2 text-sm">Verified studios ranked by client rating</p>
         </div>
 
         {isLoading ? (

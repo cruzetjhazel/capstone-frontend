@@ -1,6 +1,6 @@
 import { authApi } from "@/api/auth";
 import type { ApiUser, LoginResponse, RegisterClientPayload } from "@/api/types/auth";
-import { AUTH_TOKEN_KEY } from "@/config/env";
+import { getAuthToken, setAuthToken, clearAuthToken } from "@/lib/tokenStorage";
 
 function withInitials(user: ApiUser): ApiUser {
   return {
@@ -12,25 +12,25 @@ function withInitials(user: ApiUser): ApiUser {
 export const authService = {
   async login(email: string, password: string): Promise<LoginResponse> {
     const { data } = await authApi.login({ email, password });
-    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+    setAuthToken(data.token);
     return { ...data, user: withInitials(data.user) };
   },
 
   async registerClient(payload: RegisterClientPayload): Promise<LoginResponse> {
     const { data } = await authApi.register(payload);
-    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+    setAuthToken(data.token);
     return { ...data, user: withInitials(data.user) };
   },
 
   async fetchCurrentUser(): Promise<ApiUser | null> {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const token = getAuthToken();
     if (!token) return null;
 
     try {
       const { data } = await authApi.me();
       return withInitials(data);
     } catch {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+      clearAuthToken();
       return null;
     }
   },
@@ -41,10 +41,10 @@ export const authService = {
     } catch {
       // ignore — token may already be invalid
     }
-    localStorage.removeItem(AUTH_TOKEN_KEY);
+    clearAuthToken();
   },
 
   getStoredToken(): string | null {
-    return localStorage.getItem(AUTH_TOKEN_KEY);
+    return getAuthToken();
   },
 };

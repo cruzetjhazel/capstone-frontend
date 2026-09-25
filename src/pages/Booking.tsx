@@ -43,7 +43,7 @@ const systemEventTypes = [
 
 // Strictly mapped to SRS Section 7.12
 const locationTypes = [
-  "Studio", "Client Location", "Outdoor Location", "Other"
+  "Studio", "Client Location", "Outdoor Location", "Outside Bicol", "Other"
 ];
 
 interface CustomBuild {
@@ -64,7 +64,7 @@ function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | n
     const flatExtrasPrice = (r.extras ?? [])
       .filter((e) => b.selectedExtraIds.includes(e.id) && (e as any).durationMinutes == null)
       .reduce((sum, e) => sum + e.price, 0);
-    return r.baseFee + r.hourlyRate * hours + flatExtrasPrice;
+    return r.hourlyRate * hours + flatExtrasPrice;
   }
 
   const extrasPrice = (r.extras ?? [])
@@ -487,6 +487,9 @@ export default function Booking() {
           if (!barangayId) return { ok: false, reason: "Please select a barangay." };
           if (!eventAddress.trim()) return { ok: false, reason: "Please provide the specific address / venue." };
         }
+        if (locationType === "Outside Bicol" && !eventAddress.trim()) {
+          return { ok: false, reason: "Please provide the full address." };
+        }
         
         if (!contactName.trim() || !contactPhone.trim() || !contactEmail.trim())
           return { ok: false, reason: "Please complete your contact details (name, phone, email)." };
@@ -567,10 +570,13 @@ export default function Booking() {
         event_date: dateStr,
         start_time: startTime,
         location_type: toSlug(locationType) as CreateBookingPayload["location_type"],
-        ...(locationType !== "Studio" ? {
+        ...(locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other" ? {
           province_id: provinceId!,
           city_municipality_id: cityMunicipalityId!,
           barangay_id: barangayId!,
+          event_address: eventAddress.trim(),
+        } : {}),
+        ...(locationType === "Outside Bicol" ? {
           event_address: eventAddress.trim(),
         } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
@@ -1016,6 +1022,21 @@ export default function Booking() {
                   </div>
                 )}
 
+                {locationType === "Outside Bicol" && (
+                  <div className="space-y-2 animate-fade-in">
+                    <Label htmlFor="outsideBicolAddress">Full Address *</Label>
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                      <Input id="outsideBicolAddress" className="pl-9"
+                        placeholder="Full address, e.g. street, city, province — this photographer travels outside Bicol"
+                        value={eventAddress} onChange={(e) => setEventAddress(e.target.value)} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      We don't have a province/city dropdown outside the Bicol Region yet — just type the full address.
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="guestCount">Estimated Guests <span className="text-muted-foreground font-normal">(optional)</span></Label>
                   <Input id="guestCount" type="number" placeholder="e.g. 80"
@@ -1273,7 +1294,7 @@ export default function Booking() {
                     <p><span className="text-muted-foreground">Date:</span> {date?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
                     <p><span className="text-muted-foreground">Photography starts:</span> {prettyTime(startTime)}</p>
                     {packageMode === "custom" && rates.hourlyRate != null && (
-                      <p><span className="text-muted-foreground">Coverage:</span> {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"}</p>
+                      <p><span className="text-muted-foreground">Booked Coverage:</span> {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"} ({formatPrice(rates.hourlyRate)}/hour)</p>
                     )}
                     {packageMode === "custom" && rates.hourlyRate == null && selectedDurationExtra && (
                       <p><span className="text-muted-foreground">Coverage:</span> {selectedDurationExtra.label}</p>
@@ -1353,19 +1374,10 @@ export default function Booking() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatPrice(subtotal)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Platform fee</span>
-                  <span className="font-medium">{formatPrice(PLATFORM_FEE)}</span>
-                </div>
                 <div className="flex justify-between items-center pt-1">
                   <span className="font-heading font-semibold">Total</span>
-                  <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal + PLATFORM_FEE)}</span>
+                  <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal)}</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
-                  The ₱{PLATFORM_FEE} platform fee funds Bulan's dispute-handling and no-show support process.
-                  It is <strong>not an insurance product</strong> and does not by itself guarantee a refund —
-                  refunds are reviewed and recorded by an admin case-by-case.
-                </p>
               </div>
 
               <div className="mt-5 space-y-2">

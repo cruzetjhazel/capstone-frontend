@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole, type Role } from "@/contexts/RoleContext";
-import { AUTH_TOKEN_KEY } from "@/config/env";
+import { getAuthToken } from "@/lib/tokenStorage";
 import { cn } from "@/lib/utils";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
 
@@ -84,7 +84,7 @@ function isValidPhilippinePhone(canonical: string): boolean {
 }
 
 function authHeaders(json = true): HeadersInit {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   const headers: Record<string, string> = { Accept: "application/json" };
   if (json) headers["Content-Type"] = "application/json";
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -175,7 +175,7 @@ export default function Register() {
       searchParams.get("retry") === "true";
     if (!wantsResume) return;
 
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const token = getAuthToken();
     if (!token) return; // not logged in — fall through to normal Step 1
 
     const resume = async () => {

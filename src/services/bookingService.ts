@@ -1,5 +1,5 @@
 import type { BookingRecord, BookingStatus } from "@/data/mockBookings";
-import { AUTH_TOKEN_KEY } from "@/config/env";
+import { getAuthToken } from "@/lib/tokenStorage";
 
 const API_BASE = "http://127.0.0.1:8000/api";
 
@@ -22,11 +22,15 @@ type RawBooking = {
   } | null;
   custom_package_snapshot: {
     base_fee?: number | string;
+    hourly_rate?: number | string;
+    hours?: number;
     components?: SnapshotComponent[];
   } | null;
+  custom_hours: number | null;
   event_type: string;
   event_date: string;
   start_time: string;
+  end_time: string | null;
   event_address: string | null;
   province: { id: number; name: string } | null;
   city_municipality: { id: number; name: string } | null;
@@ -78,6 +82,7 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     eventType: raw.event_type,
     date: raw.event_date,
     startTime: raw.start_time,
+    endTime: raw.end_time,
     eventLocation: raw.event_address ?? "",
     guestCount: raw.guest_count != null ? String(raw.guest_count) : "",
     notes: "",
@@ -103,6 +108,10 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     customBuild: raw.is_custom_package
       ? {
           baseFee: Number(raw.custom_package_snapshot?.base_fee ?? 0),
+          hourlyRate: raw.custom_package_snapshot?.hourly_rate != null
+            ? Number(raw.custom_package_snapshot.hourly_rate)
+            : null,
+          hours: raw.custom_hours ?? raw.custom_package_snapshot?.hours ?? null,
           editedPhotos: findComponent(components, ["edited_photos", "editing"]),
           photographers: findComponent(components, ["photographers", "additional_photographer"]),
           delivery: findComponent(components, ["delivery"]),
@@ -115,7 +124,7 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
 }
 
 async function apiRequest<T>(path: string): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -151,7 +160,7 @@ export interface CreateBookingPayload {
   custom_event_type?: string; // required if event_type === "other"
   event_date: string;         // "YYYY-MM-DD", today or later
   start_time: string;         // "HH:mm"
-  location_type: "studio" | "client_location" | "outdoor_location" | "other";
+  location_type: "studio" | "client_location" | "outdoor_location" | "outside_bicol" | "other";
   province_id?: number;       // required unless location_type === "studio"
   city_municipality_id?: number; // required unless location_type === "studio"
   barangay_id?: number;       // required unless location_type === "studio"
@@ -218,7 +227,7 @@ export interface BookingPaymentInfo {
 }
 
 async function apiMutate<T>(path: string, method: "POST" | "PATCH", body?: unknown): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -253,7 +262,7 @@ async function apiMutateWithMessage<T extends { data: unknown; message: string }
   method: "POST" | "PATCH",
   body?: unknown
 ): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {

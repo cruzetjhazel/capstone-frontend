@@ -398,8 +398,10 @@ export default function BookingDetails() {
                     <Clock className="w-4 h-4 text-primary" />
                   </div>
                   <div>
-                    <p className="font-semibold text-xs text-muted-foreground">Start Time</p>
-                    <p className="text-sm font-medium text-foreground">{formatTime(booking.startTime)}</p>
+                    <p className="font-semibold text-xs text-muted-foreground">{booking.endTime ? "Scheduled Coverage" : "Start Time"}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {formatTime(booking.startTime)}{booking.endTime ? ` – ${formatTime(booking.endTime)}` : ""}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2.5">
@@ -523,10 +525,33 @@ export default function BookingDetails() {
               <div className="space-y-2 text-xs">
                 {isCustom ? (
                   <>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Base Fee</span>
-                      <span className="font-medium text-foreground">{formatPrice(customBuild.baseFee)}</span>
-                    </div>
+                    {customBuild.hourlyRate != null ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Booked Coverage</span>
+                          <span className="font-medium text-foreground">{customBuild.hours ?? 0} hour{(customBuild.hours ?? 0) === 1 ? "" : "s"}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Hourly Rate</span>
+                          <span className="font-medium text-foreground">{formatPrice(customBuild.hourlyRate)}/hour</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Coverage Price</span>
+                          <span className="font-medium text-foreground">{formatPrice(customBuild.hourlyRate * (customBuild.hours ?? 0))}</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/30 mt-1">
+                          Coverage Reminder: this is the agreed photography coverage period. If the event ends
+                          earlier, the booking isn't automatically reduced or refunded. Need more time? You can
+                          request additional coverage from your photographer — subject to their approval and an
+                          extra hourly charge.
+                        </p>
+                      </>
+                    ) : (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Base Fee</span>
+                        <span className="font-medium text-foreground">{formatPrice(customBuild.baseFee)}</span>
+                      </div>
+                    )}
                     {customBuild.editedPhotos && (
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">{customBuild.editedPhotos.label}</span>

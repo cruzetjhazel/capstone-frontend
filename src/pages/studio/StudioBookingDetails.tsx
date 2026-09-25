@@ -36,6 +36,8 @@ import {
   useUpdateServiceTracker,
   useMarkServiceCompleted,
   useRecordOnsitePayment,
+  useAccommodationCandidates,
+  useAccommodateBooking,
 } from "@/hooks/usePhotographerBookings";
 import { usePayments, useVerifyPayment, useRejectPayment } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
@@ -66,12 +68,22 @@ export default function StudioBookingDetail() {
   const trackerMutation = useUpdateServiceTracker();
   const completeMutation = useMarkServiceCompleted();
   const onsitePaymentMutation = useRecordOnsitePayment();
+  const accommodateMutation = useAccommodateBooking();
 
-  const [activeModal, setActiveModal] = useState<"accept" | "reject" | "record_onsite" | "approve_cancel" | "reject_cancel" | "approve_reschedule" | "reject_reschedule" | "review_payment" | null>(null);
+  const [activeModal, setActiveModal] = useState<"accept" | "reject" | "record_onsite" | "approve_cancel" | "reject_cancel" | "approve_reschedule" | "reject_reschedule" | "review_payment" | "accommodate" | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [onsitePaymentInput, setOnsitePaymentInput] = useState<number>(0);
   const [pendingTrackerStage, setPendingTrackerStage] = useState<TrackingStage | null>(null);
   const [paymentActionNotes, setPaymentActionNotes] = useState("");
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+
+  // Only meaningful for a cancelled booking — lists the other clients who
+  // requested this same date/time and were auto-declined when this
+  // booking's payment was confirmed first (see backend
+  // SlotConflictService). Empty for any booking that was never paid, or
+  // that had no rival requests.
+  const candidatesQuery = useAccommodationCandidates(booking?.id, booking?.status === "cancelled");
+  const candidates = candidatesQuery.data ?? [];
 
   const paymentsQuery = usePayments();
   const verifyPaymentMutation = useVerifyPayment();
@@ -219,6 +231,21 @@ export default function StudioBookingDetail() {
         toast({ title: "Cancellation request rejected", description: "The booking remains active." });
       }
       setActiveModal(null);
+    } catch (error) {
+      toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
+    }
+  };
+
+  const handleConfirmAccommodate = async () => {
+    if (!selectedCandidateId) {
+      toast({ title: "Select a client", description: "Choose which client to offer this slot to.", variant: "destructive" as never });
+      return;
+    }
+    try {
+      await accommodateMutation.mutateAsync({ id: booking.id, candidateBookingId: selectedCandidateId });
+      setActiveModal(null);
+      setSelectedCandidateId(null);
+      toast({ title: "Reservation accommodated", description: "The client has been notified to proceed with payment." });
     } catch (error) {
       toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
     }
@@ -491,6 +518,34 @@ export default function StudioBookingDetail() {
             </div>
           )}
 
+          {booking.status === "cancelled" && (
+            <div className="bg-destructive/10 p-5 rounded-xl border border-destructive/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <X className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-destructive">Booking Cancelled</p>
+                  {(booking.cancellationReason || booking.rejectionReason) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">"{booking.cancellationReason || booking.rejectionReason}"</p>
+                  )}
+                  {candidates.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {candidates.length} other client{candidates.length > 1 ? "s" : ""} previously requested this same date and time.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {candidates.length > 0 && (
+                <Button
+                  size="sm"
+                  className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 self-end sm:self-center"
+                  onClick={() => setActiveModal("accommodate")}
+                >
+                  Accommodate Other Reservation
+                </Button>
+              )}
+            </div>
+          )}
+
           {booking.status === "expired" && (
             <div className="bg-muted/50 p-5 rounded-xl border border-border/60 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
@@ -584,10 +639,37 @@ export default function StudioBookingDetail() {
                     </span>
                   </div>
                   <div className="pl-6 space-y-2 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Base Service Fee</span>
-                      <span className="font-medium">₱{booking.customBuild.baseFee.toLocaleString()}</span>
-                    </div>
+                    {booking.customBuild.hourlyRate != null ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Coverage</span>
+                          <span className="font-medium">{booking.customBuild.hours ?? 0} hour{(booking.customBuild.hours ?? 0) === 1 ? "" : "s"}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Scheduled</span>
+                          <span className="font-medium">{booking.startTime}{booking.endTime ? ` – ${booking.endTime}` : ""}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Rate</span>
+                          <span className="font-medium">₱{booking.customBuild.hourlyRate.toLocaleString()}/hour</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Coverage Price</span>
+                          <span className="font-medium">₱{(booking.customBuild.hourlyRate * (booking.customBuild.hours ?? 0)).toLocaleString()}</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/30">
+                          The client's booked coverage represents the agreed photography coverage period. If the
+                          event ends earlier, this booking is not automatically reduced or refunded. If the client
+                          requests additional coverage, you may accept or decline — accepted hours are billed
+                          separately at this rate.
+                        </p>
+                      </>
+                    ) : (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Base Service Fee</span>
+                        <span className="font-medium">₱{booking.customBuild.baseFee.toLocaleString()}</span>
+                      </div>
+                    )}
                     {booking.customBuild.components.map((c, idx) => (
                       <div key={idx} className="flex justify-between items-center">
                         <span className="text-muted-foreground flex items-center gap-1.5">
@@ -937,6 +1019,70 @@ export default function StudioBookingDetail() {
               </Button>
               <Button className="bg-primary text-primary-foreground" onClick={handleConfirmVerifyPayment} disabled={isPaymentActionMutating || !paymentToReview}>
                 {verifyPaymentMutation.isPending ? "Verifying…" : "Verify Payment"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Accommodate Other Reservation */}
+      {activeModal === "accommodate" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-card border border-border/60 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">Accommodate Other Reservation</h3>
+                  <p className="text-xs text-muted-foreground">Choose which client to offer this date/time to.</p>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setActiveModal(null); setSelectedCandidateId(null); }} disabled={accommodateMutation.isPending}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {candidatesQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading previous requests…</p>
+              ) : candidates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No previous requests are available for this date and time.</p>
+              ) : (
+                candidates.map((c) => (
+                  <label
+                    key={c.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer text-sm",
+                      selectedCandidateId === c.id ? "border-primary bg-primary/5" : "border-border/50 bg-muted/20"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="candidate"
+                        checked={selectedCandidateId === c.id}
+                        onChange={() => setSelectedCandidateId(c.id)}
+                      />
+                      <div>
+                        <p className="font-semibold">{c.clientName}</p>
+                        <p className="text-xs text-muted-foreground">{c.packageName} • ₱{c.totalPrice.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => { setActiveModal(null); setSelectedCandidateId(null); }} disabled={accommodateMutation.isPending}>Cancel</Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={handleConfirmAccommodate}
+                disabled={accommodateMutation.isPending || candidates.length === 0}
+              >
+                {accommodateMutation.isPending ? "Accommodating…" : "Accommodate Selected Client"}
               </Button>
             </div>
           </div>

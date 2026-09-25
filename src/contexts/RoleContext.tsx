@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import api from "@/lib/api";
-import { AUTH_TOKEN_KEY } from "@/config/env";
+import { getAuthToken, setAuthToken, clearAuthToken } from "@/lib/tokenStorage";
 
 export type AccountType = "client" | "photographer" | "administrator";
 export type AccountStatus = "active" | "suspended" | "deactivated";
@@ -49,7 +49,6 @@ type RoleContextType = {
 
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
-const USER_STORAGE_KEY = "app_user";
 
 // Clients have no dashboard anymore — "/" (the public Home page, personalized
 // via the navbar) IS their home. Studio/admin are unchanged.
@@ -132,7 +131,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   // rather than trusting whatever was last cached in localStorage.
   useEffect(() => {
     const bootstrap = async () => {
-      const token = localStorage.getItem(AUTH_TOKEN_KEY);
+      const token = getAuthToken();
       if (!token) {
         setIsLoading(false);
         return;
@@ -143,11 +142,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         const rawUser = res.data?.data ?? res.data;
         const nextUser = await buildUser(rawUser);
         setUser(nextUser);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
       } catch {
         // Token invalid/expired/account no longer active — clear stale session
-        localStorage.removeItem(AUTH_TOKEN_KEY);
-        localStorage.removeItem(USER_STORAGE_KEY);
+        clearAuthToken();
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -163,11 +160,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     const res = await api.post("/auth/login", { email, password });
     const payload = res.data?.data ?? res.data;
 
-    localStorage.setItem(AUTH_TOKEN_KEY, payload.token);
+    setAuthToken(payload.token);
 
     const nextUser = await buildUser(payload.user);
     setUser(nextUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
     return nextUser;
   };
 
@@ -175,8 +171,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     justLoggedOutRef.current = true;
     api.post("/auth/logout").catch(() => {});
     setUser(null);
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(USER_STORAGE_KEY);
+    clearAuthToken();
   };
 
   const consumeJustLoggedOut = () => {
@@ -191,11 +186,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   // instead of a partial object.
   const setUserFromRegistration = async (rawUser: any, token?: string) => {
     if (token) {
-      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      setAuthToken(token);
     }
     const nextUser = await buildUser(rawUser);
     setUser(nextUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
   };
 
   const refreshApplication = async () => {
@@ -203,14 +197,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     const application = await fetchApplication();
     const nextUser = { ...user, application };
     setUser(nextUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
   };
 
   const refreshProfilePhoto = (url: string | null) => {
     if (!user) return;
     const nextUser = { ...user, profilePhotoUrl: url };
     setUser(nextUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
   };
 
   return (

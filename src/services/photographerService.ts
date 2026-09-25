@@ -1,6 +1,7 @@
 import { photographerApi } from "@/api/photographers";
 import type { PhotographerListParams } from "@/api/types/photographer";
 import { defaultCustomRates } from "@/data/photographers";
+import type { Photographer } from "@/data/photographers";
 import type { PublicProfile } from "@/data/mockProfiles";
 
 /**
@@ -206,7 +207,8 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
     reviews: toNumber(reviewCount),
     priceMin: toNumber(raw.starting_price),
     priceMax: toNumber(raw.max_price),
-    location: raw.location ?? raw.coverage_area ?? "Bulan, Sorsogon",
+    location: raw.location ?? "Bulan, Sorsogon",
+    coverageArea: (raw.coverage_area as Photographer["coverageArea"]) ?? null,
     avatar: initialsFrom(name),
     avatarUrl: raw.profile_photo_url ?? undefined,
     coverUrl: raw.cover_photo_url ?? undefined,

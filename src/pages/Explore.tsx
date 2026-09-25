@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import MarketingNavbar from "@/components/MarketingNavbar";
 import SearchBar from "@/components/SearchBar";
 import { usePhotographers } from "@/hooks/usePhotographers";
+import type { Photographer } from "@/data/photographers";
 import {
   typeFilters,
   priceFilters,
@@ -13,15 +14,68 @@ import {
   formatPrice,
 } from "@/data/photographers";
 
-// Generic terms from the SearchBar that shouldn't trigger strict location filtering
+// Generic terms from the SearchBar that aren't real place names — treat
+// these as "no location filter" rather than trying to parse them.
 const GENERIC_LOCATIONS = [
+  "anywhere",
   "anywhere in bulan",
   "at my location",
   "event venue",
   "outdoor location",
   "photographer's studio",
-  "bulan, sorsogon"
 ];
+
+// Every photographer on this platform is based in Bulan, Sorsogon — the
+// "where" field is the CLIENT'S EVENT location, which can be anywhere.
+// Whether a given photographer should show up for an event outside their
+// home base depends on the travel range they declared at registration
+// (PhotographerApplication.coverage_area), not on their own address —
+// matching against `s.location` (their base address) was the bug: it
+// filtered out every Bulan-based photographer as soon as the client
+// searched an event location other than Bulan itself, regardless of
+// whether that photographer actually travels there.
+//
+// Actual municipalities bordering Bulan, Sorsogon. Adjust this list if the
+// business definition of "nearby" changes — it only affects the
+// "bulan_nearby" coverage tier.
+const BULAN_NEARBY_MUNICIPALITIES = ["irosin", "juban", "casiguran", "barcelona", "matnog"];
+
+/** Splits a "City/Municipality, Province" string into its two parts (best-effort). */
+function parsePlace(raw: string): { municipality: string; province: string } {
+  const parts = raw.split(",").map((p) => p.trim().toLowerCase());
+  return {
+    municipality: parts[0] ?? "",
+    province: parts[parts.length - 1] ?? "",
+  };
+}
+
+/**
+ * Whether `photographer` should be shown for a client's event at
+ * `whereText`. Every photographer already serves Bulan itself; beyond
+ * that, it depends on their declared coverage_area tier.
+ */
+function photographerServesLocation(photographer: Photographer, whereText: string): boolean {
+  const query = whereText.toLowerCase().trim();
+  if (!query || GENERIC_LOCATIONS.includes(query)) return true;
+
+  const { municipality, province } = parsePlace(query);
+  if (municipality === "bulan") return true; // every photographer's home turf
+
+  // Unset coverage_area is treated as the most conservative tier
+  // (bulan_only) rather than silently showing everywhere.
+  switch (photographer.coverageArea ?? "bulan_only") {
+    case "bulan_only":
+      return false;
+    case "bulan_nearby":
+      return province === "sorsogon" && BULAN_NEARBY_MUNICIPALITIES.includes(municipality);
+    case "anywhere_sorsogon":
+      return province === "sorsogon";
+    case "travel_outside_sorsogon":
+      return true;
+    default:
+      return false;
+  }
+}
 
 const sortOptions = ["rating", "favorites", "reviews", "price-low", "price-high"] as const;
 const sortLabels: Record<(typeof sortOptions)[number], string> = {
@@ -100,20 +154,17 @@ export default function Explore() {
       // Exact Type Match
       if (activeType !== "All" && s.type !== activeType) return false;
       
-      // Budget: strict containment on priceMin
+      // Budget: overlap match — include this photographer if any part of
+      // their price range (priceMin–priceMax) intersects the selected bucket
       if (pf.min > 0 || pf.max < Infinity) {
-        if (s.priceMin < pf.min || s.priceMin > pf.max) return false;
+        if (s.priceMax < pf.min || s.priceMin > pf.max) return false;
       }
       if (rf.min > 0 && s.rating < rf.min) return false;
 
-      // Smart Location Match (Ignores generic terms, matches specific ones)
-      if (urlLocation) {
-        const query = urlLocation.toLowerCase().trim();
-        if (!GENERIC_LOCATIONS.includes(query)) {
-          if (!s.location.toLowerCase().includes(query)) {
-            return false;
-          }
-        }
+      // Location Match: does this photographer's declared coverage_area
+      // reach the client's event location? See photographerServesLocation.
+      if (urlLocation && !photographerServesLocation(s, urlLocation)) {
+        return false;
       }
 
       return true;
@@ -144,7 +195,8 @@ export default function Explore() {
     params.delete("price");
     params.delete("rating");
     params.delete("name");
-    // We intentionally don't delete date/location so the user's primary search remains
+    params.delete("date");
+    params.delete("location");
     setSearchParams(params, { replace: true });
   };
 
@@ -276,7 +328,7 @@ export default function Explore() {
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Budget</p>
                     <div className="space-y-1">
                       {priceFilters.map((_, i) => {
-                        const budgetLabels = ["Any budget", "Under ₱3,000", "₱3,000–₱5,000", "₱5,000–₱10,000", "₱10,000+"];
+                        const budgetLabels = ["Any budget", "Starts under ₱3,000", "Starts ₱3,000–₱5,000", "Starts ₱5,000–₱10,000", "Starts ₱10,000+"];
                         const selected = activePriceIdx === i;
                         return (
                           <button

@@ -17,7 +17,13 @@ type RawStudioBooking = {
   photographer: { id: number; name: string };
   is_custom_package: boolean;
   package_snapshot: { name?: string; description?: string; price?: number | string } | null;
-  custom_package_snapshot: { base_fee?: number | string; components?: SnapshotComponent[] } | null;
+  custom_package_snapshot: {
+    base_fee?: number | string;
+    hourly_rate?: number | string;
+    hours?: number;
+    components?: SnapshotComponent[];
+  } | null;
+  custom_hours: number | null;
   add_ons_snapshot: { name: string; price: number | string }[] | null;
   event_type: string;
   custom_event_type: string | null;
@@ -91,7 +97,12 @@ export interface StudioBookingRecord {
   amountPaid: number;
   serviceStatus: string | null;
   addOns: { name: string; price: number }[];
-  customBuild?: { baseFee: number; components: { type: string; label: string; price: number }[] };
+  customBuild?: {
+    baseFee: number;
+    hourlyRate: number | null;
+    hours: number | null;
+    components: { type: string; label: string; price: number }[];
+  };
   createdAt: string;
   holdExpiresAt: string | null;
 }
@@ -141,6 +152,10 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
     customBuild: raw.is_custom_package
       ? {
           baseFee: Number(raw.custom_package_snapshot?.base_fee ?? 0),
+          hourlyRate: raw.custom_package_snapshot?.hourly_rate != null
+            ? Number(raw.custom_package_snapshot.hourly_rate)
+            : null,
+          hours: raw.custom_hours ?? raw.custom_package_snapshot?.hours ?? null,
           components: (raw.custom_package_snapshot?.components ?? []).map((c) => ({
             type: c.type,
             label: c.label,
@@ -181,6 +196,27 @@ export const photographerBookingService = {
 
   rejectCancellation: async (id: string): Promise<StudioBookingRecord> => {
     const res = await api.post(`/photographer/bookings/${id}/cancellation/reject`);
+    return toStudioBooking(res.data.data);
+  },
+
+  // "Accommodate Other Reservation": {id} is a cancelled booking that was
+  // previously paid/confirmed for this slot. Lists the other clients who
+  // requested the same date/time and were auto-declined when {id}'s
+  // payment was confirmed first, and are still available for review now
+  // that {id} has been cancelled.
+  accommodationCandidates: async (id: string): Promise<StudioBookingRecord[]> => {
+    const res = await api.get(`/photographer/bookings/${id}/accommodation-candidates`);
+    return (res.data.data as RawStudioBooking[]).map(toStudioBooking);
+  },
+
+  // Photographer picks one candidate to offer the freed-up slot to. That
+  // candidate moves to Confirmed/payment pending — the normal
+  // accepted-awaiting-payment state — and the slot only blocks again once
+  // they actually pay.
+  accommodate: async (id: string, candidateBookingId: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/accommodate`, {
+      candidate_booking_id: Number(candidateBookingId),
+    });
     return toStudioBooking(res.data.data);
   },
 

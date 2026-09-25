@@ -17,6 +17,17 @@ export function usePhotographerBooking(id: string | undefined) {
   });
 }
 
+// Only fetched for cancelled bookings — see StudioBookingDetail, which
+// gates this on booking.status === "cancelled" so we don't fire it for
+// every booking detail view.
+export function useAccommodationCandidates(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["accommodationCandidates", id],
+    queryFn: () => photographerBookingService.accommodationCandidates(id!),
+    enabled: !!id && enabled,
+  });
+}
+
 function useBookingMutation<TArgs>(mutationFn: (args: TArgs) => Promise<any>, getId: (args: TArgs) => string) {
   const qc = useQueryClient();
   return useMutation({
@@ -45,6 +56,20 @@ export function useApproveCancellation() {
 
 export function useRejectCancellation() {
   return useBookingMutation((id: string) => photographerBookingService.rejectCancellation(id), (id) => id);
+}
+
+export function useAccommodateBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, candidateBookingId }: { id: string; candidateBookingId: string }) =>
+      photographerBookingService.accommodate(id, candidateBookingId),
+    onSuccess: (_, { id, candidateBookingId }) => {
+      qc.invalidateQueries({ queryKey: ["photographerBookings"] });
+      qc.invalidateQueries({ queryKey: ["photographerBooking", id] });
+      qc.invalidateQueries({ queryKey: ["photographerBooking", candidateBookingId] });
+      qc.invalidateQueries({ queryKey: ["accommodationCandidates", id] });
+    },
+  });
 }
 
 export function useApproveReschedule() {

@@ -1,4 +1,4 @@
-import { AUTH_TOKEN_KEY } from "@/config/env";
+import { getAuthToken } from "@/lib/tokenStorage";
 
 const API_BASE = "http://127.0.0.1:8000/api";
 
@@ -37,7 +37,7 @@ function toFavorite(raw: RawFavorite): FavoritePhotographer {
 }
 
 async function apiRequest<T>(path: string): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -55,7 +55,7 @@ async function apiRequest<T>(path: string): Promise<T> {
 }
 
 async function apiMutate<T>(path: string, method: "POST" | "DELETE"): Promise<T> {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = getAuthToken();
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {

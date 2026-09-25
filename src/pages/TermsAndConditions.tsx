@@ -60,9 +60,7 @@ export default function TermsAndConditions() {
             <p>
               Bulan does not process payments through a payment gateway. Clients pay photographers directly via
               GCash (or on-site, where allowed), and the platform records and verifies that a payment reference
-              matches a booking. Every booking includes a flat ₱30 platform fee on top of the package price —
-              this fee funds the platform's dispute-handling and no-show support process described below. It is
-              <strong> not an insurance product</strong> and does not guarantee a refund by itself.
+              matches a booking.
             </p>
           </section>
 

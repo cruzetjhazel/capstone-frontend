@@ -101,6 +101,13 @@ export interface Photographer {
   priceMin: number;
   priceMax: number;
   location: string;
+  // Photographer's own registered service-coverage tier (from their
+  // approved PhotographerApplication.coverage_area) — separate from
+  // `location`, which is just their base address. Explore.tsx uses this
+  // to decide whether they should show up for an event location outside
+  // their base, since the platform's photographer roster is Bulan-based
+  // but clients can search any event location.
+  coverageArea?: "bulan_only" | "bulan_nearby" | "anywhere_sorsogon" | "travel_outside_sorsogon" | null;
   avatar: string;
   services: string[];
   about: string;

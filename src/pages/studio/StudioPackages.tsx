@@ -822,7 +822,6 @@ function CustomPackageDrawer({
 }) {
   const [baseFee, setBaseFee] = useState<number>(customConfig?.baseFee ?? 0);
   useEffect(() => setBaseFee(customConfig?.baseFee ?? 0), [customConfig?.baseFee]);
-  const baseFeeDirty = Number(baseFee) !== Number(customConfig?.baseFee ?? 0);
 
   // Extra time reserved after every custom-package booking (prep, travel,
   // equipment packing) — mirrors a fixed Package's buffer_minutes, but there's
@@ -845,12 +844,26 @@ function CustomPackageDrawer({
   useEffect(() => setMinHours(customConfig?.minHours ?? 1), [customConfig?.minHours]);
   const [maxHours, setMaxHours] = useState<number>(customConfig?.maxHours ?? 8);
   useEffect(() => setMaxHours(customConfig?.maxHours ?? 8), [customConfig?.maxHours]);
-  const hourlyDirty =
-    hourlyEnabled !== (customConfig?.hourlyRate != null)
+
+  // Base fee + sliding-hours rate now save together as one "Pricing" unit —
+  // splitting them into two Save buttons is what let a photographer end up
+  // with hourly pricing switched on but no rate set (or a base fee of 0
+  // while enabled), which is a booking-breaking combination.
+  const pricingDirty =
+    Number(baseFee) !== Number(customConfig?.baseFee ?? 0)
+    || hourlyEnabled !== (customConfig?.hourlyRate != null)
     || Number(hourlyRate) !== Number(customConfig?.hourlyRate ?? 0)
     || Number(minHours) !== Number(customConfig?.minHours ?? 1)
     || Number(maxHours) !== Number(customConfig?.maxHours ?? 8);
-  const hourlyRangeError = hourlyEnabled && Number(maxHours) < Number(minHours) ? "Max hours can't be less than min hours." : "";
+
+  const pricingError = (() => {
+    if (!customConfig?.enabled) return "";
+    if (!hourlyEnabled && (!Number(baseFee) || Number(baseFee) <= 0)) return "Base session fee is required while custom packages are enabled.";
+    if (hourlyEnabled && (!Number(hourlyRate) || Number(hourlyRate) <= 0)) return "Rate per hour is required and must be greater than 0 while sliding-hours pricing is on.";
+    if (hourlyEnabled && (!Number(minHours) || Number(minHours) <= 0)) return "Minimum coverage hours must be greater than 0.";
+    if (hourlyEnabled && Number(maxHours) < Number(minHours)) return "Maximum coverage hours can't be less than minimum coverage hours.";
+    return "";
+  })();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingFields, setEditingFields] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
@@ -873,15 +886,6 @@ function CustomPackageDrawer({
   }
   const flatOptions = components.filter((c) => c.type === "flat_option" && c.status !== "archived");
 
-  const saveBaseFee = async () => {
-    try {
-      await updateConfig.mutateAsync({ enabled: customConfig?.enabled ?? false, base_fee: Number(baseFee) || 0 });
-      toast({ title: "Base session fee updated." });
-    } catch (err) {
-      errToast(err, "Couldn't update the base fee.");
-    }
-  };
-
   const saveBufferMinutes = async () => {
     try {
       await updateConfig.mutateAsync({
@@ -895,19 +899,19 @@ function CustomPackageDrawer({
     }
   };
 
-  const saveHourlyPricing = async () => {
-    if (hourlyRangeError) return;
+  const savePricing = async () => {
+    if (pricingError) return;
     try {
       await updateConfig.mutateAsync({
         enabled: customConfig?.enabled ?? false,
-        base_fee: customConfig?.baseFee ?? null,
+        base_fee: hourlyEnabled ? null : Number(baseFee) || 0,
         hourly_rate: hourlyEnabled ? Number(hourlyRate) || 0 : null,
         min_hours: hourlyEnabled ? Number(minHours) || 1 : null,
         max_hours: hourlyEnabled ? Number(maxHours) || 8 : null,
       });
-      toast({ title: "Sliding-hours pricing updated." });
+      toast({ title: "Pricing updated." });
     } catch (err) {
-      errToast(err, "Couldn't update sliding-hours pricing.");
+      errToast(err, "Couldn't update pricing.");
     }
   };
 
@@ -1039,15 +1043,56 @@ function CustomPackageDrawer({
         <Switch checked={customConfig?.enabled ?? false} onCheckedChange={onToggleEnabled} />
       </div>
 
-      {/* Base fee */}
-      <div className="space-y-1.5">
-        <Label className="text-xs">Base Session Fee (₱)</Label>
-        <div className="flex items-center gap-2">
-          <Input type="number" className="h-9 text-sm flex-1" value={baseFee === 0 ? "" : baseFee} onChange={(e) => setBaseFee(e.target.value === "" ? 0 : Number(e.target.value))} />
-          <Button size="sm" variant={baseFeeDirty ? "default" : "outline"} className="h-9 text-xs gap-1" disabled={!baseFeeDirty || updateConfig.isPending} onClick={saveBaseFee}>
-            {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
-          </Button>
+      {/* Pricing: base fee + optional sliding-hours rate, saved together
+          so they can never end up out of sync with each other. */}
+      <div className="space-y-3 p-3 rounded-lg border border-border">
+        {!hourlyEnabled && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              Base Session Fee (₱) {customConfig?.enabled && <span className="text-destructive">*</span>}
+            </Label>
+            <Input type="number" className="h-9 text-sm" value={baseFee === 0 ? "" : baseFee} onChange={(e) => setBaseFee(e.target.value === "" ? 0 : Number(e.target.value))} />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-2 border-t border-border/50">
+          <div className="pt-1 pr-2">
+            <p className="text-sm font-semibold">Sliding-Hours Pricing</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Let clients drag a slider to pick their coverage hours instead of choosing a fixed duration option below.
+              Price = selected hours × rate per hour. No base fee applies in this mode.
+            </p>
+          </div>
+          <Switch checked={hourlyEnabled} onCheckedChange={setHourlyEnabled} />
         </div>
+
+        {hourlyEnabled && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px]">Rate per hour (₱) <span className="text-destructive">*</span></Label>
+              <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Minimum Coverage Hours <span className="text-destructive">*</span></Label>
+              <Input type="number" min={1} max={24} className="h-9 text-sm" value={minHours} onChange={(e) => setMinHours(Number(e.target.value) || 1)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Maximum Coverage Hours <span className="text-destructive">*</span></Label>
+              <Input type="number" min={1} max={24} className="h-9 text-sm" value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value) || 1)} />
+            </div>
+          </div>
+        )}
+        {pricingError && <p className="text-[11px] text-destructive">{pricingError}</p>}
+
+        <Button
+          size="sm"
+          variant={pricingDirty ? "default" : "outline"}
+          className="h-9 text-xs gap-1"
+          disabled={!pricingDirty || !!pricingError || updateConfig.isPending}
+          onClick={savePricing}
+        >
+          {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+        </Button>
       </div>
 
       {/* Buffer time */}
@@ -1062,47 +1107,6 @@ function CustomPackageDrawer({
             {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
           </Button>
         </div>
-      </div>
-
-      {/* Sliding-hours pricing */}
-      <div className="space-y-2 p-3 rounded-lg border border-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold">Sliding-Hours Pricing</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Let clients drag a slider to pick coverage length instead of choosing a fixed duration option below.
-            </p>
-          </div>
-          <Switch checked={hourlyEnabled} onCheckedChange={setHourlyEnabled} />
-        </div>
-
-        {hourlyEnabled && (
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            <div className="space-y-1">
-              <Label className="text-[11px]">Rate / hour (₱)</Label>
-              <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Number(e.target.value))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[11px]">Min hours</Label>
-              <Input type="number" min={1} max={24} className="h-9 text-sm" value={minHours} onChange={(e) => setMinHours(Number(e.target.value) || 1)} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[11px]">Max hours</Label>
-              <Input type="number" min={1} max={24} className="h-9 text-sm" value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value) || 1)} />
-            </div>
-          </div>
-        )}
-        {hourlyRangeError && <p className="text-[11px] text-destructive">{hourlyRangeError}</p>}
-
-        <Button
-          size="sm"
-          variant={hourlyDirty ? "default" : "outline"}
-          className="h-9 text-xs gap-1 mt-1"
-          disabled={!hourlyDirty || !!hourlyRangeError || updateConfig.isPending}
-          onClick={saveHourlyPricing}
-        >
-          {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
-        </Button>
       </div>
 
       {/* Tier groups — still configurable even when sliding-hours pricing
