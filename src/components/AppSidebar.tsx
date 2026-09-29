@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
-  Camera, LayoutDashboard, CalendarDays, CreditCard, 
+  Camera, Loader2, LayoutDashboard, CalendarDays, CreditCard, 
   Settings, BarChart3, FolderOpen, LogOut, Search, ImageIcon, 
   ShieldCheck, Sparkles, Star, Heart, Users, Trash2, ShieldAlert,
-  AlertTriangle, ClipboardList, Compass, HelpCircle 
+  AlertTriangle, ClipboardList, Compass, HelpCircle, ChevronDown, X
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
 import toast from "react-hot-toast"; 
@@ -130,62 +130,81 @@ const adminNav: NavCategory[] = [
   }
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function AppSidebar({ mobileOpen = false, onClose }: AppSidebarProps) {
   const { user, role, logout } = useRole();
   const navigate = useNavigate();
   
   // State to control modal visibility
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
-
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
   const navCategories = role === "admin" ? adminNav : role === "studio" ? studioNav : clientNav;
 
   const confirmLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    const toastId = toast.loading("Logging out…");
+
     try {
       await logout();
+      toast.success("Successfully logged out. See you next time!", { id: toastId });
       setIsLogoutModalOpen(false);
-      navigate("/login");
-      toast.success("Successfully logged out. See you next time!");
+      navigate("/login", { replace: true });
     } catch (error) {
-      toast.error("Failed to sign out. Please try again.");
+      toast.error("Failed to sign out. Please try again.", { id: toastId });
+      setIsLoggingOut(false);
     }
   };
 
   return (
     <>
-      <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-card shrink-0">
-        {/* Brand Header */}
-        <div className="h-16 flex items-center gap-2.5 px-6 border-b border-border">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <Camera className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-heading font-semibold text-lg tracking-tight">SnapBook</span>
-        </div>
-
-        {/* Dynamic Role Badge */}
-        {role && (
-          <div className="px-4 pt-4 pb-1">
-            <div className="px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/10 text-xs font-medium text-primary text-center">
-              {role === "studio" ? "Booking Management" : role === "admin" ? "Platform Control" : "Client Dashboard"}
-            </div>
-          </div>
+      {/* Mobile overlay */}
+      <div
+        onClick={onClose}
+        aria-hidden="true"
+        className={cn(
+          "fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden transition-opacity duration-300",
+          mobileOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
+      />
 
-        {/* Global Quick Search */}
-        <div className="px-4 py-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted text-muted-foreground text-sm cursor-pointer hover:bg-muted/80 transition-all">
-            <Search className="w-4 h-4" />
-            <span>Quick Search…</span>
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-64 flex flex-col border-r border-border bg-card shrink-0",
+          "transition-transform duration-300 ease-in-out",
+          "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:z-auto",
+          mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+        )}
+      >
+        {/* Brand Header */}
+        <div className="h-16 flex items-center justify-between gap-2.5 px-6 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <Camera className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className="font-heading font-semibold text-lg tracking-tight">SnapBook</span>
           </div>
+          <button
+            onClick={onClose}
+            className="lg:hidden w-8 h-8 rounded-lg flex items-center justify-center hover:bg-muted transition-colors"
+            aria-label="Close navigation menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-
         {/* Categorized Navigation Menu Group */}
-        <nav className="flex-1 px-3 space-y-5 overflow-y-auto scrollbar-none pb-4">
+                <nav className="flex-1 min-h-0 px-3 pt-3 pb-2 space-y-2.5 overflow-y-auto scrollbar-none">
           {navCategories.map((category) => (
-            <div key={category.title} className="space-y-1">
-              <p className="px-3 text-[10px] font-bold text-muted-foreground/60 tracking-wider">
+            <div key={category.title} className="space-y-0.5">
+              <p className="px-3 text-[10px] leading-4 font-bold text-muted-foreground/60 tracking-wider">
                 {category.title}
               </p>
-              
+
               <div className="space-y-0.5">
                 {category.items.map((item) => (
                   <NavLink
@@ -194,14 +213,14 @@ export function AppSidebar() {
                     end={item.to === "/dashboard" || item.to === "/studio" || item.to === "/admin"}
                     className={({ isActive }) =>
                       cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors",
                         isActive
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )
                     }
                   >
-                    <item.icon className="w-[18px] h-[18px]" />
+                    <item.icon className="w-4 h-4" />
                     {item.label}
                   </NavLink>
                 ))}
@@ -211,9 +230,9 @@ export function AppSidebar() {
         </nav>
 
         {/* User Footer Profile */}
-        <div className="p-4 border-t border-border space-y-3">
+        <div className="p-3 border-t border-border space-y-2">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
+            <div className="w-8 h-8 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
               {getInitials(user?.name)}
             </div>
             <div className="min-w-0 flex-1">
@@ -223,7 +242,7 @@ export function AppSidebar() {
           </div>
           <button
             onClick={() => setIsLogoutModalOpen(true)}
-            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[13px] text-destructive hover:bg-destructive/10 transition-colors"
           >
             <LogOut className="w-4 h-4" />
             Sign out
@@ -233,7 +252,7 @@ export function AppSidebar() {
 
       {/* LOGOUT CONFIRMATION MODAL */}
       {isLogoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-card border border-border/50 rounded-2xl shadow-xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200 m-4">
             <div className="flex flex-col items-center text-center space-y-4">
               <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center text-destructive">
@@ -250,15 +269,24 @@ export function AppSidebar() {
             <div className="flex gap-3 mt-6">
               <button 
                 onClick={() => setIsLogoutModalOpen(false)}
-                className="flex-1 px-4 py-2 rounded-xl border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors"
+                disabled={isLoggingOut}
+                className="flex-1 px-4 py-2 rounded-xl border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button 
                 onClick={confirmLogout}
-                className="flex-1 px-4 py-2 rounded-xl bg-destructive text-destructive-foreground text-sm font-semibold hover:bg-destructive/90 transition-colors"
+                disabled={isLoggingOut}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-destructive text-destructive-foreground text-sm font-semibold hover:bg-destructive/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Sign Out
+                {isLoggingOut ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Signing out…
+                  </>
+                ) : (
+                  "Sign Out"
+                )}
               </button>
             </div>
           </div>

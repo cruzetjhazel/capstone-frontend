@@ -18,7 +18,7 @@ import {
   ArrowLeft, Calendar, User, Package, Mail,
   FileText, AlertTriangle, Loader2, Phone,
   Wand2, Check, Camera, MapPin, Users,
-  CreditCard, X, DollarSign, AlertCircle, PackageCheck
+  CreditCard, X, DollarSign, AlertCircle, PackageCheck, Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
@@ -33,11 +33,15 @@ import {
   useRejectCancellation,
   useApproveReschedule,
   useRejectReschedule,
+  useApproveExtension,
+  useDeclineExtension,
   useUpdateServiceTracker,
   useMarkServiceCompleted,
   useRecordOnsitePayment,
   useAccommodationCandidates,
   useAccommodateBooking,
+  useReportClientNoShow,
+  useDisputeStudioNonCompletion,
 } from "@/hooks/usePhotographerBookings";
 import { usePayments, useVerifyPayment, useRejectPayment } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
@@ -55,7 +59,7 @@ function isPendingHoldExpired(b: StudioBookingRecord): boolean {
 export default function StudioBookingDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { role, isLoading: roleLoading } = useRole();
+  const { user, role, isLoading: roleLoading } = useRole();
   const { toast } = useToast();
 
   const { data: booking, isLoading, error, refetch } = usePhotographerBooking(id);
@@ -65,8 +69,14 @@ export default function StudioBookingDetail() {
   const rejectCancelMutation = useRejectCancellation();
   const approveRescheduleMutation = useApproveReschedule();
   const rejectRescheduleMutation = useRejectReschedule();
+  const approveExtensionMutation = useApproveExtension();
+  const declineExtensionMutation = useDeclineExtension();
   const trackerMutation = useUpdateServiceTracker();
   const completeMutation = useMarkServiceCompleted();
+  const reportNoShowMutation = useReportClientNoShow();
+  const disputeMutation = useDisputeStudioNonCompletion();
+  const [disputeText, setDisputeText] = useState("");
+  const [showDispute, setShowDispute] = useState(false);
   const onsitePaymentMutation = useRecordOnsitePayment();
   const accommodateMutation = useAccommodateBooking();
 
@@ -376,6 +386,47 @@ export default function StudioBookingDetail() {
             </div>
           )}
 
+          {booking.hasPendingExtension && booking.extensions.filter((e) => e.status === "pending").map((ext) => (
+            <div key={ext.id} className="bg-violet-500/10 p-5 rounded-xl border border-violet-500/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-violet-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-violet-800 dark:text-violet-300">
+                    Client Requested Additional Coverage{ext.scheduleLabel ? ` — ${ext.scheduleLabel}` : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    +{ext.requestedHours} hour{ext.requestedHours === 1 ? "" : "s"} at ₱{ext.hourlyRate.toLocaleString()}/hour —
+                    additional charge <strong>₱{ext.additionalCharge.toLocaleString()}</strong>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {ext.scheduleLabel
+                      ? `This targets the "${ext.scheduleLabel}" schedule specifically, not the booking's other dates.`
+                      : `The client's booked coverage ends at ${booking.endTime}.`} Accepted additional hours will be
+                    charged at your configured hourly rate.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0 self-end sm:self-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={declineExtensionMutation.isPending}
+                  onClick={() => declineExtensionMutation.mutateAsync({ id: booking.id, extensionId: ext.id })}
+                >
+                  Decline
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  disabled={approveExtensionMutation.isPending}
+                  onClick={() => approveExtensionMutation.mutateAsync({ id: booking.id, extensionId: ext.id })}
+                >
+                  Approve Extension
+                </Button>
+              </div>
+            </div>
+          ))}
+
           {booking.pendingModification && (
             <div className="bg-amber-500/10 p-5 rounded-xl border border-amber-500/30 flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -487,6 +538,32 @@ export default function StudioBookingDetail() {
                 <BookingTracker currentStage={trackerStage} />
               </div>
 
+              {booking.serviceStatus !== "editing" && booking.serviceStatus !== "delivered" &&
+                new Date(`${booking.date}T${booking.startTime}`) < new Date() && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
+                  <p className="text-xs text-emerald-800/80 dark:text-emerald-400/80">
+                    Client didn't show up? Report it. They'll have 48 hours to dispute.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-8 text-xs shrink-0"
+                    disabled={reportNoShowMutation.isPending}
+                    onClick={() =>
+                      reportNoShowMutation.mutate(
+                        { id: booking.id },
+                        {
+                          onSuccess: () => toast({ title: "No-show reported", description: "The client has 48 hours to dispute this." }),
+                          onError: (e) => toast({ title: "Something went wrong", description: getApiErrorMessage(e), variant: "destructive" as never }),
+                        }
+                      )
+                    }
+                  >
+                    {reportNoShowMutation.isPending ? "Reporting…" : "Report client no-show"}
+                  </Button>
+                </div>
+              )}
+
               {booking.serviceStatus === "delivered" && (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
                   <p className="text-xs text-emerald-800/80 dark:text-emerald-400/80">
@@ -523,7 +600,13 @@ export default function StudioBookingDetail() {
               <div className="flex items-start gap-3">
                 <X className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-destructive">Booking Cancelled</p>
+                  <p className="text-sm font-semibold text-destructive">
+                    {booking.nonCompletionReason === "photographer_no_show"
+                      ? "Not Completed — You Did Not Attend"
+                      : booking.nonCompletionReason === "client_no_show"
+                      ? "Not Completed — Client No-Show"
+                      : "Booking Cancelled"}
+                  </p>
                   {(booking.cancellationReason || booking.rejectionReason) && (
                     <p className="text-xs text-muted-foreground mt-0.5">"{booking.cancellationReason || booking.rejectionReason}"</p>
                   )}
@@ -531,6 +614,58 @@ export default function StudioBookingDetail() {
                     <p className="text-xs text-muted-foreground mt-1">
                       {candidates.length} other client{candidates.length > 1 ? "s" : ""} previously requested this same date and time.
                     </p>
+                  )}
+
+                  {booking.nonCompletionReason && (
+                    <div className="mt-2 space-y-2">
+                      {booking.nonCompletionState === "open" && booking.nonCompletionReportedBy !== Number(user?.id) && (
+                        <>
+                          <p className="text-xs text-muted-foreground">
+                            You can dispute this until {booking.nonCompletionDeadline ? new Date(booking.nonCompletionDeadline).toLocaleString() : "the deadline"}.
+                          </p>
+                          {!showDispute ? (
+                            <Button size="sm" variant="outline" onClick={() => setShowDispute(true)}>Dispute this report</Button>
+                          ) : (
+                            <div className="space-y-2">
+                              <textarea
+                                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                                rows={3}
+                                placeholder="Explain why this report is incorrect (min 10 characters)"
+                                value={disputeText}
+                                onChange={(e) => setDisputeText(e.target.value)}
+                              />
+                              <Button
+                                size="sm"
+                                disabled={disputeText.trim().length < 10 || disputeMutation.isPending}
+                                onClick={() =>
+                                  disputeMutation.mutate(
+                                    { id: booking.id, reason: disputeText.trim() },
+                                    {
+                                      onSuccess: () => {
+                                        setShowDispute(false);
+                                        setDisputeText("");
+                                        toast({ title: "Dispute submitted", description: "An admin will review this case." });
+                                      },
+                                      onError: (e) => toast({ title: "Something went wrong", description: getApiErrorMessage(e), variant: "destructive" as never }),
+                                    }
+                                  )
+                                }
+                              >
+                                {disputeMutation.isPending ? "Submitting…" : "Submit dispute"}
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {booking.nonCompletionState === "open" && booking.nonCompletionReportedBy === Number(user?.id) && (
+                        <p className="text-xs text-muted-foreground">
+                          The client can dispute until {booking.nonCompletionDeadline ? new Date(booking.nonCompletionDeadline).toLocaleString() : "the deadline"}. If they don't, it stays Not Completed.
+                        </p>
+                      )}
+                      {booking.nonCompletionState === "disputed" && <p className="text-xs text-muted-foreground">Disputed — awaiting admin review.</p>}
+                      {booking.nonCompletionState === "upheld" && <p className="text-xs text-muted-foreground">An admin upheld the no-show report.</p>}
+                      {booking.nonCompletionState === "final" && <p className="text-xs text-muted-foreground">The dispute period has ended. This booking is Not Completed.</p>}
+                    </div>
                   )}
                 </div>
               </div>
@@ -595,6 +730,23 @@ export default function StudioBookingDetail() {
                     <span className="col-span-2 font-medium flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-primary" /> {booking.guestCount} Guests
                     </span>
+                  </div>
+                )}
+                {booking.schedules && booking.schedules.length > 1 && (
+                  <div className="pt-2 mt-2 border-t border-border/30 space-y-2">
+                    <span className="text-xs font-semibold text-muted-foreground">Additional Sessions (same booking, same package)</span>
+                    {booking.schedules.filter((s) => !s.isPrimary).map((s) => (
+                      <div key={s.id} className="text-xs pl-1">
+                        <span className="font-medium">{s.label}</span> — {s.eventDate}, {s.startTime}
+                        {s.endTime ? ` – ${s.endTime}` : " · end time to be confirmed"}
+                        <div className="text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3 h-3" />
+                          {s.locationType
+                            ? [s.eventAddress, s.locationLabel].filter(Boolean).join(", ") || s.locationType.replace(/_/g, " ")
+                            : "Same location as the booking"}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -663,6 +815,27 @@ export default function StudioBookingDetail() {
                           requests additional coverage, you may accept or decline — accepted hours are billed
                           separately at this rate.
                         </p>
+                        {booking.extensions.filter((e) => e.status === "approved").length > 0 && (
+                          <div className="pt-2 mt-1 border-t border-border/30 space-y-1.5">
+                            <p className="text-[11px] font-semibold text-foreground">Approved Extensions</p>
+                            {booking.extensions.filter((e) => e.status === "approved").map((ext) => (
+                              <div key={ext.id} className="text-[11px] space-y-0.5">
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Additional Coverage</span>
+                                  <span className="font-medium">+{ext.requestedHours} hour{ext.requestedHours === 1 ? "" : "s"}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Additional Charge</span>
+                                  <span className="font-medium">₱{ext.additionalCharge.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">New Scheduled End</span>
+                                  <span className="font-medium">{ext.newEndTime}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div className="flex justify-between items-center">
@@ -940,9 +1113,10 @@ export default function StudioBookingDetail() {
                 <label className="text-xs font-semibold text-foreground">Payment Amount Received (₱)</label>
                 <input
                   type="number"
+                  min={0}
                   value={onsitePaymentInput}
-                  onChange={(e) => setOnsitePaymentInput(Number(e.target.value))}
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  onChange={(e) => setOnsitePaymentInput(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
             </div>

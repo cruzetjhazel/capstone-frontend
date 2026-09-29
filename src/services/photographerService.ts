@@ -28,6 +28,8 @@ interface RawPhotographerProfile {
     website: string | null;
   };
   phone: string | null;
+  years_active?: number | null;
+  shooting_types?: string[] | null;
   email: string | null;
   portfolio: Array<{ url?: string; image_url?: string; path?: string } | string>;
   packages: Array<Record<string, unknown>>;
@@ -63,12 +65,21 @@ interface RawCustomPackage {
   config: {
     enabled: boolean;
     base_fee: number | string | null;
+    base_hours?: number | null;
     // Optional sliding-hours pricing — see PublicCustomPackageConfigResource.php.
     // Null/absent means this photographer only offers the discrete duration-
     // component picker (unchanged existing behavior).
     hourly_rate?: number | string | null;
     min_hours?: number | null;
     max_hours?: number | null;
+    allows_multiple_sessions?: boolean;
+    max_sessions?: number | null;
+    base_fee_mode?: "once" | "per_schedule" | null;
+    // Stage 1 additions (used by the client page in Stage 2).
+    pricing_model?: "fixed" | "hourly" | "per_day" | "per_person";
+    unit_rate?: number | string | null;
+    coverage_hours?: number | null;
+    max_people?: number | null;
   };
   // Confirmed against PublicCustomPackageComponentResource.php — it actually sends
   // type + tier_name too, previously dropped when flattened into `extras` below.
@@ -84,13 +95,19 @@ interface RawCustomPackage {
   }>;
 }
 
-function unwrapList<T>(data: T[] | { data: T[] }): T[] {
-  return Array.isArray(data) ? data : data.data;
+// The API layer's response typing varies (raw array, { data: [...] }, or an
+// axios-style payload), so these helpers accept anything and check the shape
+// at runtime instead of forcing callers to cast.
+function unwrapList<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data as T[];
+  const inner = (data as { data?: unknown } | null | undefined)?.data;
+  return Array.isArray(inner) ? (inner as T[]) : [];
 }
 
-function unwrapApiData<T>(value: T | { data?: T }): T {
-  if (typeof value === "object" && value !== null && "data" in value && value.data !== undefined) {
-    return value.data as T;
+function unwrapApiData<T>(value: unknown): T {
+  if (typeof value === "object" && value !== null && "data" in value) {
+    const inner = (value as { data?: unknown }).data;
+    if (inner !== undefined) return inner as T;
   }
   return value as T;
 }
@@ -119,21 +136,26 @@ function normalizePackage(raw: Record<string, unknown>) {
   const durationMinutes = raw.duration_minutes != null ? toNumber(raw.duration_minutes) : undefined;
   return {
     id: toNumber(raw.id),
+    allowsMultipleSessions: Boolean(raw.allows_multiple_sessions),
+    maxSessions: raw.max_sessions != null ? toNumber(raw.max_sessions) : null,
     name: String(raw.name ?? raw.title ?? "Package"),
     price: toNumber(raw.price ?? raw.base_price),
-    hours: durationMinutes != null ? durationMinutes / 60 : toNumber(raw.hours ?? raw.duration_hours, 1),
+    // null = duration left open by the photographer; never invent a default.
+    hours: durationMinutes != null ? durationMinutes / 60 : null,
+    // 'open' = start time only; the length above is informational and never blocks time.
+    scheduleMode: raw.schedule_mode === "open" ? ("open" as const) : ("timed" as const),
     photos: toNumber(raw.photos ?? raw.photo_count),
     description: String(raw.description ?? raw.desc ?? ""),
     // `included_items` is the real field name from PackageResource; the others are kept as
     // fallbacks in case this is ever fed a differently-shaped source.
     inclusions: Array.isArray(raw.included_items)
-      ? (raw.included_items as string[])
+      ? (raw.included_items as { name: string; detail: string }[])
       : Array.isArray(raw.inclusions)
-        ? (raw.inclusions as string[])
+        ? (raw.inclusions as { name: string; detail: string }[])
         : Array.isArray(raw.features)
-          ? (raw.features as string[])
+          ? (raw.features as { name: string; detail: string }[])
           : [],
-    duration_minutes: durationMinutes ?? toNumber(raw.hours ?? raw.duration_hours, 1) * 60,
+    duration_minutes: durationMinutes ?? null,
     buffer_minutes: toNumber(raw.buffer_minutes, 0),
   };
 }
@@ -233,6 +255,8 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
       website: raw.social_links?.website ?? undefined,
     },
     phone: raw.phone ?? undefined,
+    yearsActive: raw.years_active ?? null,
+    shootingTypes: raw.shooting_types ?? [],
     email: raw.email ?? undefined,
 
     // PublicProfile extras
@@ -252,7 +276,7 @@ export const photographerService = {
   /** Public explore listing — approved profiles only. */
   async list(params?: PhotographerListParams): Promise<PublicProfile[]> {
     const { data } = await photographerApi.list({ ...params, status: "approved" });
-    return unwrapList<RawPhotographerProfile>(data as RawPhotographerProfile[]).map(normalizeProfile);
+    return unwrapList<RawPhotographerProfile>(data).map(normalizeProfile);
   },
 
   /** Public profile detail — approved only. */
@@ -268,7 +292,7 @@ export const photographerService = {
         try {
           const { data: reviewsResponse } = await photographerApi.getReviews(id);
           const reviewsPayload = unwrapApiData<RawReview[] | { data?: RawReview[] }>(reviewsResponse);
-          const reviewList = unwrapReviews(reviewsPayload as RawPhotographerProfile["reviews"]).map(normalizeReview);
+          const reviewList = unwrapReviews(reviewsPayload).map(normalizeReview);
           profile.reviewList = reviewList;
           if (profile.reviews === 0) profile.reviews = reviewList.length;
           if (profile.rating === 0 && reviewList.length > 0) {
@@ -286,8 +310,17 @@ export const photographerService = {
           ...profile.customRates,
           baseFee: raw.config.enabled ? toNumber(raw.config.base_fee, defaultCustomRates.baseFee) : defaultCustomRates.baseFee,
           hourlyRate: raw.config.enabled && raw.config.hourly_rate != null ? toNumber(raw.config.hourly_rate) : null,
-          minHours: raw.config.enabled ? (raw.config.min_hours ?? null) : null,
+          baseHours: raw.config.enabled ? (raw.config.base_hours ?? null) : null,
+          // The slider can't start below the hours the base fee already covers.
+          minHours: raw.config.enabled
+            ? Math.max(raw.config.min_hours ?? 1, raw.config.base_hours ?? 1)
+            : null,
           maxHours: raw.config.enabled ? (raw.config.max_hours ?? null) : null,
+          allowsMultipleSessions:
+            raw.config.enabled && raw.config.hourly_rate != null && !!raw.config.allows_multiple_sessions,
+          maxSessions: raw.config.enabled ? (raw.config.max_sessions ?? null) : null,
+          baseFeeMode: raw.config.enabled ? (raw.config.base_fee_mode ?? null) : null,
+          sessionMinHours: raw.config.enabled ? (raw.config.min_hours ?? 1) : null,
           extras: raw.config.enabled
             ? raw.components.map((c) => ({
                 id: String(c.id),
@@ -318,7 +351,7 @@ export const photographerService = {
   /** Homepage featured studios ranked by popularity/favorites (backend already sorts + limits to 5). */
   async featured(): Promise<PublicProfile[]> {
     const { data } = await photographerApi.featured();
-    return unwrapList<RawPhotographerProfile>(data as RawPhotographerProfile[])
+    return unwrapList<RawPhotographerProfile>(data)
       .map(normalizeProfile)
       .filter(isApprovedProfile);
   },

@@ -1,31 +1,36 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, ArrowRight, Check, Calendar as CalendarIcon,
+  ArrowLeft, ArrowRight, Check,
   ChevronLeft, Sparkles, Wand2, Package as PackageIcon, Info, Clock, MapPin,
-  LogIn, Lock, Loader2, X
+  LogIn, Lock, Loader2, X, CalendarPlus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
-  formatPrice, defaultCustomRates, type Photographer, type CustomRates,
+  formatPrice, defaultCustomRates, inclusionText, type Photographer, type CustomRates,
 } from "@/data/photographers";
 import { usePhotographer, usePhotographers } from "@/hooks/usePhotographers";
-import { useMonthAvailability, useAvailableStartTimes } from "@/hooks/usePhotographerAvailability";
+import { useMonthAvailability, useAvailableStartTimes, availableStartTimesQuery } from "@/hooks/usePhotographerAvailability";
 import { useClientProfile } from "@/hooks/useClientProfile";
-import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
 import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
+import {
+  SessionLocationFields, emptySessionLocation, isSessionLocationComplete, sessionLocationPayload,
+  type SessionLocation,
+} from "@/components/SessionLocationFields";
 
-const steps = ["Date & Time", "Event Info", "Package", "Add-ons", "Review"];
+const steps = ["Date & Time", "Details", "Package & Add-ons", "Review"];
 
 // Flat platform fee added to every booking on top of the package/add-on
 // subtotal — mirrors config/platform.php's PLATFORM_FEE on the backend
@@ -36,8 +41,8 @@ const PLATFORM_FEE = 30;
 
 // Strictly mapped to SRS Section 7.11
 const systemEventTypes = [
-  "Wedding", "Birthday", "Prenup", "Graduation", 
-  "Portrait", "Corporate Event", "Product Photography", 
+  "Wedding", "Birthday", "Prenup", "Graduation",
+  "Portrait", "Corporate Event", "Product Photography",
   "Family Event", "Other"
 ];
 
@@ -54,6 +59,24 @@ function makeDefaultBuild(): CustomBuild {
   return { selectedExtraIds: [] };
 }
 
+// Sliding-hours pricing across sessions — mirrors CreateBookingAction::
+// resolveCustomPackage. Every session is priced from its OWN hours, never as
+// one continuous span. "once": base fee (covering baseHours) charged once for
+// the whole booking; "per_schedule": each session gets its own base fee.
+function calculateSlidingSessionCharges(r: CustomRates, hoursPerSession: number[]): number[] {
+  const rate = r.hourlyRate ?? 0;
+  if (r.baseHours == null) return hoursPerSession.map((h) => rate * h);
+  if (r.baseFeeMode === "once") {
+    let remaining = r.baseHours;
+    return hoursPerSession.map((h, i) => {
+      const billable = Math.max(0, h - remaining);
+      remaining = Math.max(0, remaining - h);
+      return (i === 0 ? r.baseFee : 0) + billable * rate;
+    });
+  }
+  return hoursPerSession.map((h) => r.baseFee + Math.max(0, h - (r.baseHours as number)) * rate);
+}
+
 function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | null): number {
   // Sliding-hours mode: price scales off hours instead of a picked duration
   // extra — mirrors CreateBookingAction::resolveCustomPackage's hourly
@@ -64,6 +87,11 @@ function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | n
     const flatExtrasPrice = (r.extras ?? [])
       .filter((e) => b.selectedExtraIds.includes(e.id) && (e as any).durationMinutes == null)
       .reduce((sum, e) => sum + e.price, 0);
+    // Base fee covers baseHours; each extra hour is billed at hourlyRate.
+    // No baseHours = older "hours x rate" configs.
+    if (r.baseHours != null) {
+      return r.baseFee + Math.max(0, hours - r.baseHours) * r.hourlyRate + flatExtrasPrice;
+    }
     return r.hourlyRate * hours + flatExtrasPrice;
   }
 
@@ -73,12 +101,137 @@ function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | n
   return r.baseFee + extrasPrice;
 }
 
+// One additional photography session belonging to THIS booking's single
+// package/service — not a separate event. Separate services are separate
+// bookings.
+type SessionDraft = {
+  key: string;
+  label: string;
+  date: string;
+  startTime: string;
+  // "" = use the package's duration if it has one, otherwise "to be
+  // confirmed". We never invent a length for a session.
+  durationHours: string;
+  ownLocation: boolean;
+  location: SessionLocation;
+  // true = this is just another day of the SAME event (e.g. a 2-day
+  // wedding) — same venue, no separate description needed. false = a
+  // genuinely different session (e.g. a graduation's second batch),
+  // which keeps its own description and can have its own location.
+  sameEvent: boolean;
+};
+
+const toYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const fromYmd = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const fmt12 = (t: string) => { const [hh, mm] = t.split(":").map(Number); return `${hh % 12 || 12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`; };
+const toMinutes = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
+function SessionDateField({ photographerId, packageId, customDurationMinutes, sessionDurationMinutes, value, onPick }: {
+  photographerId?: string; packageId?: number; customDurationMinutes?: number; sessionDurationMinutes?: number;
+  value: string; onPick: (ymd: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = value ? fromYmd(value) : undefined;
+  const [viewMonth, setViewMonth] = useState<Date>(selected ?? new Date());
+  const monthStr = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, "0")}`;
+  const { data: month, isFetching } = useMonthAvailability(photographerId, monthStr, packageId, customDurationMinutes, sessionDurationMinutes);
+
+  const statusOf = (d: Date): "past" | "booked" | "partial" | "available" | "unknown" => {
+    const today = new Date(new Date().setHours(0, 0, 0, 0));
+    if (d < today) return "past";
+    const st = month?.[toYmd(d)] as string | undefined;
+    if (st === "unavailable" || st === "booked" || st === "fully_booked") return "booked";
+    if (st === "partial" || st === "partially_booked") return "partial";
+    if (st === "available") return "available";
+    return "unknown"; // fail closed until the backend answers
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-left flex items-center justify-between">
+          <span className={selected ? "" : "text-muted-foreground"}>
+            {selected ? selected.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Select date"}
+          </span>
+          <CalendarPlus className="w-4 h-4 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" align="start">
+        <Calendar
+          mode="single" selected={selected} month={viewMonth} onMonthChange={setViewMonth}
+          onSelect={(d) => { if (d) { onPick(toYmd(d)); setOpen(false); } }}
+          disabled={(d) => { const s = statusOf(d); return s === "past" || s === "booked" || s === "unknown"; }}
+          modifiers={{ booked: (d) => statusOf(d) === "booked", partial: (d) => statusOf(d) === "partial" }}
+          modifiersClassNames={{
+            booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
+            partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
+          }}
+          className="pointer-events-auto" showOutsideDays
+        />
+        <p className="text-[11px] text-muted-foreground px-2 pb-1 flex items-center gap-1.5">
+          {isFetching ? <><Loader2 className="w-3 h-3 animate-spin" /> Checking availability…</> : "Struck-through dates are fully booked or blocked."}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SessionTimeSlots({ date, startTime, times, loading, isTaken, onPick }: {
+  date: string; startTime: string; times: string[]; loading: boolean;
+  isTaken: (t: string) => boolean; onPick: (t: string) => void;
+}) {
+  if (!date) return <p className="text-xs text-muted-foreground">Pick a date to see the photographer's open start times.</p>;
+  if (loading) return (
+    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking available times…
+    </p>
+  );
+  const sorted = [...times].map((t) => t.slice(0, 5)).sort();
+  if (sorted.length === 0) return (
+    <p className="text-xs text-destructive">No start times are open on this date for this session's length. Please choose another date.</p>
+  );
+  const groups = [
+    { label: "Morning", items: sorted.filter((t) => Number(t.slice(0, 2)) < 12) },
+    { label: "Afternoon / evening", items: sorted.filter((t) => Number(t.slice(0, 2)) >= 12) },
+  ].filter((g) => g.items.length > 0);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">Available start times ({sorted.length} open)</p>
+      {groups.map((g) => (
+        <div key={g.label}>
+          <p className="text-[11px] font-medium text-muted-foreground mb-1">{g.label}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {g.items.map((t) => {
+              const taken = isTaken(t);
+              return (
+                <button
+                  key={t} type="button" disabled={taken}
+                  title={taken ? "Already used by another schedule in this booking" : undefined}
+                  onClick={() => onPick(t)}
+                  className={cn(
+                    "px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                    startTime === t ? "border-primary bg-primary text-primary-foreground" : "border-border hover:border-primary/50",
+                    taken && "opacity-40 cursor-not-allowed line-through hover:border-border"
+                  )}
+                >
+                  {fmt12(t)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Booking() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, role } = useRole();
-  const { toast } = useToast();
   // phone_number isn't on RoleContext's User (that's just the account-level
   // /auth/me shape) — it lives on the client profile record instead.
   const { data: clientProfile } = useClientProfile();
@@ -86,6 +239,14 @@ export default function Booking() {
   const { data: photographer, isLoading: loadingPhotographer } = usePhotographer(id);
   const { data: allPhotographers = [] } = usePhotographers();
   const rates = photographer?.customRates ?? defaultCustomRates;
+
+  // Extra sessions on a custom package: sliding-hours only, and only when the
+  // photographer turned it on AND chose how the base fee applies.
+  const customAllowsMultiple =
+    rates.hourlyRate != null && !!rates.allowsMultipleSessions;
+  const extraSessionMinHours =
+    rates.baseFeeMode === "per_schedule" ? (rates.minHours ?? 1) : (rates.sessionMinHours ?? 1);
+  const extraSessionMaxHours = rates.maxHours ?? 12;
 
   const initialPkgParam = searchParams.get("package");
   const initialPkg = initialPkgParam !== null ? parseInt(initialPkgParam) : -1;
@@ -107,10 +268,6 @@ export default function Booking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates.hourlyRate]);
 
-  // Moved up from further down in this component (it originally lived after
-  // the loading/not-found early-returns below) — needed here, pre-return,
-  // because it now feeds the custom-duration availability revalidation hook
-  // a few lines down, and hooks can't follow a conditional return.
   // A duration-bearing extra counts as "selected" either because the client
   // explicitly picked it, or — just like the tier pill UI itself shows via
   // isTierOptionActive further down — because it's the free/baseline option
@@ -128,10 +285,39 @@ export default function Booking() {
   // Date & event details
   const [date, setDate] = useState<Date | undefined>();
   const [startTime, setStartTime] = useState("");
-  
+
+  // Additional photography sessions — see CreateBookingRequest.php's
+  // additional_schedules field. The primary date/startTime above is always
+  // Session 1. Extra sessions are only offered when the photographer has a
+  // package that explicitly allows multiple sessions, and the selected
+  // package must allow them too (validated in the Package step).
+  const [showMultiSchedule, setShowMultiSchedule] = useState(false);
+  const [additionalSchedules, setAdditionalSchedules] = useState<SessionDraft[]>([]);
+
+  const addAdditionalSchedule = (sameEvent: boolean = true) =>
+    setAdditionalSchedules((prev) => [
+      ...prev,
+      {
+        key: `sched-${Date.now()}-${prev.length}`,
+        label: "", date: "", startTime: "", durationHours: "",
+        ownLocation: false, location: emptySessionLocation(),
+        sameEvent,
+      },
+    ]);
+  const removeAdditionalSchedule = (key: string) =>
+    setAdditionalSchedules((prev) => prev.filter((s) => s.key !== key));
+  // Sliding-hours custom packages: coverage hours are chosen PER session in the
+  // Package step (keyed by the session's key). The first session uses customHours.
+  const [sessionCustomHours, setSessionCustomHours] = useState<Record<string, number>>({});
+  const setSessionHours = (key: string, hours: number) =>
+    setSessionCustomHours((prev) => ({ ...prev, [key]: hours }));
+
+  const updateAdditionalSchedule = (key: string, patch: Partial<SessionDraft>) =>
+    setAdditionalSchedules((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+
   const [eventType, setEventType] = useState("");
-  const [specificEventType, setSpecificEventType] = useState(""); 
-  
+  const [specificEventType, setSpecificEventType] = useState("");
+
   // Refined Location State (Section 7.12)
   const [locationType, setLocationType] = useState(locationTypes[0]);
   const [eventAddress, setEventAddress] = useState(""); // "Specific Address / Venue"
@@ -161,7 +347,7 @@ export default function Booking() {
     if (cityMunicipalityId == null) return;
     locationService.getBarangays(cityMunicipalityId).then(setBarangays).catch(() => setBarangays([]));
   }, [cityMunicipalityId]);
-  
+
   const [guestCount, setGuestCount] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -189,6 +375,9 @@ export default function Booking() {
   // which isn't tied to any actual photographer or backend row.
   const photographerAddOns = (p as any)?.addOns ?? [];
   const pkg = p && selectedPkg >= 0 ? p.packages[selectedPkg] ?? null : null;
+  // Only offer extra sessions when at least one package of this photographer
+  // allows them.
+  const multiSessionPackages = (p?.packages ?? []).filter((pk) => pk.allowsMultipleSessions);
 
   const dateStr = date
     ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
@@ -204,14 +393,11 @@ export default function Booking() {
   // and again by the backend at submission.
   //
   // NOTE: this depends on Package objects carrying a real numeric `id` —
-  // see the `id?: number` field added to the Package interface in
-  // photographers.ts. If photographerService.ts doesn't populate that id
-  // from the backend response, this will stay undefined and the calendar
-  // below will silently stop reflecting real availability.
+  // see the `id?: number` field on the Package interface in photographers.ts.
   const candidatePkg =
     selectedPkg >= 0 ? p?.packages[selectedPkg]
     : initialPkg >= 0 ? p?.packages[initialPkg]
-    : p?.packages[0];
+    : undefined; // no package chosen yet → the server offers start times that are free at that moment
   const calendarPackageId: number | undefined = candidatePkg?.id;
 
   const [viewMonth, setViewMonth] = useState<Date>(new Date());
@@ -225,10 +411,7 @@ export default function Booking() {
 
   // Real bookable start times for the selected date + the package currently
   // in play (see calendarPackageId's fallback logic above). This is what
-  // CreateBookingAction.php actually checks at submission — the old hardcoded
-  // hourly button list + free-type time input were never validated against
-  // this at all, which is why a day could show "available" while the exact
-  // time picked wasn't.
+  // CreateBookingAction.php actually checks at submission.
   const { data: availableStartTimes = [], isLoading: loadingStartTimes } = useAvailableStartTimes(
     p?.id,
     dateStr,
@@ -318,70 +501,25 @@ export default function Booking() {
   // day has no open slots left — bookedSlots already covers that; monthAvailability
   // status strings "unavailable"/"booked"/"fully_booked" are treated the same way.
   // "partial" (yellow) depends on the backend/useMonthAvailability actually
-  // returning a "partially_booked" status per date — if it never sends that
-  // value, every open day will just render as plain "available" instead of
-  // ever going yellow, since there's no other client-side signal for partial
-  // availability.
+  // returning a "partially_booked" status per date.
   const getDateStatus = (d: Date): "past" | "booked" | "partial" | "available" | "unknown" => {
-  const today = new Date(new Date().setHours(0, 0, 0, 0));
-  if (d < today) return "past";
-  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const status = monthAvailability?.[ds];
-  if (bookedDates.some((bd) => bd.toDateString() === d.toDateString())) return "booked";
-  if (status === "unavailable" || status === "booked" || status === "fully_booked") return "booked";
-  if (status === "partially_booked" || status === "partial") return "partial";
-  if (status === "available") return "available";
-  // No answer yet for this date — the query hasn't resolved, or it's
-  // disabled because calendarPackageId is undefined. Fail closed instead
-  // of defaulting to "available": this is what let blocked/unverified
-  // dates through un-marked and clickable.
-  return "unknown";
-};
+    const today = new Date(new Date().setHours(0, 0, 0, 0));
+    if (d < today) return "past";
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const status = monthAvailability?.[ds];
+    if (bookedDates.some((bd) => bd.toDateString() === d.toDateString())) return "booked";
+    if (status === "unavailable" || status === "booked" || status === "fully_booked") return "booked";
+    if (status === "partially_booked" || status === "partial") return "partial";
+    if (status === "available") return "available";
+    // No answer yet for this date — the query hasn't resolved, or it's
+    // disabled because calendarPackageId is undefined. Fail closed instead
+    // of defaulting to "available".
+    return "unknown";
+  };
 
-  // Package selection (Step 2) can change the required slot duration, which
-  // can invalidate a start time picked back in Step 0 against a placeholder
-  // package. Re-check whenever the effective package changes and clear the
-  // stale time rather than letting the user reach Review with a time that
-  // will fail at final submission.
-  useEffect(() => {
-    if (!date || !startTime || loadingStartTimes) return;
-    if (!availableStartTimes.includes(startTime)) {
-      setStartTime("");
-      toast({
-        title: "Start time no longer available",
-        description: "Your package selection changed the required time slot — please choose a new start time.",
-        variant: "destructive",
-      });
-    }
-    // Only re-run when the package (and thus required duration) changes —
-    // not on every availableStartTimes refetch, which would fight the user
-    // while they're actively picking a time in Step 0.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calendarPackageId]);
 
-  // Custom-package counterpart of the effect above. Fires once the client
-  // has selected a real coverage duration in the Package step: if the start
-  // time they picked back in Step 0 (under the general-availability
-  // placeholder) doesn't actually fit this real custom duration + the
-  // photographer's custom buffer, clear it and send them back to pick a new
-  // one — same pattern as the fixed-package case, just keyed off the real
-  // duration instead of a package id.
-  useEffect(() => {
-    if (packageMode !== "custom") return;
-    if (!date || !startTime || customDurationMinutesForRevalidation == null || loadingCustomRevalidation) return;
-    if (!customStartTimesForRevalidation.includes(startTime)) {
-      setStartTime("");
-      toast({
-        title: "Start time no longer available",
-        description: "Your selected coverage duration no longer fits this start time — please choose a new start time.",
-        variant: "destructive",
-      });
-      setStep(0);
-    }
-    // Only re-run when the real custom duration becomes known/changes —
-    // not on every background refetch of customStartTimesForRevalidation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [packageMode, customDurationMinutesForRevalidation]);
+
+
 
   const alternativeProviders = useMemo<Photographer[]>(() => {
     if (!p || !date) return [];
@@ -395,11 +533,9 @@ export default function Booking() {
   // "pill" groups (e.g. Edited Photos: 50/100/200/300/Unlimited). Extras
   // with no tierName stay as independent on/off toggles (e.g. RAW Files).
   //
-  // Moved up from further down in this component (it originally lived after
-  // the loading/not-found early-returns below), for the same reason
-  // selectedDurationExtra was moved above: hooks can't follow a conditional
-  // return, or React throws "Rendered more hooks than during the previous
-  // render" once loadingPhotographer flips from true to false.
+  // Kept above the loading/not-found early-returns: hooks can't follow a
+  // conditional return, or React throws "Rendered more hooks than during the
+  // previous render" once loadingPhotographer flips from true to false.
   const tierGroups = useMemo(() => {
     const groups = new Map<string, typeof rates.extras>();
     for (const extra of rates.extras ?? []) {
@@ -410,6 +546,122 @@ export default function Booking() {
     }
     return Array.from(groups.entries());
   }, [rates.extras]);
+
+  // start "HH:mm" + a duration in hours -> end "HH:mm". Returns "" when either
+  // is unknown, so callers never show an invented end time.
+  const addHoursToTime = (start: string, hours: number | undefined | null): string => {
+    if (!start || !hours) return "";
+    const [hh, mm] = start.split(":").map(Number);
+    const totalMinutes = hh * 60 + mm + hours * 60;
+    const endH = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+    return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+  };
+
+  // undefined = no known duration (package left it open) -> no end time.
+  const durationHoursForEstimate =
+    packageMode === "fixed" ? (pkg?.scheduleMode === "open" ? undefined : (pkg?.hours ?? undefined))
+    : rates.hourlyRate != null ? (customHours ?? rates.minHours ?? 1)
+    : selectedDurationExtra ? (selectedDurationExtra as any).durationMinutes / 60
+    : undefined;
+
+  const estimatedEndTime = addHoursToTime(startTime, durationHoursForEstimate);
+
+  // ── Additional sessions: availability ──
+  // Coverage length (hours) for one additional session — same rules as the submit payload.
+  const sessionHours = (s: SessionDraft): number | undefined =>
+    packageMode === "custom" && rates.hourlyRate != null
+      ? (sessionCustomHours[s.key] ?? extraSessionMinHours)
+      : s.durationHours.trim() !== "" ? Number(s.durationHours) : durationHoursForEstimate;
+
+  // Which duration the availability lookups use for a session.
+  const sessionDurationSource = (s: SessionDraft) => {
+    if (packageMode === "custom" && rates.hourlyRate != null) {
+      return { packageId: undefined, customMinutes: Math.round((sessionHours(s) ?? extraSessionMinHours) * 60), overrideMinutes: undefined };
+    }
+    const own = s.durationHours.trim() !== "" ? Math.round(Number(s.durationHours) * 60) : undefined;
+    return { packageId: calendarPackageId, customMinutes: undefined, overrideMinutes: own && own > 0 ? own : undefined };
+  };
+
+  // One start-time lookup per additional session (shares the cache with useAvailableStartTimes).
+  const sessionSlotQueries = useQueries({
+    queries: additionalSchedules.map((s) => {
+      const src = sessionDurationSource(s);
+      return availableStartTimesQuery(p?.id, s.date, src.packageId, src.customMinutes, src.overrideMinutes);
+    }),
+  });
+  const sessionSlots: Record<string, { loading: boolean; loaded: boolean; times: string[] }> = {};
+  additionalSchedules.forEach((s, i) => {
+    const q = sessionSlotQueries[i];
+    sessionSlots[s.key] = {
+      loading: !!s.date && !!q?.isFetching && !q?.data,
+      loaded: !!s.date && !!q?.isSuccess && !q?.isFetching,
+      times: (q?.data as string[] | undefined) ?? [],
+    };
+  });
+  const isSessionSlotOpen = (s: SessionDraft) =>
+    !!s.date && !!s.startTime && sessionSlots[s.key]?.times.some((t) => t.slice(0, 5) === s.startTime);
+
+
+
+  const additionalSchedulesWithEndTime = useMemo(
+    () => additionalSchedules.map((s) => {
+      // A session's own duration wins; blank falls back to the package's
+      // duration; no package duration = no end time (to be confirmed).
+      const hours = sessionHours(s);
+      return { ...s, endTime: addHoursToTime(s.startTime, hours) };
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [additionalSchedules, durationHoursForEstimate, packageMode, rates.hourlyRate, sessionCustomHours, extraSessionMinHours]
+  );
+
+  const allScheduleEntries = useMemo(() => {
+    const primaryLabel = eventType === "Other" && specificEventType ? specificEventType : (eventType || "Event");
+    const primary = { key: "primary", label: primaryLabel, dateStr, startTime, endTime: estimatedEndTime, locationText: "" };
+    const extras = additionalSchedulesWithEndTime.map((s) => ({
+      key: s.key,
+      label: s.label || "Photography session",
+      dateStr: s.date,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      locationText: s.ownLocation ? s.location.summary : "",
+    }));
+    return [primary, ...extras];
+  }, [eventType, specificEventType, dateStr, startTime, estimatedEndTime, additionalSchedulesWithEndTime]);
+
+  // ── Sliding-hours coverage caps ──
+  // Max whole hours a schedule can cover before the next schedule of this
+  // booking starts on the same day. Infinity = nothing after it.
+  const maxHoursBeforeNextSibling = (selfKey: string, date: string, start: string): number => {
+    if (!date || !start) return Infinity;
+    const cs = toMinutes(start);
+    let gap = Infinity;
+    for (const e of allScheduleEntries) {
+      if (e.key === selfKey || e.dateStr !== date || !e.startTime) continue;
+      const es = toMinutes(e.startTime);
+      if (es > cs) gap = Math.min(gap, es - cs);
+    }
+    return gap === Infinity ? Infinity : Math.floor(gap / 60);
+  };
+  const isSlidingCustom = packageMode === "custom" && rates.hourlyRate != null;
+  const primaryHourCap = Math.min(rates.maxHours ?? 12, maxHoursBeforeNextSibling("primary", dateStr, startTime));
+
+  // Keep chosen hours inside the cap instead of locking the Continue button.
+  useEffect(() => {
+    if (!isSlidingCustom || customHours == null) return;
+    if (customHours > primaryHourCap && primaryHourCap >= (rates.minHours ?? 1)) setCustomHours(primaryHourCap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSlidingCustom, customHours, primaryHourCap]);
+
+  useEffect(() => {
+    if (!isSlidingCustom) return;
+    additionalSchedules.forEach((s) => {
+      const cap = Math.min(extraSessionMaxHours, maxHoursBeforeNextSibling(s.key, s.date, s.startTime));
+      const cur = sessionCustomHours[s.key] ?? extraSessionMinHours;
+      if (cur > cap && cap >= extraSessionMinHours) setSessionHours(s.key, cap);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSlidingCustom, allScheduleEntries, sessionCustomHours]);
 
   if (loadingPhotographer) {
     return (
@@ -434,13 +686,19 @@ export default function Booking() {
     setSelectedAddOns((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]);
   };
 
-  const customPrice = calculateCustomPrice(customBuild, rates, customHours);
+  // Sliding-hours custom packages: each session is priced from its OWN hours.
+  const slidingSessionHours: number[] =
+    rates.hourlyRate != null && customHours != null
+      ? [customHours, ...additionalSchedules.map((s) => sessionCustomHours[s.key] ?? extraSessionMinHours)]
+      : [];
+  const slidingSessionCharges = calculateSlidingSessionCharges(rates, slidingSessionHours);
+  const customFlatExtras = (rates.extras ?? [])
+    .filter((e) => customBuild.selectedExtraIds.includes(e.id) && (e as any).durationMinutes == null)
+    .reduce((sum, e) => sum + e.price, 0);
+  const customPrice = rates.hourlyRate != null && customHours != null
+    ? slidingSessionCharges.reduce((a, b) => a + b, 0) + customFlatExtras
+    : calculateCustomPrice(customBuild, rates, customHours);
   const flatExtras = (rates.extras ?? []).filter((e) => !(e as any).tierName);
-
-  // selectedDurationExtra is defined earlier in this component (pre-return) —
-  // see the comment there. Required before a custom booking can proceed:
-  // without it the backend has no way to reserve the photographer for the
-  // right length of time (see CreateBookingAction::resolveCustomPackage).
 
   // A group's "baseline" option (price 0) is the one shown as active when
   // nothing in that group has been explicitly picked yet.
@@ -460,13 +718,57 @@ export default function Booking() {
       };
     });
   };
+  // The package price never depends on how many sessions the booking has.
   const packagePrice = packageMode === "fixed" ? (pkg?.price ?? 0) : customPrice;
-  const packageName  = packageMode === "fixed" ? (pkg?.name ?? "—") : "Custom Package";
+  const packageName = packageMode === "fixed" ? (pkg?.name ?? "—") : "Custom Package";
   const packagePhotos = packageMode === "fixed" ? (pkg?.photos ?? 0) : 0;
 
   const subtotal = packagePrice + (packageMode === "fixed" ? selectedAddOns.reduce((sum, i) => sum + photographerAddOns[i].price, 0) : 0);
 
   type StepValidation = { ok: boolean; reason?: string };
+
+  // Does [start, start+coverage] on `date` overlap another session of THIS booking?
+  const overlapsSibling = (selfKey: string, date: string, start: string, coverageHours?: number) => {
+    if (!date || !start) return false;
+    const cs = toMinutes(start);
+    const ce = cs + (coverageHours ? Math.round(coverageHours * 60) : 1);
+    return allScheduleEntries.some((e) => {
+      if (e.key === selfKey || e.dateStr !== date || !e.startTime) return false;
+      const es = toMinutes(e.startTime);
+      let ee = e.endTime ? toMinutes(e.endTime) : es + 1;
+      if (ee <= es) ee += 24 * 60; // session runs past midnight
+      return cs < ee && es < ce;
+    });
+  };
+
+  // Exact same date + start time as another schedule in THIS booking.
+  // Independent of duration, so it can never be affected by a slider.
+  const startTakenBySibling = (selfKey: string, date: string, start: string) => {
+    if (!date || !start) return false;
+    return allScheduleEntries.some(
+      (e) => e.key !== selfKey && e.dateStr === date && !!e.startTime && e.startTime.slice(0, 5) === start.slice(0, 5)
+    );
+  };
+
+  const validateAdditionalSessions = (): StepValidation => {
+    for (let i = 0; i < additionalSchedules.length; i++) {
+      const sch = additionalSchedules[i];
+      const name = sch.sameEvent ? `Day ${i + 2}` : `Session ${i + 2}`;
+      if (sessionSlots[sch.key]?.loading) {
+        return { ok: false, reason: `Still checking availability for ${name} — one moment.` };
+      }
+      if (!isSessionSlotOpen(sch)) {
+        return { ok: false, reason: `${name}: that date and time isn't available. Please pick an open start time.` };
+      }
+      if (startTakenBySibling(sch.key, sch.date, sch.startTime)) {
+        return { ok: false, reason: `${name} has the same date and start time as another schedule in this booking. Please choose a different start time.` };
+      }
+      if (overlapsSibling(sch.key, sch.date, sch.startTime, sessionHours(sch))) {
+        return { ok: false, reason: `${name} overlaps another schedule in this booking. Reduce its coverage hours or choose a different start time.` };
+      }
+    }
+    return { ok: true };
+  };
   const validateStep = (s: number): StepValidation => {
     switch (s) {
       case 0:
@@ -474,11 +776,26 @@ export default function Booking() {
         if (dayConflict) return { ok: false, reason: "This date is fully booked — choose another date or try an alternative provider below." };
         if (!startTime) return { ok: false, reason: "Please choose a start time for your event." };
         if (!isStartTimeAvailable) return { ok: false, reason: "That start time isn't open — please pick a time the photographer is available." };
-        return { ok: true };
+        for (const sch of additionalSchedules) {
+          if (!sch.date || !sch.startTime) {
+            return { ok: false, reason: "Please give every additional day a date and start time — or remove the incomplete one." };
+          }
+          if (!sch.sameEvent && !sch.label.trim()) {
+            return { ok: false, reason: "Please describe the different session, or switch it back to \"same event\" — or remove it." };
+          }
+          if (sch.durationHours.trim() !== "" && !(Number(sch.durationHours) > 0)) {
+            return { ok: false, reason: "A session's duration must be a positive number of hours — or leave it blank." };
+          }
+          if (sch.ownLocation && !isSessionLocationComplete(sch.location)) {
+            return { ok: false, reason: `Please complete the location for "${sch.label.trim()}", or untick the different-location option.` };
+          }
+        }
+        // Every extra day/session must be on an open date AND an open time slot.
+        return validateAdditionalSessions();
       case 1:
         if (!eventType) return { ok: false, reason: "Please choose an event type." };
         if (eventType === "Other" && !specificEventType.trim()) return { ok: false, reason: "Please specify the event type." };
-        
+
         // Location Validation per SRS Section 7.12
         if (!locationType) return { ok: false, reason: "Please select a location type." };
         if (locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") {
@@ -490,22 +807,77 @@ export default function Booking() {
         if (locationType === "Outside Bicol" && !eventAddress.trim()) {
           return { ok: false, reason: "Please provide the full address." };
         }
-        
+
         if (!contactName.trim() || !contactPhone.trim() || !contactEmail.trim())
           return { ok: false, reason: "Please complete your contact details (name, phone, email)." };
-        
+
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(contactEmail.trim()))
           return { ok: false, reason: "Please enter a valid email address." };
-        
+
         return { ok: true };
-      case 2:
+            case 2:
         if (packageMode === "fixed" && !pkg) return { ok: false, reason: "Please select a package to continue." };
+        // A timed package must fit at the start time chosen earlier. Open-ended
+        // packages only need the start itself to be free (already checked).
+        if (
+          packageMode === "fixed" && pkg && startTime && !loadingStartTimes &&
+          !availableStartTimes.some((t) => t.slice(0, 5) === startTime.slice(0, 5))
+        ) {
+          return {
+            ok: false,
+            reason: `"${pkg.name}" doesn't fit starting at ${prettyTime(startTime)} — the photographer is busy or closed for part of it. Pick another package, or go back and choose a different start time.`,
+          };
+        }
+        // The chosen package/hours can change which slots fit each session.
+        if (additionalSchedules.length > 0) {
+          const sv = validateAdditionalSessions();
+          if (!sv.ok) return { ok: false, reason: `${sv.reason} (Go back to Date & Time to change it.)` };
+        }
+        // One booking = one package/service. Extra sessions only work with a
+        // package that allows multiple sessions (a fixed package the photographer
+        // opted in, or a sliding-hours custom package with multi-session on).
+        if (additionalSchedules.length > 0) {
+          if (packageMode === "custom") {
+            if (!customAllowsMultiple) {
+              return {
+                ok: false,
+                reason: "This photographer's custom package covers a single photography session. Remove the extra sessions, or choose a fixed package that allows multiple sessions — separate services should be booked separately.",
+              };
+            }
+            if (rates.maxSessions && additionalSchedules.length + 1 > rates.maxSessions) {
+              return { ok: false, reason: `This custom package allows up to ${rates.maxSessions} sessions per booking.` };
+            }
+          } else {
+            if (!pkg?.allowsMultipleSessions) {
+              return {
+                ok: false,
+                reason: "This package covers a single photography session. Remove the extra sessions, or choose a package that allows multiple sessions — separate services should be booked separately.",
+              };
+            }
+            const maxSessions = pkg?.maxSessions;
+            if (maxSessions && additionalSchedules.length + 1 > maxSessions) {
+              return { ok: false, reason: `This package allows up to ${maxSessions} sessions per booking.` };
+            }
+          }
+        }
         if (packageMode === "custom" && rates.hourlyRate != null) {
           const min = rates.minHours ?? 1;
           const max = rates.maxHours ?? 12;
+          for (const s of additionalSchedules) {
+            const h = sessionCustomHours[s.key] ?? extraSessionMinHours;
+            if (h < extraSessionMinHours || h > extraSessionMaxHours) {
+              return { ok: false, reason: `Please choose between ${extraSessionMinHours} and ${extraSessionMaxHours} coverage hours for every session.` };
+            }
+          }
           if (customHours == null || customHours < min || customHours > max) {
             return { ok: false, reason: `Please choose between ${min} and ${max} coverage hours.` };
+          }
+          if (startTime && !loadingCustomRevalidation && !customStartTimesForRevalidation.some((t) => t.slice(0, 5) === startTime.slice(0, 5))) {
+            return {
+              ok: false,
+              reason: `${customHours} hour${customHours === 1 ? "" : "s"} starting at ${prettyTime(startTime)} doesn't fit ${p.name}'s schedule. Choose fewer hours, or go back and pick another start time.`,
+            };
           }
           return { ok: true };
         }
@@ -518,16 +890,16 @@ export default function Booking() {
       default: return { ok: true };
     }
   };
-  
+
   const currentValidation = validateStep(step);
 
   const handleNext = () => {
     const v = validateStep(step);
-    if (!v.ok) { 
-      toast({ title: "Missing information", description: v.reason || "Please complete the required fields.", variant: "destructive" });
-      return; 
+    if (!v.ok) {
+      toast.error(v.reason || "Please complete the required fields.");
+      return;
     }
-    
+
     if (step === 1) {
       setEventAddress(eventAddress.trim());
       setContactName(contactName.trim());
@@ -535,17 +907,17 @@ export default function Booking() {
       setContactEmail(contactEmail.trim());
       if (eventType === "Other") setSpecificEventType(specificEventType.trim());
     }
-    
+
     setStep(step + 1);
   };
 
   const handleOpenConfirm = () => {
-    for (let i = 0; i <= 4; i++) {
+    for (let i = 0; i < steps.length; i++) {
       const v = validateStep(i);
-      if (!v.ok) { 
-        toast({ title: "Missing information", description: v.reason || "Please complete the required fields.", variant: "destructive" });
-        setStep(i); 
-        return; 
+      if (!v.ok) {
+        toast.error(v.reason || "Please complete the required fields.");
+        setStep(i);
+        return;
       }
     }
     setIsConfirmModalOpen(true);
@@ -559,10 +931,9 @@ export default function Booking() {
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // end_time is intentionally not sent — CreateBookingRequest.php has no
-      // rule for it, and the photographer's reserved duration is derived
-      // server-side from the selected package (see estimatedEndTime below
-      // for the client-facing preview of that same duration).
+      // end_time is intentionally never sent — the backend derives every
+      // session's end from its start time + a known duration, and leaves it
+      // empty ("to be confirmed") when no duration is known.
       const payload: CreateBookingPayload = {
         photographer_id: Number(p.id),
         event_type: toSlug(eventType) as CreateBookingPayload["event_type"],
@@ -581,6 +952,25 @@ export default function Booking() {
         } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
         ...(notes.trim() ? { special_requests: notes.trim() } : {}),
+        // Additional sessions of THIS booking's single package. A blank
+        // duration is simply omitted so the backend applies the package's
+        // duration (or leaves it to be confirmed); a session with no own
+        // location inherits the booking's location.
+        ...(additionalSchedules.length
+          ? {
+              additional_schedules: additionalSchedules.map((s, idx) => ({
+                label: s.sameEvent
+                  ? `${eventType === "Other" && specificEventType ? specificEventType : (eventType || "Event")} — Day ${idx + 2}`
+                  : s.label.trim(),
+                event_date: s.date,
+                start_time: s.startTime,
+                ...(packageMode === "custom" && rates.hourlyRate != null
+                  ? { duration_minutes: (sessionCustomHours[s.key] ?? extraSessionMinHours) * 60 }
+                  : s.durationHours.trim() !== "" ? { duration_minutes: Math.round(Number(s.durationHours) * 60) } : {}),
+                ...(!s.sameEvent && s.ownLocation ? sessionLocationPayload(s.location) : {}),
+              })) as CreateBookingPayload["additional_schedules"],
+            }
+          : {}),
         ...(packageMode === "fixed"
           ? {
               package_id: (pkg as any)?.id,
@@ -602,16 +992,12 @@ export default function Booking() {
       };
 
       const booking = await bookingService.create(payload);
-      toast({ title: "Booking request submitted successfully!" });
+      toast.success("Booking request submitted successfully!");
       setIsConfirmModalOpen(false);
       navigate(`/booking-sent/${booking.id}`);
     } catch (error) {
       console.error("Submission failed", error);
-      toast({
-        title: "Submission failed",
-        description: error instanceof Error ? error.message : "There was an error submitting your request. Please try again.",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "There was an error submitting your request. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -625,29 +1011,17 @@ export default function Booking() {
     return `${h12}:${String(mm).padStart(2, "0")} ${period}`;
   };
 
-  // Client-facing preview of the reserved window. This mirrors — but does
-  // not replace — the server-side reservation logic in CreateBookingAction:
-  // fixed packages use Package.hours; custom packages use the coverage
-  // duration the client selected (selectedDurationExtra). Buffer time isn't
-  // shown here since the client doesn't need to see it, but it IS applied
-  // server-side (Package.buffer_minutes / CustomPackageConfig.buffer_minutes)
-  // when the photographer is actually reserved.
-  const durationHoursForEstimate =
-    packageMode === "fixed" ? pkg?.hours
-    : rates.hourlyRate != null ? (customHours ?? rates.minHours ?? 1)
-    : selectedDurationExtra ? (selectedDurationExtra as any).durationMinutes / 60
-    : undefined;
-
-  const estimatedEndTime =
-    startTime && durationHoursForEstimate
-      ? (() => {
-          const [hh, mm] = startTime.split(":").map(Number);
-          const totalMinutes = hh * 60 + mm + durationHoursForEstimate * 60;
-          const endH = Math.floor(totalMinutes / 60) % 24;
-          const endM = totalMinutes % 60;
-          return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
-        })()
-      : "";
+  // "YYYY-MM-DD" -> a readable date. `style` mirrors the two formats this
+  // page already used before (short for the sidebar, long for Review).
+  const prettyDate = (ds: string, style: "long" | "short" = "short") => {
+    if (!ds) return "";
+    const [y, m, d] = ds.split("-").map(Number);
+    if (!y || !m || !d) return ds;
+    const dt = new Date(y, m - 1, d);
+    return style === "long"
+      ? dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+      : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
 
   return (
     <div className="min-h-screen bg-background relative">
@@ -740,7 +1114,7 @@ export default function Booking() {
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Choose Your Start Time</h3>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Select when you'd like your photography session to begin. Your package's duration — chosen in a later step — will determine how long the photographer is reserved for.
+                  Pick a date, then the time you'd like the photographer to start.
                 </p>
 
                 <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
@@ -764,21 +1138,21 @@ export default function Booking() {
                       onMonthChange={setViewMonth}
                       onSelect={setDate}
                       disabled={(d) => {
-                          const s = getDateStatus(d);
-                          return s === "past" || s === "booked" || s === "unknown" || isDateUnavailable(d);
-                        }}
-                        modifiers={{
-                          past: (d) => getDateStatus(d) === "past",
-                          booked: (d) => getDateStatus(d) === "booked",
-                          partial: (d) => getDateStatus(d) === "partial",
-                          unknown: (d) => getDateStatus(d) === "unknown",
-                        }}
-                        modifiersClassNames={{
-                          past: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
-                          booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
-                          partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
-                          unknown: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
-                        }}
+                        const s = getDateStatus(d);
+                        return s === "past" || s === "booked" || s === "unknown" || isDateUnavailable(d);
+                      }}
+                      modifiers={{
+                        past: (d) => getDateStatus(d) === "past",
+                        booked: (d) => getDateStatus(d) === "booked",
+                        partial: (d) => getDateStatus(d) === "partial",
+                        unknown: (d) => getDateStatus(d) === "unknown",
+                      }}
+                      modifiersClassNames={{
+                        past: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                        booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
+                        partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
+                        unknown: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                      }}
                       className="rounded-xl border pointer-events-auto"
                       showOutsideDays
                     />
@@ -826,7 +1200,7 @@ export default function Booking() {
                             </p>
                           ) : (
                             <>
-                              {/* Segmented Morning / Afternoon / Evening tabs */}
+                              {/* Segmented AM / PM tabs */}
                               <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 mb-3">
                                 {TIME_PERIODS.map((period) => {
                                   const slots = startTimesByPeriod[period.key];
@@ -855,7 +1229,7 @@ export default function Booking() {
 
                               {startTimesByPeriod[activePeriod].length === 0 ? (
                                 <p className="text-xs text-muted-foreground py-3 text-center">
-                                  No {TIME_PERIODS.find((p) => p.key === activePeriod)?.label.toLowerCase()} start times on this date.
+                                  No {TIME_PERIODS.find((tp) => tp.key === activePeriod)?.label.toLowerCase()} start times on this date.
                                 </p>
                               ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -863,9 +1237,11 @@ export default function Booking() {
                                     <button
                                       key={t}
                                       type="button"
+                                      disabled={startTakenBySibling("primary", dateStr, t)}
+                                      title={startTakenBySibling("primary", dateStr, t) ? "Already used by another schedule in this booking" : undefined}
                                       onClick={() => setStartTime(t)}
                                       className={cn(
-                                        "relative px-2 py-2.5 rounded-lg border text-sm font-medium transition-colors text-center",
+                                        "relative px-2 py-2.5 rounded-lg border text-sm font-medium transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed disabled:line-through",
                                         startTime === t
                                           ? "border-primary bg-primary text-primary-foreground shadow-sm"
                                           : "border-primary/30 bg-primary/5 text-foreground hover:border-primary/60 hover:bg-primary/10"
@@ -926,6 +1302,150 @@ export default function Booking() {
                     )}
                   </div>
                 </div>
+
+                {/* Additional photography sessions: only offered when this
+                    photographer has a package that allows multiple sessions
+                    under one booking. A normal single-session booking stays
+                    exactly as simple as before. */}
+                {(multiSessionPackages.length > 0 || customAllowsMultiple) && (
+                  <div className="mt-6 pt-5 border-t border-border/50">
+                    {!showMultiSchedule && additionalSchedules.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => { setShowMultiSchedule(true); addAdditionalSchedule(true); }}
+                        className="text-sm text-primary font-medium hover:underline flex items-center gap-1.5"
+                      >
+                        <CalendarPlus className="w-4 h-4" /> This event spans more than one day, or my package needs more than one session
+                      </button>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="font-heading font-semibold text-sm">Additional days / sessions</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Every day or session below belongs to this one booking and package — the package price
+                            doesn't change. Use "same event" for a multi-day event at the same venue (e.g. a 2-day
+                            wedding). Use "different session" only for a genuinely separate shoot with its own
+                            description, like a graduation package's second batch. A different service (for example a
+                            separate Prenup or Wedding package) should be booked separately. Packages that allow this:
+                            {" "}{[...multiSessionPackages.map((pk) => pk.name), ...(customAllowsMultiple ? ["Build Your Own (custom)"] : [])].join(", ")}.
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs flex items-start gap-2">
+                          <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          <span>
+                            Adding sessions is a <strong>request</strong>, not a confirmed reservation. Each session is a
+                            separate schedule — the dates in between stay open. The photographer will review the requested
+                            sessions and confirm whether they can accommodate them. You'll choose your package next; coverage
+                            hours and pricing are then applied to each session.
+                          </span>
+                        </div>
+
+                        {additionalSchedulesWithEndTime.map((s, idx) => (
+                          <div key={s.key} className="p-4 rounded-xl border border-border space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold text-muted-foreground">
+                                {s.sameEvent ? `Day ${idx + 2} (same event)` : `Session ${idx + 2} (different)`}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => removeAdditionalSchedule(s.key)}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            {s.sameEvent ? (
+                              <p className="text-xs text-muted-foreground -mt-1">
+                                Same event and same venue as your main booking — just pick the date and time.
+                              </p>
+                            ) : (
+                              <input
+                                type="text"
+                                placeholder="Session description (e.g. Graduation shoot — Batch 2)"
+                                value={s.label}
+                                onChange={(e) => updateAdditionalSchedule(s.key, { label: e.target.value })}
+                                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                              />
+                            )}
+                            {(() => {
+                              const src = sessionDurationSource(s);
+                              const slots = sessionSlots[s.key] ?? { loading: false, loaded: false, times: [] };
+                              return (
+                                <>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[11px] text-muted-foreground">Date</label>
+                                      <SessionDateField
+                                        photographerId={p?.id}
+                                        packageId={src.packageId}
+                                        customDurationMinutes={src.customMinutes}
+                                        sessionDurationMinutes={src.overrideMinutes}
+                                        value={s.date}
+                                        onPick={(ymd) => updateAdditionalSchedule(s.key, { date: ymd, startTime: "" })}
+                                      />
+                                    </div>
+
+                                  </div>
+                                  <div>
+                                    <label className="text-[11px] text-muted-foreground">Start time</label>
+                                    <SessionTimeSlots
+                                      date={s.date}
+                                      startTime={s.startTime}
+                                      times={slots.times}
+                                      loading={slots.loading}
+                                      isTaken={(t) => startTakenBySibling(s.key, s.date, t)}
+                                      onPick={(t) => updateAdditionalSchedule(s.key, { startTime: t })}
+                                    />
+                                  </div>
+                                </>
+                              );
+                            })()}
+                            <p className="text-xs text-muted-foreground">
+                              {s.endTime ? (
+                                <>Est. end time: <span className="font-medium text-foreground">{prettyTime(s.endTime)}</span></>
+                              ) : (
+                                "Duration to be confirmed with the photographer — no end time is assumed and no time is blocked for this session."
+                              )}
+                            </p>
+                            {!s.sameEvent && (
+                              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={s.ownLocation}
+                                  onChange={(e) => updateAdditionalSchedule(s.key, { ownLocation: e.target.checked })}
+                                />
+                                This session is at a different location than the main booking
+                              </label>
+                            )}
+                            {!s.sameEvent && s.ownLocation && (
+                              <SessionLocationFields
+                                value={s.location}
+                                onChange={(loc) => updateAdditionalSchedule(s.key, { location: loc })}
+                              />
+                            )}
+                          </div>
+                        ))}
+
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Button type="button" variant="outline" size="sm" onClick={() => addAdditionalSchedule(true)} className="gap-1.5">
+                            <CalendarPlus className="w-3.5 h-3.5" /> Add another day (same event)
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => addAdditionalSchedule(false)} className="gap-1.5 text-muted-foreground">
+                            <CalendarPlus className="w-3.5 h-3.5" /> Add a different session
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => { setShowMultiSchedule(false); setAdditionalSchedules([]); }}
+                            className="text-xs text-muted-foreground hover:text-destructive"
+                          >
+                            I only need one day — remove all
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -953,15 +1473,15 @@ export default function Booking() {
                     <option value="">Select event type…</option>
                     {systemEventTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
-                  
+
                   {eventType === "Other" && (
                     <div className="mt-3 animate-fade-in space-y-2">
                       <Label htmlFor="specificEventType" className="text-xs text-muted-foreground">Please specify your event *</Label>
-                      <Input 
-                        id="specificEventType" 
+                      <Input
+                        id="specificEventType"
                         placeholder="e.g. Sweet 16, Reunion..."
-                        value={specificEventType} 
-                        onChange={(e) => setSpecificEventType(e.target.value)} 
+                        value={specificEventType}
+                        onChange={(e) => setSpecificEventType(e.target.value)}
                       />
                     </div>
                   )}
@@ -978,6 +1498,11 @@ export default function Booking() {
                     <option value="" disabled hidden>Select location setting…</option>
                     {locationTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
+                  {additionalSchedules.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      This is the main location (Session 1). Any other session can have its own location — set that under Date & Time.
+                    </p>
+                  )}
                 </div>
 
                 {(locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") && (
@@ -987,7 +1512,7 @@ export default function Booking() {
                       <select id="province" value={provinceId ?? ""} onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                         <option value="">Select province…</option>
-                        {provinces.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        {provinces.map((pv) => <option key={pv.id} value={pv.id}>{pv.name}</option>)}
                       </select>
                     </div>
 
@@ -1039,9 +1564,10 @@ export default function Booking() {
 
                 <div className="space-y-2">
                   <Label htmlFor="guestCount">Estimated Guests <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Input id="guestCount" type="number" placeholder="e.g. 80"
+                  <Input id="guestCount" type="number" min={0} placeholder="e.g. 80"
                     className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    value={guestCount} onChange={(e) => setGuestCount(e.target.value)} />
+                    value={guestCount}
+                    onChange={(e) => setGuestCount(e.target.value === "" ? "" : String(Math.max(0, Number(e.target.value))))} />
                 </div>
 
                 <div className="pt-2 border-t border-border">
@@ -1079,6 +1605,7 @@ export default function Booking() {
                 <h3 className="font-heading font-semibold text-lg mb-1">Choose Your Package</h3>
                 <p className="text-sm text-muted-foreground mb-5">
                   Pick one of {p.name}'s ready-made packages — or build a custom one using their rates.
+                  {additionalSchedules.length > 0 && ` Because you added extra sessions, only packages that allow multiple sessions can be selected${customAllowsMultiple ? " (this includes Build Your Own)" : ""}. Each session stays a separate schedule.`}
                 </p>
 
                 <div className="flex gap-1 bg-muted rounded-xl p-1 mb-6">
@@ -1096,67 +1623,158 @@ export default function Booking() {
 
                 {packageMode === "fixed" && (
                   <div className="space-y-3">
-                    {p.packages.map((pk, i) => (
-                      <button key={pk.name} onClick={() => setSelectedPkg(i)}
-                        className={cn("w-full text-left p-5 rounded-xl border-2 transition-all duration-200",
-                          selectedPkg === i ? "border-primary bg-primary/5" : "border-border hover:border-primary/30")}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-heading font-semibold">{pk.name}</p>
-                              {i === 1 && <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">Popular</span>}
+                    {p.packages.map((pk, i) => {
+                      const blockedBySessions = additionalSchedules.length > 0 && !pk.allowsMultipleSessions;
+                      return (
+                        <button
+                          key={pk.name}
+                          type="button"
+                          disabled={blockedBySessions}
+                          onClick={() => setSelectedPkg(i)}
+                          className={cn(
+                            "w-full text-left p-5 rounded-xl border-2 transition-all duration-200",
+                            selectedPkg === i ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
+                            blockedBySessions && "opacity-50 cursor-not-allowed hover:border-border"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-heading font-semibold">{pk.name}</p>
+                                {i === 1 && <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">Popular</span>}
+                                {pk.allowsMultipleSessions && (
+                                  <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-medium">
+                                    Multiple sessions{pk.maxSessions ? ` (up to ${pk.maxSessions})` : ""}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground mt-1">{pk.description}</p>
+                              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                {pk.hours != null && pk.hours > 0
+                                  ? `${pk.hours} hour${pk.hours === 1 ? "" : "s"} of coverage`
+                                  : "Duration to be confirmed with the photographer"}
+                              </p>
+                              {blockedBySessions && (
+                                <p className="text-[11px] text-destructive mt-1.5">
+                                  Single session only — remove your extra sessions (Date & Time step) to choose this package.
+                                </p>
+                              )}
                             </div>
-                            <p className="text-sm text-muted-foreground mt-1">{pk.description}</p>
+                            <p className="text-xl font-heading font-bold text-primary shrink-0">{formatPrice(pk.price)}</p>
                           </div>
-                          <p className="text-xl font-heading font-bold text-primary shrink-0">{formatPrice(pk.price)}</p>
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">What's Included</p>
-                          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {pk.inclusions.map((inc) => (
-                              <li key={inc} className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0" /> {inc}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </button>
-                    ))}
+                          <div className="mt-4 pt-4 border-t border-border">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">What's Included</p>
+                            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {pk.inclusions.map((inc, idx) => (
+                                <li key={idx} className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                                  {inclusionText(inc)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
                 {packageMode === "custom" && (
                   <div className="space-y-6">
-                    <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs flex items-start gap-2">
-                      <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span>These rates are set by <strong>{p.name}</strong>. Base fee starts at {formatPrice(rates.baseFee)}.</span>
-                    </div>
+                    {additionalSchedules.length > 0 && (
+                      <div className={cn("p-3 rounded-lg bg-destructive/5 border border-destructive/30 text-xs flex items-start gap-2", customAllowsMultiple && "hidden")}>
+                        <Info className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                        <span>Custom packages cover a single photography session. Remove your extra sessions, or switch to a fixed package that allows multiple sessions.</span>
+                      </div>
+                    )}
+
+                    {rates.hourlyRate == null && (
+                      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs flex items-start gap-2">
+                        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <span>These rates are set by <strong>{p.name}</strong>. Base fee starts at {formatPrice(rates.baseFee)}.</span>
+                      </div>
+                    )}
 
                     {rates.hourlyRate != null && (
                       <div className="p-4 rounded-xl border border-border space-y-3">
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-heading font-semibold">Coverage hours</p>
+                          <p className="text-sm font-heading font-semibold">Photography Coverage</p>
                           <p className="text-sm font-medium">
                             {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"}
                             <span className="text-muted-foreground font-normal ml-1">
-                              (+{formatPrice(rates.hourlyRate * (customHours ?? rates.minHours ?? 1))})
+                              ({formatPrice(calculateCustomPrice({ selectedExtraIds: [] }, rates, customHours ?? rates.minHours ?? 1))})
                             </span>
                           </p>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                          Select the number of photography coverage hours you need. The selected hours are the
+                          agreed coverage period for your booking.
+                        </p>
                         <Slider
                           min={rates.minHours ?? 1}
-                          max={rates.maxHours ?? 12}
+                          max={Math.max(rates.minHours ?? 1, primaryHourCap)}
                           step={1}
                           value={[customHours ?? rates.minHours ?? 1]}
                           onValueChange={([v]) => setCustomHours(v)}
                         />
                         <div className="flex justify-between text-xs text-muted-foreground">
                           <span>{rates.minHours ?? 1} hr</span>
-                          <span>{rates.maxHours ?? 12} hrs</span>
+                          <span>{Math.max(rates.minHours ?? 1, primaryHourCap)} hr{Math.max(rates.minHours ?? 1, primaryHourCap) === 1 ? "" : "s"} max</span>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {formatPrice(rates.baseFee)} base + {formatPrice(rates.hourlyRate)}/hour
+                        {primaryHourCap < (rates.maxHours ?? 12) && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            {primaryHourCap < (rates.minHours ?? 1)
+                              ? "Two of your sessions on this day start too close together for the minimum coverage. Go back and move one of them."
+                              : `Another session starts later the same day, so Session 1 can cover at most ${primaryHourCap} hour${primaryHourCap === 1 ? "" : "s"}. Want more? Go back and move the other session later.`}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+                          {rates.baseHours != null
+                            ? `${formatPrice(rates.baseFee)} covers the first ${rates.baseHours} hour${rates.baseHours === 1 ? "" : "s"}, then `
+                            : ""}
+                          {formatPrice(rates.hourlyRate)}/hour · Your selected hours are the agreed photography
+                          coverage period. If your event ends earlier, the booked coverage and price remain
+                          unchanged.
                         </p>
+                      </div>
+                    )}
+
+                    {rates.hourlyRate != null && additionalSchedules.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-heading font-semibold">Coverage for each additional session</p>
+                        <p className="text-xs text-muted-foreground">
+                          Session 1 uses the hours chosen above. Each extra session is a separate schedule with its own
+                          coverage hours, and is priced from those hours only.
+                        </p>
+                        {additionalSchedulesWithEndTime.map((s, idx) => {
+                          const h = sessionCustomHours[s.key] ?? extraSessionMinHours;
+                          return (
+                            <div key={s.key} className="p-4 rounded-xl border border-border space-y-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium">Session {idx + 2}{s.date ? ` · ${prettyDate(s.date)}` : ""}</p>
+                                <p className="text-sm font-medium">
+                                  {h} hour{h === 1 ? "" : "s"}
+                                  <span className="text-muted-foreground font-normal ml-1">({formatPrice(slidingSessionCharges[idx + 1] ?? 0)})</span>
+                                </p>
+                              </div>
+                              <Slider
+                                min={extraSessionMinHours}
+                                max={Math.max(extraSessionMinHours, Math.min(extraSessionMaxHours, maxHoursBeforeNextSibling(s.key, s.date, s.startTime)))}
+                                step={1}
+                                value={[h]}
+                                onValueChange={([v]) => setSessionHours(s.key, v)}
+                              />
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>{extraSessionMinHours} hr</span>
+                                <span>{extraSessionMaxHours} hrs</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {s.endTime ? <>Est. end time: <span className="font-medium text-foreground">{prettyTime(s.endTime)}</span></> : "End time shown once a start time is set."}
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -1219,14 +1837,42 @@ export default function Booking() {
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Live Price Breakdown</p>
                       </div>
                       <div className="space-y-1.5 text-sm">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Base fee</span><span>{formatPrice(rates.baseFee)}</span></div>
-                      
+                        {rates.hourlyRate == null && (
+                          <div className="flex justify-between"><span className="text-muted-foreground">Base fee</span><span>{formatPrice(rates.baseFee)}</span></div>
+                        )}
+                        {rates.hourlyRate != null && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              {rates.baseHours != null
+                                ? `Base fee (first ${rates.baseHours} hr${rates.baseHours === 1 ? "" : "s"}) + extra hours`
+                                : `${customHours ?? rates.minHours ?? 1} hr × ${formatPrice(rates.hourlyRate)}`}
+                            </span>
+                            <span>{formatPrice(slidingSessionCharges[0] ?? 0)}</span>
+                          </div>
+                        )}
+
+                        {rates.hourlyRate != null && additionalSchedules.map((s, idx) => {
+                          const h = sessionCustomHours[s.key] ?? extraSessionMinHours;
+                          return (
+                            <div key={s.key} className="flex justify-between">
+                              <span className="text-muted-foreground">Session {idx + 2} · {h} hr{h === 1 ? "" : "s"}</span>
+                              <span>{formatPrice(slidingSessionCharges[idx + 1] ?? 0)}</span>
+                            </div>
+                          );
+                        })}
+                        {rates.hourlyRate != null && additionalSchedules.length > 0 && rates.baseFeeMode && (
+                          <p className="text-[11px] text-muted-foreground pt-1">
+                            {rates.baseFeeMode === "once"
+                              ? "The base fee is charged once for the whole booking; other hours across all sessions are billed hourly."
+                              : "Each session is charged the base fee plus the hourly rate for hours beyond the base hours."}
+                          </p>
+                        )}
                         {(rates.extras ?? [])
                           .filter((e) => customBuild.selectedExtraIds.includes(e.id))
                           .map((e) => (
                             <div key={e.id} className="flex justify-between"><span className="text-muted-foreground">{e.label}</span><span>+{formatPrice(e.price)}</span></div>
                           ))}
-                            </div>
+                      </div>
                       <div className="border-t border-primary/20 mt-3 pt-3 flex items-center justify-between">
                         <span className="font-heading font-semibold">Custom Package Total</span>
                         <span className="text-2xl font-heading font-bold text-primary">{formatPrice(customPrice)}</span>
@@ -1237,47 +1883,43 @@ export default function Booking() {
               </div>
             )}
 
-            {/* ===== Step 3: Add-ons ===== */}
-            {step === 3 && (
+            {/* ===== Step 2 (continued): Add-ons — same step as Package, fixed packages only ===== */}
+            {step === 2 && packageMode !== "custom" && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Optional Add-ons</h3>
-                {packageMode === "custom" ? (
-                  <p className="text-sm text-muted-foreground">
-                    Your custom package already includes the extras you selected in the Package step — nothing more to add here.
-                  </p>
-                ) : (
-                <>
-                <p className="text-sm text-muted-foreground mb-5">Enhance your booking — feel free to skip this step.</p>
-                {photographerAddOns.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">This photographer hasn't listed any optional add-ons.</p>
-                ) : (
-                <div className="space-y-3">
-                  {photographerAddOns.map((addon: any, i: number) => (
-                    <button key={addon.id} onClick={() => toggleAddOn(i)}
-                      className={cn("w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-200",
-                        selectedAddOns.includes(i) ? "border-primary bg-primary/5" : "border-border hover:border-primary/30")}>
-                      <div className="flex items-center gap-3">
-                        <div className={cn("w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
-                          selectedAddOns.includes(i) ? "bg-primary border-primary" : "border-muted-foreground/30")}>
-                          {selectedAddOns.includes(i) && <Check className="w-3 h-3 text-primary-foreground" />}
-                        </div>
-                        <div className="text-left">
-                          <span className="font-medium text-sm">{addon.name}</span>
-                          <p className="text-xs text-muted-foreground">{addon.description}</p>
-                        </div>
+                {(
+                  <>
+                    <p className="text-sm text-muted-foreground mb-5">Enhance your booking — feel free to skip this step.</p>
+                    {photographerAddOns.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">This photographer hasn't listed any optional add-ons.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {photographerAddOns.map((addon: any, i: number) => (
+                          <button key={addon.id} onClick={() => toggleAddOn(i)}
+                            className={cn("w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-200",
+                              selectedAddOns.includes(i) ? "border-primary bg-primary/5" : "border-border hover:border-primary/30")}>
+                            <div className="flex items-center gap-3">
+                              <div className={cn("w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
+                                selectedAddOns.includes(i) ? "bg-primary border-primary" : "border-muted-foreground/30")}>
+                                {selectedAddOns.includes(i) && <Check className="w-3 h-3 text-primary-foreground" />}
+                              </div>
+                              <div className="text-left">
+                                <span className="font-medium text-sm">{addon.name}</span>
+                                <p className="text-xs text-muted-foreground">{addon.description}</p>
+                              </div>
+                            </div>
+                            <span className="text-sm font-semibold text-primary">+{formatPrice(addon.price)}</span>
+                          </button>
+                        ))}
                       </div>
-                      <span className="text-sm font-semibold text-primary">+{formatPrice(addon.price)}</span>
-                    </button>
-                  ))}
-                </div>
-                )}
-                </>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
-            {/* ===== Step 4: Review ===== */}
-            {step === 4 && (
+            {/* ===== Step 3: Review ===== */}
+            {step === 3 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Review Your Booking</h3>
                 <p className="text-sm text-muted-foreground mb-5">Double-check everything before sending the request.</p>
@@ -1291,23 +1933,59 @@ export default function Booking() {
                   </div>
                   <div className="p-4 rounded-xl border border-border space-y-1">
                     <p><span className="text-muted-foreground">Event:</span> {eventType === "Other" ? specificEventType : eventType}</p>
-                    <p><span className="text-muted-foreground">Date:</span> {date?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
-                    <p><span className="text-muted-foreground">Photography starts:</span> {prettyTime(startTime)}</p>
+                    {allScheduleEntries.length > 1 && (
+                      <p className="text-[11px] text-muted-foreground pt-1">
+                        All sessions below belong to this one booking and package. This is a request, not a confirmed reservation — the photographer will review the requested sessions and confirm whether they can accommodate them. Each session is a separate schedule; the dates in between are not reserved.
+                      </p>
+                    )}
+                    {allScheduleEntries.filter((s) => s.dateStr).map((s, i) => (
+                      <div key={s.key} className={cn(i > 0 && "pt-2 mt-2 border-t border-border/50")}>
+                        {allScheduleEntries.length > 1 && (
+                          <p className="text-xs font-semibold text-foreground">Session {i + 1} — {s.label}</p>
+                        )}
+                        <p><span className="text-muted-foreground">Date:</span> {prettyDate(s.dateStr, "long")}</p>
+                        <p><span className="text-muted-foreground">Starts:</span> {prettyTime(s.startTime)}</p>
+                        <p>
+                          <span className="text-muted-foreground">Estimated end:</span>{" "}
+                          {s.endTime ? prettyTime(s.endTime) : "Duration to be confirmed by the photographer"}
+                        </p>
+                        {i > 0 && (
+                          <p><span className="text-muted-foreground">Location:</span> {s.locationText || "Same as the main booking"}</p>
+                        )}
+                      </div>
+                    ))}
                     {packageMode === "custom" && rates.hourlyRate != null && (
-                      <p><span className="text-muted-foreground">Booked Coverage:</span> {customHours ?? rates.minHours ?? 1} hour{(customHours ?? 1) === 1 ? "" : "s"} ({formatPrice(rates.hourlyRate)}/hour)</p>
+                      <p>
+                      <span className="text-muted-foreground">Booked Coverage:</span>{" "}
+                      {slidingSessionHours.length > 1
+                        ? `${slidingSessionHours.map((h) => `${h} hr${h === 1 ? "" : "s"}`).join(" + ")} = ${slidingSessionHours.reduce((a, b) => a + b, 0)} hrs across ${slidingSessionHours.length} separate sessions`
+                        : `${customHours ?? rates.minHours ?? 1} hour${(customHours ?? 1) === 1 ? "" : "s"}`}{" "}
+                      ({formatPrice(rates.hourlyRate)}/hour)
+                    </p>
+                    )}
+                    {packageMode === "custom" && rates.hourlyRate != null && (
+                      <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50 text-[11px] text-muted-foreground space-y-1">
+                        <p className="font-semibold text-foreground">Photography Coverage Terms</p>
+                        <p>
+                          The selected coverage hours are the agreed photography coverage period. If the event
+                          ends earlier, the booking price is not automatically reduced or refunded.
+                        </p>
+                        <p>
+                          If your event runs longer than your booked coverage, you may request additional coverage
+                          from the photographer. Additional coverage requires photographer approval and may incur
+                          an additional hourly charge — it is not automatically granted or charged.
+                        </p>
+                      </div>
                     )}
                     {packageMode === "custom" && rates.hourlyRate == null && selectedDurationExtra && (
                       <p><span className="text-muted-foreground">Coverage:</span> {selectedDurationExtra.label}</p>
                     )}
-                    {estimatedEndTime && (
-                      <p><span className="text-muted-foreground">Estimated end:</span> {prettyTime(estimatedEndTime)}</p>
-                    )}
-                    <p><span className="text-muted-foreground">Setting:</span> {locationType}</p>
+                    <p><span className="text-muted-foreground">Setting{allScheduleEntries.length > 1 ? " (main location)" : ""}:</span> {locationType}</p>
                     {locationType !== "Studio" && (
                       <p><span className="text-muted-foreground">Location:</span> {[
                         barangays.find((b) => b.id === barangayId)?.name,
                         citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
-                        provinces.find((p) => p.id === provinceId)?.name,
+                        provinces.find((pv) => pv.id === provinceId)?.name,
                       ].filter(Boolean).join(", ")}</p>
                     )}
                     {eventAddress && <p><span className="text-muted-foreground">Specific Address / Venue:</span> {eventAddress}</p>}
@@ -1337,11 +2015,11 @@ export default function Booking() {
                     <p><span className="text-muted-foreground">Email:</span> {contactEmail}</p>
                     {notes && <p><span className="text-muted-foreground">Notes:</span> {notes}</p>}
                   </div>
-                  
+
                   <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2 mt-4">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <p className="text-xs text-primary/90">
-                      <strong>Note:</strong> By confirming, your requested time will be temporarily held for up to 24 hours while the professional reviews your request. You won't be charged until it is approved.
+                      <strong>Note:</strong> By confirming, your requested time will be temporarily held for up to 48 hours while the professional reviews your request. You won't be charged until it is approved.
                     </p>
                   </div>
                 </div>
@@ -1354,9 +2032,24 @@ export default function Booking() {
             <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 sticky top-24">
               <h3 className="font-heading font-semibold mb-4">Booking Summary</h3>
               <div className="space-y-3 text-sm">
-                {date && <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span className="font-medium">{date.toLocaleDateString()}</span></div>}
-                {startTime && <div className="flex justify-between"><span className="text-muted-foreground">Start time</span><span className="font-medium">{prettyTime(startTime)}</span></div>}
-                {estimatedEndTime && <div className="flex justify-between"><span className="text-muted-foreground">Est. end time</span><span className="font-medium">{prettyTime(estimatedEndTime)}</span></div>}
+                {date && allScheduleEntries.filter((s) => s.dateStr).map((s, i, arr) => (
+                  <div key={s.key} className={cn("space-y-1", i > 0 && "pt-2 mt-1 border-t border-border/50")}>
+                    {arr.length > 1 && (
+                      <p className="text-xs font-medium text-foreground">Session {i + 1} · {s.label}</p>
+                    )}
+                    <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span className="font-medium">{prettyDate(s.dateStr)}</span></div>
+                    {s.startTime && <div className="flex justify-between"><span className="text-muted-foreground">Start time</span><span className="font-medium">{prettyTime(s.startTime)}</span></div>}
+                    {s.startTime && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Est. end time</span>
+                        <span className="font-medium">{s.endTime ? prettyTime(s.endTime) : "To be confirmed"}</span>
+                      </div>
+                    )}
+                    {i > 0 && s.locationText && (
+                      <p className="text-[11px] text-muted-foreground">{s.locationText}</p>
+                    )}
+                  </div>
+                ))}
                 {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium">{eventType === "Other" && specificEventType ? specificEventType : eventType}</span></div>}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{packageMode === "fixed" ? (pkg ? `${pkg.name} Package` : "No package selected") : "Custom Package"}</span>
@@ -1396,6 +2089,9 @@ export default function Booking() {
                   </Button>
                 )}
               </div>
+              {step < steps.length - 1 && !currentValidation.ok && currentValidation.reason && (
+                <p className="text-xs text-destructive text-center mt-3">{currentValidation.reason}</p>
+              )}
               <p className="text-xs text-muted-foreground text-center mt-3">
                 No payment is required right now.
               </p>
@@ -1408,7 +2104,7 @@ export default function Booking() {
       {isConfirmModalOpen && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
-            <button 
+            <button
               onClick={() => setIsConfirmModalOpen(false)}
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
               disabled={isSubmitting}
@@ -1417,7 +2113,7 @@ export default function Booking() {
             </button>
             <h2 className="text-xl font-heading font-bold mb-2">Confirm Booking Request</h2>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Are you sure you want to submit this booking request? Your requested time will be temporarily held for up to 24 hours while the professional reviews it.
+              Are you sure you want to submit this booking request? Your requested time will be temporarily held for up to 48 hours while the professional reviews it.
             </p>
             <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsConfirmModalOpen(false)} disabled={isSubmitting}>Back</Button>

@@ -32,7 +32,7 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const url = error.config?.url ?? "";
 
-    if (status === 401 && !url.includes("/login") && !url.includes("/register")) {
+    if (status === 401 && !url.includes("/login") && !url.includes("/register") && !url.includes("/logout")) {
       clearAuthToken();
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";

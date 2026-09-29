@@ -96,6 +96,67 @@ const SEVERITY_CONFIG: Record<ReportSeverity, { color: string }> = {
   urgent: { color: "text-red-600 bg-red-100 dark:bg-red-900/50 animate-pulse" },
 };
 
+// Shown only for "No-show dispute" reports that are still open. Calls
+// POST /admin/bookings/{id}/non-completion/resolve (the report's referenceId
+// is the booking id).
+function NoShowResolvePanel({ report, onResolved }: { report: AdminReport; onResolved: () => void }) {
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState<"upheld" | "overturned" | null>(null);
+
+  const isNoShowDispute = report.reason === "No-show dispute" && /^\d+$/.test(report.referenceId);
+  if (!isNoShowDispute) return null;
+  if (report.status === "resolved" || report.status === "closed") return null;
+
+  const decide = async (decision: "upheld" | "overturned") => {
+    const question =
+      decision === "upheld"
+        ? "Uphold the no-show report? The booking stays Not Completed."
+        : "Overturn the no-show report? The booking goes back to Confirmed.";
+    if (!window.confirm(question)) return;
+
+    setBusy(decision);
+    try {
+      await api.post(`/admin/bookings/${report.referenceId}/non-completion/resolve`, {
+        decision,
+        notes: notes.trim() || undefined,
+      });
+      toast.success(decision === "upheld" ? "Report upheld." : "Report overturned.");
+      onResolved();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Couldn't resolve this dispute."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-4 space-y-3">
+      <div>
+        <p className="text-sm font-semibold">Disputed no-show — booking #{report.referenceId}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Uphold keeps the booking as Not Completed. Overturn restores it to Confirmed. Refunds are still recorded separately from the Payments page.
+        </p>
+      </div>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={2}
+        maxLength={1000}
+        placeholder="Decision notes (optional, shown to both parties)"
+        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+      />
+      <div className="flex gap-2 justify-end">
+        <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => decide("overturned")}>
+          {busy === "overturned" ? "Overturning…" : "Overturn report"}
+        </Button>
+        <Button size="sm" variant="destructive" disabled={busy !== null} onClick={() => decide("upheld")}>
+          {busy === "upheld" ? "Upholding…" : "Uphold report"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminReports() {
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -485,6 +546,15 @@ export default function AdminReports() {
                     </div>
                   </div>
                 </div>
+
+                <NoShowResolvePanel
+                  key={selectedReport.rawId}
+                  report={selectedReport}
+                  onResolved={() => {
+                    setSelectedReport((prev) => (prev ? { ...prev, status: "resolved" } : prev));
+                    fetchReports();
+                  }}
+                />
 
                 {/* Evidence Section */}
                 <div>

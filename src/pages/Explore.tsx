@@ -11,6 +11,7 @@ import {
   typeFilters,
   priceFilters,
   ratingFilters,
+  experienceFilters,
   formatPrice,
 } from "@/data/photographers";
 
@@ -97,6 +98,7 @@ export default function Explore() {
   const activeType = searchParams.get("type") || "All";
   const activePriceIdx = Number(searchParams.get("price") || 0);
   const activeRatingIdx = Number(searchParams.get("rating") || 0);
+  const activeExperienceIdx = Number(searchParams.get("experience") || 0);
   const sortBy = (searchParams.get("sort") as "rating" | "favorites" | "price-low" | "price-high" | "reviews") || "rating";
 
   const [openPanel, setOpenPanel] = useState<"filters" | "sort" | null>(null);
@@ -135,6 +137,7 @@ export default function Explore() {
   const filtered = useMemo(() => {
     const pf = priceFilters[activePriceIdx];
     const rf = ratingFilters[activeRatingIdx];
+    const ef = experienceFilters[activeExperienceIdx] ?? experienceFilters[0];
     
     const results = allPhotographers.filter((s) => {
       // Photographer Name Match
@@ -160,6 +163,7 @@ export default function Explore() {
         if (s.priceMax < pf.min || s.priceMin > pf.max) return false;
       }
       if (rf.min > 0 && s.rating < rf.min) return false;
+      if (ef.min > 0 && (s.yearsActive ?? 0) < ef.min) return false;
 
       // Location Match: does this photographer's declared coverage_area
       // reach the client's event location? See photographerServesLocation.
@@ -172,7 +176,7 @@ export default function Explore() {
 
     // Sorting logic
     switch (sortBy) {
-      case "rating": results.sort((a, b) => b.rating - a.rating); break;
+      case "rating": break; // "Recommended": keep the server's stable ranking (filter() preserves order)
       case "favorites": results.sort((a, b) => (b.favoriteCount ?? 0) - (a.favoriteCount ?? 0)); break;
       case "price-low": results.sort((a, b) => a.priceMin - b.priceMin); break;
       case "price-high": results.sort((a, b) => b.priceMax - a.priceMax); break;
@@ -186,6 +190,7 @@ export default function Explore() {
     activeType !== "All",
     activePriceIdx !== 0,
     activeRatingIdx !== 0,
+    activeExperienceIdx !== 0,
   ].filter(Boolean).length;
 
   const clearAll = () => {
@@ -352,8 +357,28 @@ export default function Explore() {
                       })}
                     </div>
                   </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Years of Experience</p>
+                    <div className="space-y-1">
+                      {experienceFilters.map((ef, i) => {
+                        const selected = activeExperienceIdx === i;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => setParam("experience", String(i), "0")}
+                            className="w-full flex items-center gap-2 text-left px-1 py-1 rounded-md hover:bg-muted transition-colors"
+                          >
+                            <span className={cn("w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center", selected ? "border-primary" : "border-border")}>
+                              {selected && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                            </span>
+                            <span className={cn("text-xs", selected ? "text-foreground font-medium" : "text-muted-foreground")}>{ef.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-                {(activeType !== "All" || activePriceIdx !== 0) && (
+                {(activeType !== "All" || activePriceIdx !== 0 || activeExperienceIdx !== 0) && (
                   <button onClick={clearFilters} className="mt-4 text-xs text-primary hover:underline font-medium">
                     Clear filters
                   </button>
@@ -429,6 +454,14 @@ export default function Explore() {
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {priceFilters[activePriceIdx].label}
                 <button onClick={() => setParam("price", "0", "0")} aria-label="Remove price filter" className="hover:bg-primary/20 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+                        {activeExperienceIdx !== 0 && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                {experienceFilters[activeExperienceIdx]?.label}
+                <button onClick={() => setParam("experience", "0", "0")} aria-label="Remove experience filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>

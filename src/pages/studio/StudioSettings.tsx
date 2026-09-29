@@ -127,6 +127,7 @@ export default function StudioSettings() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [gcashErrors, setGcashErrors] = useState<{ name?: string; number?: string }>({});
 
   // ---- Modals ----
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
@@ -312,6 +313,7 @@ export default function StudioSettings() {
     setGcashQrFile(null);
     setGcashQrPreview(null);
     setSaveError(null);
+    setGcashErrors({});
   };
 
   const handleSaveAll = async () => {
@@ -425,24 +427,51 @@ export default function StudioSettings() {
       }
     }
 
-    if (gcashDirty) {
-      try {
-        const formData = new FormData();
-        formData.append("gcash_account_name", gcashAccountName);
-        formData.append("gcash_account_number", gcashAccountNumber);
-        if (gcashQrFile) formData.append("gcash_qr_code", gcashQrFile);
-        const res = await api.post("/photographer/payment-config", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-        const config = res.data?.data ?? res.data;
-        setGcashQrUrl(config.gcash_qr_url ?? null);
-        setGcashQrFile(null);
-        setGcashQrPreview(null);
-        setInitialGcash({ name: gcashAccountName, number: gcashAccountNumber });
-      } catch (err) {
-        const msg = getApiErrorMessage(err, "Failed to save payment settings.");
+        if (gcashDirty) {
+      const nameTrim = gcashAccountName.trim();
+      const nextErrors: { name?: string; number?: string } = {};
+      if (gcashAccountNumber && !nameTrim) {
+        nextErrors.name = "GCash account name is required.";
+      }
+      if (nameTrim && !gcashAccountNumber) {
+        nextErrors.number = "GCash account number is required.";
+      }
+      if (gcashAccountNumber && !/^09\d{9}$/.test(gcashAccountNumber)) {
+        nextErrors.number = "Enter a valid PH mobile number: 11 digits starting with 09 (e.g. 09171234567).";
+      }
+      setGcashErrors(nextErrors);
+
+      if (nextErrors.name || nextErrors.number) {
+        const msg = nextErrors.name ?? nextErrors.number ?? "Please fix the GCash fields.";
         toast.error(msg);
         failures.push(msg);
+      } else {
+        try {
+          const formData = new FormData();
+          formData.append("gcash_account_name", nameTrim);
+          formData.append("gcash_account_number", gcashAccountNumber);
+          if (gcashQrFile) formData.append("gcash_qr_code", gcashQrFile);
+          const res = await api.post("/photographer/payment-config", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          const config = res.data?.data ?? res.data;
+          setGcashQrUrl(config.gcash_qr_url ?? null);
+          setGcashQrFile(null);
+          setGcashQrPreview(null);
+          setGcashAccountName(nameTrim);
+          setInitialGcash({ name: nameTrim, number: gcashAccountNumber });
+        } catch (err: any) {
+          const apiErrors = err?.response?.data?.errors;
+          if (apiErrors?.gcash_account_name || apiErrors?.gcash_account_number) {
+            setGcashErrors({
+              name: apiErrors.gcash_account_name?.[0],
+              number: apiErrors.gcash_account_number?.[0],
+            });
+          }
+          const msg = getApiErrorMessage(err, "Failed to save payment settings.");
+          toast.error(msg);
+          failures.push(msg);
+        }
       }
     }
 
@@ -590,7 +619,7 @@ export default function StudioSettings() {
               </div>
               <div className="space-y-2">
                 <Label>Public Contact Phone (Read-Only)</Label>
-                <Input value={(user as any)?.phoneNumber ?? ""} disabled className="bg-muted/50 cursor-not-allowed" />
+                <Input value={user?.phoneNumber ?? ""} disabled className="bg-muted/50 cursor-not-allowed" />
                 <p className="text-[11px] text-muted-foreground">Contact support to change your registered phone number.</p>
               </div>
             </div>
@@ -781,13 +810,32 @@ export default function StudioSettings() {
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label>GCash Account Name</Label>
-                <Input value={gcashAccountName} onChange={(e) => setGcashAccountName(e.target.value)} />
+                <Input
+                  value={gcashAccountName}
+                  onChange={(e) => {
+                    setGcashAccountName(e.target.value);
+                    setGcashErrors((p) => ({ ...p, name: undefined }));
+                  }}
+                  aria-invalid={!!gcashErrors.name}
+                  className={gcashErrors.name ? "border-destructive" : ""}
+                />
+                {gcashErrors.name && <p className="text-xs text-destructive">{gcashErrors.name}</p>}
               </div>
               <div className="space-y-2">
                 <Label>GCash Account Number</Label>
-                <Input inputMode="numeric" value={gcashAccountNumber}
-                  onChange={(e) => setGcashAccountNumber(e.target.value.replace(/[^0-9]/g, ""))}
-                  placeholder="09XXXXXXXXX" maxLength={11} />
+                <Input
+                  inputMode="numeric"
+                  value={gcashAccountNumber}
+                  onChange={(e) => {
+                    setGcashAccountNumber(e.target.value.replace(/[^0-9]/g, ""));
+                    setGcashErrors((p) => ({ ...p, number: undefined }));
+                  }}
+                  placeholder="09XXXXXXXXX"
+                  maxLength={11}
+                  aria-invalid={!!gcashErrors.number}
+                  className={gcashErrors.number ? "border-destructive" : ""}
+                />
+                {gcashErrors.number && <p className="text-xs text-destructive">{gcashErrors.number}</p>}
               </div>
             </div>
 

@@ -42,11 +42,115 @@ type RawBooking = {
   payment_status: "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;
+  non_completion_reason: string | null;
+  non_completion_reported_by: number | null;
+  non_completion_state: "open" | "disputed" | "upheld" | "final" | null;
+  non_completion_dispute_deadline_at: string | null;
+  non_completion_dispute_reason: string | null;
+  non_completion_admin_notes: string | null;
+  is_reviewable: boolean;
   remaining_balance: number;
   created_at: string;
   service_status: "event_day" | "editing" | "delivered" | null;
   has_reviewed: boolean;
+  extension_eligible: boolean;
+  has_pending_extension: boolean;
+  approved_extension_charge: number;
+  extensions: RawBookingExtension[];
+  // Schedule 1 (this booking's own date/time) + every additional
+  // BookingSchedule row, in one ordered list — see BookingResource.php /
+  // Booking::allSchedules(). Confirmed against BookingScheduleResource.php.
+  schedules: RawBookingSchedule[];
 };
+
+export type RawBookingSchedule = {
+  id: number | null; // null = the primary schedule, not a booking_schedules row
+  label: string;
+  event_date: string; // "YYYY-MM-DD"
+  start_time: string; // "HH:mm" or "HH:mm:ss"
+  end_time: string;
+  is_primary: boolean;
+  duration_minutes?: number | null;
+  duration_confirmed?: boolean;
+  location_type?: string | null;
+  location_label?: string | null; // null = same location as the booking
+  event_address?: string | null;
+};
+
+export interface BookingScheduleRecord {
+  id: string | null;
+  label: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  isPrimary: boolean;
+  durationMinutes: number | null;
+  durationConfirmed: boolean;
+  locationType: string | null;
+  locationLabel: string | null; // null = same location as the booking
+  eventAddress: string | null;
+}
+
+function toSchedule(raw: RawBookingSchedule): BookingScheduleRecord {
+  return {
+    id: raw.id === null ? null : String(raw.id),
+    label: raw.label,
+    eventDate: raw.event_date,
+    startTime: raw.start_time,
+    endTime: raw.end_time,
+    isPrimary: raw.is_primary,
+    durationMinutes: raw.duration_minutes ?? null,
+    durationConfirmed: raw.duration_confirmed ?? Boolean(raw.end_time),
+    locationType: raw.location_type ?? null,
+    locationLabel: raw.location_label ?? null,
+    eventAddress: raw.event_address ?? null,
+  };
+}
+
+// Confirmed against BookingExtensionResource.php.
+export type RawBookingExtension = {
+  id: number;
+  requested_hours: number;
+  hourly_rate: number | string;
+  additional_charge: number | string;
+  status: "pending" | "approved" | "declined";
+  requested_at: string;
+  decided_at: string | null;
+  decline_reason: string | null;
+  new_end_time: string | null;
+  schedule_id: number | null;
+  schedule_label: string | null;
+};
+
+export interface BookingExtensionRecord {
+  id: string;
+  requestedHours: number;
+  hourlyRate: number;
+  additionalCharge: number;
+  status: "pending" | "approved" | "declined";
+  requestedAt: string;
+  decidedAt: string | null;
+  declineReason: string | null;
+  newEndTime: string | null;
+  scheduleId: string | null;
+  scheduleLabel: string | null;
+}
+
+function toExtension(raw: RawBookingExtension): BookingExtensionRecord {
+  return {
+    id: String(raw.id),
+    requestedHours: raw.requested_hours,
+    hourlyRate: Number(raw.hourly_rate),
+    additionalCharge: Number(raw.additional_charge),
+    status: raw.status,
+    requestedAt: raw.requested_at,
+    decidedAt: raw.decided_at,
+    declineReason: raw.decline_reason,
+    newEndTime: raw.new_end_time,
+    scheduleId: raw.schedule_id === null ? null : String(raw.schedule_id),
+    scheduleLabel: raw.schedule_label,
+  };
+}
 
 // Pass through unchanged — confirmed against BookingResource.php / BookingStatus enum
 // (AcceptBookingAction, RejectBookingAction, Booking.php): pending, accepted,
@@ -120,6 +224,18 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
         }
       : undefined,
     hasActiveRequest: !!raw.cancellation_requested_at && !raw.cancellation_decision,
+    nonCompletionReason: raw.non_completion_reason,
+    nonCompletionReportedBy: raw.non_completion_reported_by,
+    nonCompletionState: raw.non_completion_state,
+    nonCompletionDeadline: raw.non_completion_dispute_deadline_at,
+    nonCompletionDisputeReason: raw.non_completion_dispute_reason,
+    nonCompletionAdminNotes: raw.non_completion_admin_notes,
+    isReviewable: raw.is_reviewable,
+    extensionEligible: raw.extension_eligible,
+    hasPendingExtension: raw.has_pending_extension,
+    approvedExtensionCharge: raw.approved_extension_charge,
+    extensions: raw.extensions.map(toExtension),
+    schedules: raw.schedules.map(toSchedule),
   } as BookingRecord;
 }
 
@@ -167,6 +283,25 @@ export interface CreateBookingPayload {
   event_address?: string;     // "Specific Address / Venue" — required unless location_type === "studio"
   guest_count?: number;       // min 1
   special_requests?: string;  // max 2000 chars
+  // Schedule 2+ — see CreateBookingRequest.php's additional_schedules
+  // field. Schedule 1 stays the event_date/start_time above. These, if
+  // present, are separate non-contiguous dates (e.g. Prenup on Oct 5 vs
+  // Wedding on Oct 20) — NOT a continuous range. No end_time here either:
+  // every schedule in a booking shares the same package/custom-package
+  // coverage length (there's one package per booking, not one per date),
+  // so the backend derives each one's end_time from its start_time the
+  // same way it derives Schedule 1's — see CreateBookingAction.
+    additional_schedules?: {
+      label: string;
+      event_date: string;
+      start_time: string;
+      duration_minutes?: number;
+      location_type?: string;
+      province_id?: number;
+      city_municipality_id?: number;
+      barangay_id?: number;
+      event_address?: string;
+    }[];
   // Fixed package:
   package_id?: number;        // required if is_custom_package is false/omitted
   // OR custom package:
@@ -323,6 +458,16 @@ export const bookingService = {
     return toBookingRecord(raw);
   },
 
+  reportNonCompletion: async (bookingId: string, reason: "photographer_no_show" | "client_no_show", notes?: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/report-non-completion`, "POST", { reason, notes });
+    return toBookingRecord(raw);
+  },
+
+  disputeNonCompletion: async (bookingId: string, reason: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/dispute-non-completion`, "POST", { reason });
+    return toBookingRecord(raw);
+  },
+
   reschedule: async (bookingId: string, eventDate: string, startTime: string, reason: string): Promise<BookingRecord> => {
     const raw = await apiMutate<RawBooking>(
       `/client/bookings/${bookingId}/reschedule`,
@@ -356,6 +501,15 @@ export const bookingService = {
 
   submitPayment: async (bookingId: string, payload: SubmitPaymentPayload): Promise<SubmitPaymentResult> => {
     return apiMutateWithMessage<SubmitPaymentResult>(`/client/bookings/${bookingId}/payments`, "POST", payload);
+  },
+
+  requestExtension: async (bookingId: string, additionalHours: number, scheduleId?: string | null): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(
+      `/client/bookings/${bookingId}/extensions`,
+      "POST",
+      { additional_hours: additionalHours, ...(scheduleId ? { schedule_id: Number(scheduleId) } : {}) }
+    );
+    return toBookingRecord(raw);
   },
 };
 

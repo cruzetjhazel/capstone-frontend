@@ -31,7 +31,7 @@ import {
   useMarkServiceCompleted,
   useRecordOnsitePayment,
 } from "@/hooks/usePhotographerBookings";
-import { usePayments, useVerifyPayment, useRejectPayment } from "@/hooks/usePayments";
+import { usePayments, useVerifyPayment, useRejectPayment, useReportClientNoShow, useDisputeStudioNonCompletion, } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 
 type FilterTab = "All" | "Pending" | "Confirmed" | "In Progress" | "Completed" | "Cancelled" | "Expired";
@@ -481,7 +481,7 @@ export default function StudioBookings() {
                     <p className={cn("font-heading font-bold text-sm", b.status === "cancelled" ? "text-muted-foreground" : "text-primary")}>
                       ₱{b.totalPrice.toLocaleString()}
                     </p>
-                    <StatusBadge status={b.status as any} />
+                    <StatusBadge status={b.status as any} nonCompletionReason={b.nonCompletionReason} />
 
                     {b.status === "pending" && !b.hasActiveCancellationRequest && !holdExpired ? (
                       <div className="flex items-center gap-1.5">

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Menu, X, LayoutDashboard, Settings, User, LogOut, Bell, HelpCircle,
-  Calendar, Heart, Star, Wallet, LucideIcon,
+  Calendar, Heart, Star, Wallet, Loader2, LucideIcon,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import { NavLink } from "@/components/NavLink";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
 import { useNotifications } from "@/hooks/useNotifications";
+import toast from "react-hot-toast";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -56,6 +58,24 @@ export default function MarketingNavbar({ solid = false }: Props) {
   const { user, logout } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    const toastId = toast.loading("Logging out…");
+
+    try {
+      await logout();
+      toast.success("Successfully logged out. See you next time!", { id: toastId });
+      setIsLogoutModalOpen(false);
+      navigate("/login", { replace: true });
+    } catch {
+      toast.error("Failed to sign out. Please try again.", { id: toastId });
+      setIsLoggingOut(false);
+    }
+  };
 
   const isClient = user?.role === "client";
   const navLinks = baseNavLinks;
@@ -189,7 +209,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
                 )}
 
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => void logout()}>
+                <DropdownMenuItem onClick={() => setIsLogoutModalOpen(true)}>
                   <LogOut className="w-4 h-4 mr-2" /> Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -305,7 +325,10 @@ export default function MarketingNavbar({ solid = false }: Props) {
                       </Link>
                     </>
                   )}
-                  <Button className="w-full" onClick={() => { void logout(); setOpen(false); }}>
+                  <Button
+                    className="w-full"
+                    onClick={() => { setOpen(false); setIsLogoutModalOpen(true); }}
+                  >
                     <LogOut className="w-4 h-4 mr-2" />Log out
                   </Button>
                 </>
@@ -320,6 +343,49 @@ export default function MarketingNavbar({ solid = false }: Props) {
         </div>
       )}
 
+      {isLogoutModalOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200 m-4">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center text-destructive">
+                  <LogOut className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-heading font-bold text-foreground">Sign Out</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Are you sure you want to sign out?
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setIsLogoutModalOpen(false)}
+                  disabled={isLoggingOut}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-destructive text-destructive-foreground text-sm font-semibold hover:bg-destructive/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isLoggingOut ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Signing out…
+                    </>
+                  ) : (
+                    "Sign Out"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </header>
   );
 }

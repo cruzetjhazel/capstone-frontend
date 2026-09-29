@@ -27,6 +27,14 @@ export interface RequestRecord {
 }
 
 export interface BookingRecord {
+  hasActiveRequest: boolean;
+  nonCompletionReason: string | null;
+  nonCompletionReportedBy?: number | null;
+  nonCompletionState?: "open" | "disputed" | "upheld" | "final" | null;
+  nonCompletionDeadline?: string | null;
+  nonCompletionDisputeReason?: string | null;
+  nonCompletionAdminNotes?: string | null;
+  isReviewable?: boolean;
   id: string;
   clientEmail?: string;
   photographerId: string;
@@ -61,12 +69,22 @@ export interface BookingRecord {
   modificationRequest?: RequestRecord;
   revisionRequest?: RequestRecord;
 
+  // Sliding-hours extension requests — see bookingService.ts's
+  // RawBookingExtension/BookingExtensionRecord mapping.
+  extensionEligible?: boolean;
+  hasPendingExtension?: boolean;
+  approvedExtensionCharge?: number;
+  extensions?: import("@/services/bookingService").BookingExtensionRecord[];
+  schedules?: import("@/services/bookingService").BookingScheduleRecord[];
+
   receipt?: any;
 }
 
 // Update seed data with future events & varying service statuses for testing
 let bookings: BookingRecord[] = [
   {
+    hasActiveRequest: false,
+    nonCompletionReason: null,
     id: "BK-1042",
     clientEmail: "client@example.com",
     photographerId: "1",
@@ -90,10 +108,12 @@ let bookings: BookingRecord[] = [
     balance: 10500,
     paymentOption: "Downpayment (30%)",
     status: "confirmed",
-    serviceStatus: "not_started",
+    serviceStatus: null,
     createdAt: new Date().toISOString(),
   },
   {
+    hasActiveRequest: false,
+    nonCompletionReason: null,
     id: "BK-1043",
     clientEmail: "client@example.com",
     photographerId: "1",
@@ -117,7 +137,7 @@ let bookings: BookingRecord[] = [
     balance: 5600,
     paymentOption: "Downpayment (30%)",
     status: "confirmed",
-    serviceStatus: "for_client_review", // Trigger revision option!
+    serviceStatus: "delivered", // Trigger revision option!
     createdAt: new Date().toISOString(),
   }
 ];

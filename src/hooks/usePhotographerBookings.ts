@@ -80,6 +80,21 @@ export function useRejectReschedule() {
   return useBookingMutation((id: string) => photographerBookingService.rejectReschedule(id), (id) => id);
 }
 
+export function useApproveExtension() {
+  return useBookingMutation(
+    ({ id, extensionId }: { id: string; extensionId: string }) => photographerBookingService.approveExtension(id, extensionId),
+    ({ id }) => id
+  );
+}
+
+export function useDeclineExtension() {
+  return useBookingMutation(
+    ({ id, extensionId, reason }: { id: string; extensionId: string; reason?: string }) =>
+      photographerBookingService.declineExtension(id, extensionId, reason),
+    ({ id }) => id
+  );
+}
+
 export function useUpdateServiceTracker() {
   return useBookingMutation(
     ({ id, status }: { id: string; status: string }) => photographerBookingService.updateServiceTracker(id, status),
@@ -95,6 +110,21 @@ export function useRecordOnsitePayment() {
   return useBookingMutation(
     ({ id, amount, paymentDate, notes }: { id: string; amount: number; paymentDate: string; notes?: string }) =>
       photographerBookingService.recordOnsitePayment(id, { amount, payment_date: paymentDate, notes }),
+    ({ id }) => id
+  );
+}
+
+
+export function useReportClientNoShow() {
+  return useBookingMutation(
+    ({ id, notes }: { id: string; notes?: string }) => photographerBookingService.reportNonCompletion(id, notes),
+    ({ id }) => id
+  );
+}
+
+export function useDisputeStudioNonCompletion() {
+  return useBookingMutation(
+    ({ id, reason }: { id: string; reason: string }) => photographerBookingService.disputeNonCompletion(id, reason),
     ({ id }) => id
   );
 }

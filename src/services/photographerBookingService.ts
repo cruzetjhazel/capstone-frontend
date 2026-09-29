@@ -44,6 +44,12 @@ type RawStudioBooking = {
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;
   cancellation_decided_at: string | null;
+  non_completion_reason: string | null;
+  non_completion_reported_by: number | null;
+  non_completion_state: "open" | "disputed" | "upheld" | "final" | null;
+  non_completion_dispute_deadline_at: string | null;
+  non_completion_dispute_reason: string | null;
+  non_completion_admin_notes: string | null;
   reschedule_request: {
     requested_event_date: string | null;
     requested_start_time: string | null;
@@ -64,7 +70,85 @@ type RawStudioBooking = {
   service_status: string | null;
   service_status_updated_at: string | null;
   created_at: string;
+  extension_eligible: boolean;
+  has_pending_extension: boolean;
+  approved_extension_charge: number;
+  extensions: RawExtension[];
+  schedules: RawSchedule[];
 };
+
+interface RawSchedule {
+  id: number | null; // null = primary schedule, not a booking_schedules row
+  label: string;
+  event_date: string;
+  start_time: string;
+  end_time: string;
+  is_primary: boolean;
+}
+
+export interface StudioBookingSchedule {
+  id: string | null;
+  label: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  isPrimary: boolean;
+}
+
+function toSchedule(raw: RawSchedule): StudioBookingSchedule {
+  return {
+    id: raw.id === null ? null : String(raw.id),
+    label: raw.label,
+    eventDate: raw.event_date,
+    startTime: raw.start_time,
+    endTime: raw.end_time,
+    isPrimary: raw.is_primary,
+  };
+}
+
+interface RawExtension {
+  id: number;
+  requested_hours: number;
+  hourly_rate: number | string;
+  additional_charge: number | string;
+  status: "pending" | "approved" | "declined";
+  requested_at: string;
+  decided_at: string | null;
+  decline_reason: string | null;
+  new_end_time: string | null;
+  schedule_id: number | null;
+  schedule_label: string | null;
+}
+
+export interface StudioBookingExtension {
+  id: string;
+  requestedHours: number;
+  hourlyRate: number;
+  additionalCharge: number;
+  status: "pending" | "approved" | "declined";
+  requestedAt: string;
+  decidedAt: string | null;
+  declineReason: string | null;
+  newEndTime: string | null;
+  scheduleId: string | null;
+  scheduleLabel: string | null;
+}
+
+function toExtension(raw: RawExtension): StudioBookingExtension {
+  return {
+    id: String(raw.id),
+    requestedHours: raw.requested_hours,
+    hourlyRate: Number(raw.hourly_rate),
+    additionalCharge: Number(raw.additional_charge),
+    status: raw.status,
+    requestedAt: raw.requested_at,
+    decidedAt: raw.decided_at,
+    declineReason: raw.decline_reason,
+    newEndTime: raw.new_end_time,
+    scheduleId: raw.schedule_id === null ? null : String(raw.schedule_id),
+    scheduleLabel: raw.schedule_label,
+  };
+}
 
 export interface StudioBookingRecord {
   id: string;
@@ -87,6 +171,12 @@ export interface StudioBookingRecord {
   status: PhotographerBookingStatus;
   rejectionReason: string | null;
   cancellationReason: string | null;
+  nonCompletionReason: string | null;
+  nonCompletionReportedBy: number | null;
+  nonCompletionState: "open" | "disputed" | "upheld" | "final" | null;
+  nonCompletionDeadline: string | null;
+  nonCompletionDisputeReason: string | null;
+  nonCompletionAdminNotes: string | null;
   hasActiveCancellationRequest: boolean;
   hasPendingRescheduleRequest: boolean;
   pendingReschedule: { eventDate: string; startTime: string } | null;
@@ -105,6 +195,11 @@ export interface StudioBookingRecord {
   };
   createdAt: string;
   holdExpiresAt: string | null;
+  extensionEligible: boolean;
+  hasPendingExtension: boolean;
+  approvedExtensionCharge: number;
+  extensions: StudioBookingExtension[];
+  schedules: StudioBookingSchedule[];
 }
 
 function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
@@ -132,6 +227,12 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
     status: raw.status,
     rejectionReason: raw.rejection_reason,
     cancellationReason: raw.cancellation_reason,
+    nonCompletionReason: raw.non_completion_reason,
+    nonCompletionReportedBy: raw.non_completion_reported_by,
+    nonCompletionState: raw.non_completion_state,
+    nonCompletionDeadline: raw.non_completion_dispute_deadline_at,
+    nonCompletionDisputeReason: raw.non_completion_dispute_reason,
+    nonCompletionAdminNotes: raw.non_completion_admin_notes,
     hasActiveCancellationRequest: !!raw.cancellation_requested_at && !raw.cancellation_decision,
     hasPendingRescheduleRequest: !!raw.reschedule_request && !raw.reschedule_request.decision,
     pendingReschedule: raw.reschedule_request && !raw.reschedule_request.decision
@@ -165,6 +266,11 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
       : undefined,
     createdAt: raw.created_at,
     holdExpiresAt: raw.hold_expires_at,
+    extensionEligible: raw.extension_eligible,
+    hasPendingExtension: raw.has_pending_extension,
+    approvedExtensionCharge: raw.approved_extension_charge,
+    extensions: raw.extensions.map(toExtension),
+    schedules: raw.schedules.map(toSchedule),
   };
 }
 
@@ -230,6 +336,16 @@ export const photographerBookingService = {
     return toStudioBooking(res.data.data);
   },
 
+  approveExtension: async (id: string, extensionId: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/extensions/${extensionId}/approve`);
+    return toStudioBooking(res.data.data);
+  },
+
+  declineExtension: async (id: string, extensionId: string, reason?: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/extensions/${extensionId}/decline`, { reason });
+    return toStudioBooking(res.data.data);
+  },
+
   // NOTE: `status` must match the real ServiceTrackerStatus enum cases —
   // // unconfirmed, currently sourced from the frontend's local trackingStages ids.
   updateServiceTracker: async (id: string, status: string): Promise<StudioBookingRecord> => {
@@ -243,6 +359,16 @@ export const photographerBookingService = {
   // tracker on purpose (BookingStatus and ServiceTrackerStatus stay distinct).
   markCompleted: async (id: string): Promise<StudioBookingRecord> => {
     const res = await api.post(`/photographer/bookings/${id}/complete`);
+    return toStudioBooking(res.data.data);
+  },
+
+  reportNonCompletion: async (id: string, notes?: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/report-non-completion`, { reason: "client_no_show", notes });
+    return toStudioBooking(res.data.data);
+  },
+
+  disputeNonCompletion: async (id: string, reason: string): Promise<StudioBookingRecord> => {
+    const res = await api.post(`/photographer/bookings/${id}/dispute-non-completion`, { reason });
     return toStudioBooking(res.data.data);
   },
 

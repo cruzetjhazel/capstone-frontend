@@ -29,6 +29,7 @@ export type User = {
   role: Role;
   application: PhotographerApplicationInfo | null;
   profilePhotoUrl: string | null;
+  phoneNumber?: string | null;
 };
 
 type RoleContextType = {
@@ -37,7 +38,7 @@ type RoleContextType = {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<User>;
   setUserFromRegistration: (rawUser: any, token?: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshApplication: () => Promise<void>;
   refreshProfilePhoto: (url: string | null) => void;
   // One-shot flag consumed by ProtectedRoute so it can tell "user just clicked
@@ -119,6 +120,7 @@ async function buildUser(rawUser: any): Promise<User> {
     role: deriveRole(accountType),
     application,
     profilePhotoUrl,
+    phoneNumber: rawUser.phone_number ?? null,
   };
 }
 
@@ -130,6 +132,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   // On app load: if a token exists, ask the backend who we are (source of truth),
   // rather than trusting whatever was last cached in localStorage.
   useEffect(() => {
+    let cancelled = false;
+
     const bootstrap = async () => {
       const token = getAuthToken();
       if (!token) {
@@ -137,21 +141,43 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      try {
-        const res = await api.get("/auth/me");
-        const rawUser = res.data?.data ?? res.data;
-        const nextUser = await buildUser(rawUser);
-        setUser(nextUser);
-      } catch {
-        // Token invalid/expired/account no longer active — clear stale session
-        clearAuthToken();
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const res = await api.get("/auth/me");
+          const rawUser = res.data?.data ?? res.data;
+          const nextUser = await buildUser(rawUser);
+          if (!cancelled) {
+            setUser(nextUser);
+            setIsLoading(false);
+          }
+          return;
+        } catch (err: any) {
+          const status = err?.response?.status;
+          console.error("[auth bootstrap] /auth/me failed:", status, err?.message);
+
+          // Only a 401 means the token is really invalid/expired -> log out.
+          if (status === 401) {
+            clearAuthToken();
+            break;
+          }
+          // Anything else (network, 429, 5xx): keep the token and retry.
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+          }
+        }
+      }
+
+      if (!cancelled) {
         setUser(null);
-      } finally {
         setIsLoading(false);
       }
     };
 
     bootstrap();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<User> => {
@@ -167,11 +193,17 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return nextUser;
   };
 
-  const logout = () => {
+  const logout = async () => {
     justLoggedOutRef.current = true;
-    api.post("/auth/logout").catch(() => {});
-    setUser(null);
-    clearAuthToken();
+    try {
+      // Token must still be present so the request is authenticated.
+      await api.post("/auth/logout");
+    } catch {
+      // Even if the server call fails, the user should still be signed out locally.
+    } finally {
+      clearAuthToken();
+      setUser(null);
+    }
   };
 
   const consumeJustLoggedOut = () => {

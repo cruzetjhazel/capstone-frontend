@@ -1,3 +1,12 @@
+// An inclusion is either a plain string (legacy/mock data) or the structured
+// { name, detail } shape the backend now stores.
+export type PackageInclusion = string | { name: string; detail?: string };
+
+export function inclusionText(inc: PackageInclusion): string {
+  if (typeof inc === "string") return inc;
+  return inc.detail ? `${inc.name} — ${inc.detail}` : inc.name;
+}
+
 export interface Package {
   // Real backend package id (from the photographer's Package model). Needed
   // by Booking.tsx to (a) query real availability for the correct package
@@ -7,10 +16,18 @@ export interface Package {
   id?: number;
   name: string;
   price: number;
-  hours: number;
+  // null = the photographer left the duration open ("to be confirmed").
+  // Never substitute an assumed length for it.
+  hours: number | null;
+  // "open" = start time only (no end time is reserved); "timed" = duration + buffer.
+  scheduleMode?: "timed" | "open";
   photos: number;
   description: string;
-  inclusions: string[];
+  inclusions: PackageInclusion[];
+  // Photographer opted this package in to covering several photography
+  // sessions under ONE booking (e.g. a graduation package over two days).
+  allowsMultipleSessions?: boolean;
+  maxSessions?: number | null;
 }
 
 export interface Review {
@@ -40,8 +57,17 @@ export interface CustomRates {
   // hours slider instead of requiring a discrete duration option below.
   // null/undefined means this photographer only uses the discrete picker.
   hourlyRate?: number | null;
+  // Hours the baseFee already covers (sliding-hours mode). null = legacy
+  // "hours x rate, no base fee" pricing.
+  baseHours?: number | null;
   minHours?: number | null;
   maxHours?: number | null;
+  // Multi-session custom bookings (sliding-hours only) — set by the photographer.
+  allowsMultipleSessions?: boolean;
+  maxSessions?: number | null;
+  baseFeeMode?: "once" | "per_schedule" | null;
+  // Photographer's raw minimum hours (minHours above is raised to baseHours).
+  sessionMinHours?: number | null;
   photoTiers: { label: string; value: number; price: number }[];
   photographerTiers: { label: string; value: number; price: number }[];
   deliveryTiers: { id: string; label: string; price: number }[];
@@ -118,6 +144,8 @@ export interface Photographer {
   customRates: CustomRates;
   socials?: { facebook?: string; instagram?: string; website?: string };
   phone?: string;
+  yearsActive?: number | null;
+  shootingTypes?: string[];
   email?: string;
   gcashQR?: string;   // mock QR identifier used by payment auto-verify
   gcashName?: string;
@@ -361,6 +389,14 @@ export const ratingFilters = [
   { label: "4.5+", min: 4.5 },
   { label: "4.7+", min: 4.7 },
   { label: "4.9+", min: 4.9 },
+];
+
+export const experienceFilters = [
+  { label: "Any experience", min: 0 },
+  { label: "1+ years", min: 1 },
+  { label: "3+ years", min: 3 },
+  { label: "5+ years", min: 5 },
+  { label: "10+ years", min: 10 },
 ];
 
 export function getPhotographer(id: string): Photographer | undefined {

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { fetchPhotographer } from "@/services/photographerService";
-import { formatPrice, type Photographer } from "@/data/photographers";
+import { formatPrice, inclusionText, type Photographer } from "@/data/photographers";
 import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/useFavorites";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -244,6 +244,36 @@ export default function PhotographerProfile() {
           </div>
         </div>
 
+        {/* Experience & Shooting Types */}
+        {(p.yearsActive != null || (p.shootingTypes && p.shootingTypes.length > 0)) && (
+          <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {p.yearsActive != null && (
+              <div>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" /> Experience
+                </span>
+                <p className="mt-2 text-sm font-medium">
+                  {p.yearsActive} {p.yearsActive === 1 ? "year" : "years"} of experience
+                </p>
+              </div>
+            )}
+            {p.shootingTypes && p.shootingTypes.length > 0 && (
+              <div>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5" /> Shooting Types Supported
+                </span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {p.shootingTypes.map((t) => (
+                    <span key={t} className="px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20">
+                      {t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* About */}
         <div className="bg-card rounded-xl card-shadow border border-border/50 p-6">
           <h2 className="font-heading font-semibold mb-3">About</h2>
@@ -346,10 +376,13 @@ export default function PhotographerProfile() {
 
                     <div className="space-y-3 flex-grow">
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Includes</p>
-                      {pkg.inclusions.map((inc) => (
-                        <div key={inc} className="flex items-start gap-3 text-sm">
+                      {pkg.inclusions.map((inc, idx) => (
+                        <div key={idx} className="flex items-start gap-3 text-sm">
                           <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" /> 
-                          <span className="text-muted-foreground leading-tight">{inc}</span>
+                          <span className="text-muted-foreground leading-tight">
+                            {typeof inc === "string" ? inc : inc.name}
+                            {typeof inc !== "string" && inc.detail && <span className="text-muted-foreground/70"> — {inc.detail}</span>}
+                          </span>
                         </div>
                       ))}
                     </div>

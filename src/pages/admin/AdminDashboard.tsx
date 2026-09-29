@@ -9,14 +9,10 @@ import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 
-// --- Still mocked — pending backend analytics-delta work ---
-// (needs PhotographerApplication's approval-timestamp column and
-// ActivityLog's action-name strings before this can be made real)
-const analyticsPreview = [
-  { metric: "Completed Bookings", value: "↑ 18%", desc: "vs last month", color: "text-emerald-600" },
-  { metric: "New Clients", value: "↑ 11%", desc: "vs last week", color: "text-emerald-600" },
-  { metric: "Verified Professionals", value: "↑ 6%", desc: "MoM growth", color: "text-emerald-600" },
-];
+const formatDelta = (v: number | null | undefined) =>
+  v == null
+    ? { value: "—", color: "text-muted-foreground" }
+    : { value: `${v >= 0 ? "↑" : "↓"} ${Math.abs(v)}%`, color: v >= 0 ? "text-emerald-600" : "text-destructive" };
 
 const bookingStatusStyles: Record<string, string> = {
   "Pending": "bg-amber-500/10 text-amber-600",
@@ -55,6 +51,11 @@ type DashboardStats = {
   professionals: number;
   total_bookings: number;
   pending_reviews: number;
+  analytics?: {
+    completed_bookings_change_pct?: number | null;
+    new_clients_change_pct?: number | null;
+    verified_professionals_change_pct?: number | null;
+  };
 };
 type ActivityFeedItem = { id: string | number; text: string; time: string; icon: typeof Terminal; color: string };
 
@@ -123,6 +124,7 @@ export default function AdminDashboard() {
           professionals: s.professionals ?? 0,
           total_bookings: s.total_bookings ?? 0,
           pending_reviews: s.pending_reviews ?? 0,
+          analytics: s.analytics ?? {},
         });
       })
       .catch((err) => {
@@ -176,6 +178,12 @@ export default function AdminDashboard() {
         toast.error(getApiErrorMessage(err, "Failed to load activity logs."));
       });
   }, []);
+
+    const analyticsPreview = [
+    { metric: "Completed Bookings", desc: "vs last month", ...formatDelta(stats.analytics?.completed_bookings_change_pct) },
+    { metric: "New Clients", desc: "vs last week", ...formatDelta(stats.analytics?.new_clients_change_pct) },
+    { metric: "Verified Professionals", desc: "MoM growth", ...formatDelta(stats.analytics?.verified_professionals_change_pct) },
+  ];
 
   const statCards = [
     { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Professionals", icon: Users, color: "bg-primary/10 text-primary" },

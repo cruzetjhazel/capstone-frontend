@@ -2,14 +2,23 @@ import api from "@/lib/api";
 
 export type CustomComponentType = "flat_option" | "tier_option";
 export type CustomComponentStatus = "active" | "archived";
+export type CustomPricingModel = "fixed" | "hourly" | "per_day" | "per_person";
 
 interface RawConfig {
   enabled: boolean;
   base_fee: number | string | null;
+  base_hours?: number | null;
   buffer_minutes: number | string | null;
   hourly_rate?: number | string | null;
   min_hours?: number | null;
   max_hours?: number | null;
+  allows_multiple_sessions?: boolean;
+  max_sessions?: number | null;
+  base_fee_mode?: "once" | "per_schedule" | null;
+  pricing_model?: CustomPricingModel;
+  unit_rate?: number | string | null;
+  coverage_hours?: number | null;
+  max_people?: number | null;
   updated_at: string;
 }
 export interface CustomPackageConfigRecord {
@@ -18,20 +27,38 @@ export interface CustomPackageConfigRecord {
   // Applied to every custom-package booking this photographer receives —
   // mirrors PackageRecord.bufferMinutes, which is per fixed package instead.
   bufferMinutes: number;
-  // Optional sliding-hours pricing — see CustomPackageDrawer in
-  // StudioPackages.tsx and Booking.tsx's slider UI. null means this
-  // photographer only uses the discrete duration-tier picker.
+  // Hourly rate (only used when pricingModel === "hourly").
   hourlyRate: number | null;
+  baseHours: number | null;
+  allowsMultipleSessions: boolean;
+  maxSessions: number | null;
+  baseFeeMode: "once" | "per_schedule" | null;
   minHours: number | null;
   maxHours: number | null;
+  // One pricing method per photographer.
+  pricingModel: CustomPricingModel;
+  // Rate per day or per person (per_day / per_person).
+  unitRate: number | null;
+  // Agreed coverage hours per session for per_day / per_person. Scheduling
+  // only — never derived from price. null = duration confirmed per booking.
+  coverageHours: number | null;
+  maxPeople: number | null;
 }
 export interface CustomPackageConfigInput {
   enabled: boolean;
-  base_fee: number | null;
+  base_fee?: number | null;
+  base_hours?: number | null;
   buffer_minutes?: number;
   hourly_rate?: number | null;
+  allows_multiple_sessions?: boolean;
+  max_sessions?: number | null;
+  base_fee_mode?: "once" | "per_schedule" | null;
   min_hours?: number | null;
   max_hours?: number | null;
+  pricing_model?: CustomPricingModel;
+  unit_rate?: number | null;
+  coverage_hours?: number | null;
+  max_people?: number | null;
 }
 
 interface RawComponent {
@@ -70,8 +97,16 @@ function toConfig(raw: RawConfig): CustomPackageConfigRecord {
     baseFee: raw.base_fee === null ? null : Number(raw.base_fee),
     bufferMinutes: raw.buffer_minutes == null ? 0 : Number(raw.buffer_minutes),
     hourlyRate: raw.hourly_rate == null ? null : Number(raw.hourly_rate),
+    baseHours: raw.base_hours ?? null,
     minHours: raw.min_hours ?? null,
     maxHours: raw.max_hours ?? null,
+    allowsMultipleSessions: !!raw.allows_multiple_sessions,
+    maxSessions: raw.max_sessions ?? null,
+    baseFeeMode: raw.base_fee_mode ?? null,
+    pricingModel: raw.pricing_model ?? (raw.hourly_rate != null ? "hourly" : "fixed"),
+    unitRate: raw.unit_rate == null ? null : Number(raw.unit_rate),
+    coverageHours: raw.coverage_hours ?? null,
+    maxPeople: raw.max_people ?? null,
   };
 }
 function toComponent(raw: RawComponent): CustomComponentRecord {

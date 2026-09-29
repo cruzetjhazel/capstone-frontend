@@ -49,6 +49,30 @@ export function useRequestBookingCancellation() {
   });
 }
 
+export function useReportBookingNonCompletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason, notes }: { id: string; reason: "photographer_no_show" | "client_no_show"; notes?: string }) =>
+      bookingService.reportNonCompletion(id, reason, notes),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+}
+
+export function useDisputeBookingNonCompletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      bookingService.disputeNonCompletion(id, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+}
+
 export function useRequestBookingReschedule() {
   const qc = useQueryClient();
   return useMutation({
@@ -66,6 +90,18 @@ export function useRequestBookingModification() {
   return useMutation({
     mutationFn: ({ id, type, reason }: { id: string; type: string; reason: string }) =>
       bookingService.requestModification(id, type, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+}
+
+export function useRequestBookingExtension() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, additionalHours, scheduleId }: { id: string; additionalHours: number; scheduleId?: string | null }) =>
+      bookingService.requestExtension(id, additionalHours, scheduleId),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["booking", id] });
       qc.invalidateQueries({ queryKey: ["bookings"] });

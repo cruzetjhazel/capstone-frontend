@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole, type Role } from "@/contexts/RoleContext";
 import { getAuthToken } from "@/lib/tokenStorage";
+import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
 
@@ -38,6 +39,31 @@ const PHOTOGRAPHY_STYLES = [
 ];
 
 const API_BASE = "http://127.0.0.1:8000/api";
+
+// Only Region V (Bicol) has PSGC dropdown data in our location tables.
+const BICOL_REGION = "Region V (Bicol Region)";
+const REGIONS = [
+  "NCR (National Capital Region)",
+  "CAR (Cordillera Administrative Region)",
+  "Region I (Ilocos Region)",
+  "Region II (Cagayan Valley)",
+  "Region III (Central Luzon)",
+  "Region IV-A (CALABARZON)",
+  "MIMAROPA Region",
+  BICOL_REGION,
+  "Region VI (Western Visayas)",
+  "Region VII (Central Visayas)",
+  "Region VIII (Eastern Visayas)",
+  "Region IX (Zamboanga Peninsula)",
+  "Region X (Northern Mindanao)",
+  "Region XI (Davao Region)",
+  "Region XII (SOCCSKSARGEN)",
+  "Region XIII (Caraga)",
+  "BARMM (Bangsamoro)",
+];
+
+const GMAIL_REGEX = /^[a-z0-9._%+-]+@gmail\.com$/i;
+const isGmailAddress = (value: string) => GMAIL_REGEX.test(value.trim());
 
 // Frontend labels → backend enum values
 const AREA_COVERAGE_MAP: Record<string, string> = {
@@ -301,6 +327,44 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken" | "error">("idle");
+
+  useEffect(() => {
+    // Resuming an application: the email belongs to the logged-in account, skip the check
+    if (isResuming || isResumingApplication) return;
+
+    const value = email.trim();
+    if (!isGmailAddress(value)) {
+      setEmailStatus("idle");
+      return;
+    }
+
+    setEmailStatus("checking");
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/check-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ email: value }),
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setEmailStatus("error");
+          return;
+        }
+        setEmailStatus(data.available ? "available" : "taken");
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setEmailStatus("error");
+      }
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [email, isResuming, isResumingApplication]);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
@@ -312,10 +376,38 @@ export default function Register() {
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
   const [birthday, setBirthday] = useState("");
   const [gender, setGender] = useState("");
-  const [clientAddress, setClientAddress] = useState("");
-  
-  const [city, setCity] = useState("");
-  const [province, setProvince] = useState("");
+  const [clientAddress, setClientAddress] = useState(""); // street / house no.
+  const [provinces, setProvinces] = useState<Province[]>([]);
+  const [citiesMunicipalities, setCitiesMunicipalities] = useState<CityMunicipality[]>([]);
+  const [barangays, setBarangays] = useState<Barangay[]>([]);
+  const [provinceId, setProvinceId] = useState<number | null>(null);
+  const [cityMunicipalityId, setCityMunicipalityId] = useState<number | null>(null);
+  const [barangayId, setBarangayId] = useState<number | null>(null);
+
+  useEffect(() => {
+    locationService.getProvinces().then(setProvinces).catch(() => setProvinces([]));
+  }, []);
+  useEffect(() => {
+    setCityMunicipalityId(null); setBarangayId(null); setCitiesMunicipalities([]);
+    if (provinceId == null) return;
+    locationService.getCitiesMunicipalities(provinceId).then(setCitiesMunicipalities).catch(() => setCitiesMunicipalities([]));
+  }, [provinceId]);
+  useEffect(() => {
+    setBarangayId(null); setBarangays([]);
+    if (cityMunicipalityId == null) return;
+    locationService.getBarangays(cityMunicipalityId).then(setBarangays).catch(() => setBarangays([]));
+  }, [cityMunicipalityId]);
+
+  const [region, setRegion] = useState("");
+  const isBicol = region === BICOL_REGION;
+  // Outside Region V there is no dropdown data, so these are typed instead.
+  const [manualProvince, setManualProvince] = useState("");
+  const [manualCity, setManualCity] = useState("");
+  const [manualBarangay, setManualBarangay] = useState("");
+
+  const province = isBicol ? (provinces.find((p) => p.id === provinceId)?.name ?? "") : manualProvince.trim();
+  const city = isBicol ? (citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name ?? "") : manualCity.trim();
+  const barangayName = isBicol ? (barangays.find((b) => b.id === barangayId)?.name ?? "") : manualBarangay.trim();
 
   // Studio / photographer info
   const [businessName, setBusinessName] = useState("");
@@ -581,11 +673,16 @@ export default function Register() {
   const canStep2 =
     !!name.trim() &&
     isValidEmail(email) &&
+    (isResumingApplication || (isGmailAddress(email) && emailStatus === "available")) &&
     isValidPhilippinePhone(normalizePhilippinePhone(phone)) &&
     (isResumingApplication || (isStrongPassword(password) && password === confirmPassword)) &&
     (isResumingApplication || termsAccepted);
 
-  const canClientStep3 = !!clientAddress.trim() && !!city.trim() && !!province.trim();
+  const canClientStep3 =
+    !!region &&
+    (isBicol
+      ? !!provinceId && !!cityMunicipalityId && !!barangayId
+      : !!manualProvince.trim() && !!manualCity.trim() && !!manualBarangay.trim());
 
   const canProStep3 =
     accountType === "studio"
@@ -685,9 +782,9 @@ export default function Register() {
           phone_number: normalizePhilippinePhone(phone),
           password: password,
           password_confirmation: confirmPassword,
-          address: clientAddress.trim(),
-          city: city.trim(),
-          province: province.trim(),
+          address: [clientAddress.trim(), barangayName].filter(Boolean).join(", "),
+          city,
+          province,
           terms_accepted: termsAccepted,
         }),
       });
@@ -916,9 +1013,21 @@ export default function Register() {
                     maxLength={254}
                   />
                   {email.trim() && (
-                    isValidEmail(email)
-                      ? <ValidationHint text="Valid email address" valid />
-                      : <p className="text-xs text-destructive">Enter a valid email address.</p>
+                    isResumingApplication ? (
+                      <ValidationHint text="Valid email address" valid />
+                    ) : !isValidEmail(email) ? (
+                      <p className="text-xs text-destructive">Enter a valid email address.</p>
+                    ) : !isGmailAddress(email) ? (
+                      <p className="text-xs text-destructive">Only @gmail.com addresses are accepted.</p>
+                    ) : emailStatus === "checking" ? (
+                      <ValidationHint text="Checking availability..." valid={false} />
+                    ) : emailStatus === "taken" ? (
+                      <p className="text-xs text-destructive">This email is already registered.</p>
+                    ) : emailStatus === "error" ? (
+                      <p className="text-xs text-destructive">Couldn't verify this email. Please try again.</p>
+                    ) : emailStatus === "available" ? (
+                      <ValidationHint text="Email is available" valid />
+                    ) : null
                   )}
                 </Field>
                 <Field label="Phone number" required>
@@ -1034,18 +1143,84 @@ export default function Register() {
                   </Select>
                 </Field>
 
-                <Field label="Address" required>
-                  <Input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="Street, barangay" maxLength={200} />
+                <Field label="Region" required>
+                  <select
+                    value={region}
+                    onChange={(e) => {
+                      setRegion(e.target.value);
+                      // Switching regions clears the other region's answers.
+                      setProvinceId(null);
+                      setManualProvince(""); setManualCity(""); setManualBarangay("");
+                    }}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select region…</option>
+                    {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  {region && !isBicol && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Dropdown options are only available for Region V (Bicol). Please type your address below.
+                    </p>
+                  )}
                 </Field>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="City / Municipality" required>
-                    <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Legazpi" maxLength={100} />
-                  </Field>
-                  <Field label="Province" required>
-                    <Input value={province} onChange={(e) => setProvince(e.target.value)} placeholder="e.g. Albay" maxLength={100} />
-                  </Field>
-                </div>
+                {isBicol ? (
+                  <>
+                    <Field label="Province" required>
+                      <select
+                        value={provinceId ?? ""}
+                        onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Select province…</option>
+                        {provinces.map((pv) => <option key={pv.id} value={pv.id}>{pv.name}</option>)}
+                      </select>
+                    </Field>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="City / Municipality" required>
+                        <select
+                          value={cityMunicipalityId ?? ""}
+                          disabled={!provinceId}
+                          onChange={(e) => setCityMunicipalityId(e.target.value ? Number(e.target.value) : null)}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+                        >
+                          <option value="">Select city/municipality…</option>
+                          {citiesMunicipalities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Barangay" required>
+                        <select
+                          value={barangayId ?? ""}
+                          disabled={!cityMunicipalityId}
+                          onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+                        >
+                          <option value="">Select barangay…</option>
+                          {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                  </>
+                ) : region ? (
+                  <>
+                    <Field label="Province" required>
+                      <Input value={manualProvince} onChange={(e) => setManualProvince(e.target.value)} placeholder="e.g. Cebu" maxLength={100} />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="City / Municipality" required>
+                        <Input value={manualCity} onChange={(e) => setManualCity(e.target.value)} placeholder="e.g. Cebu City" maxLength={100} />
+                      </Field>
+                      <Field label="Barangay" required>
+                        <Input value={manualBarangay} onChange={(e) => setManualBarangay(e.target.value)} placeholder="e.g. Lahug" maxLength={100} />
+                      </Field>
+                    </div>
+                  </>
+                ) : null}
+
+                <Field label="Street / House No. (optional)">
+                  <Input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="e.g. Purok 3, 123 Rizal St." maxLength={150} />
+                </Field>
 
                 {apiError && (
                   <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">

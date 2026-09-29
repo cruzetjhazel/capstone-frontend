@@ -48,9 +48,15 @@ function getCurrentStepIndex(b: any) {
 
 const TERMINAL_STATUSES = ["completed", "cancelled", "expired"];
 
-const getStatusBadge = (status: string, date?: string) => {
+const getStatusBadge = (status: string, date?: string, nonCompletionReason?: string | null) => {
   if (status === "confirmed" && date && isToday(date)) {
     return { label: "In Progress", className: "bg-blue-500/10 text-blue-600", icon: Clock3 };
+  }
+  if (status === "cancelled" && nonCompletionReason === "photographer_no_show") {
+    return { label: "Not Completed — Photographer No-Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
+  }
+  if (status === "cancelled" && nonCompletionReason === "client_no_show") {
+    return { label: "Not Completed — Client No-Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
   }
   switch (status) {
     case "pending": return { label: "Pending", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
@@ -158,8 +164,8 @@ function BookingThumb({
   );
 }
 
-function StatusPill({ status, date }: { status: string; date?: string }) {
-  const badge = getStatusBadge(status, date);
+function StatusPill({ status, date, nonCompletionReason }: { status: string; date?: string; nonCompletionReason?: string | null }) {
+  const badge = getStatusBadge(status, date, nonCompletionReason);
   const Icon = badge.icon;
   return (
     <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full shrink-0", badge.className)}>
@@ -240,7 +246,7 @@ function CurrentBookingCard({ booking, photographer }: { booking: any; photograp
         </div>
 
         <div className="flex sm:flex-col items-start sm:items-end gap-3 shrink-0">
-          <StatusPill status={booking.status} date={booking.date} />
+          <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} />
           <ClientPaymentAction booking={booking} prominent />
           <Link to={`/booking/${booking.id}/details`}>
             <Button variant="outline" size="sm" className="gap-1.5 rounded-xl">
@@ -288,7 +294,7 @@ function HistoryBookingRow({
       </div>
 
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <StatusPill status={booking.status} date={booking.date} />
+        <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} />
         <PaymentSummary booking={booking} />
         <ClientPaymentAction booking={booking} />
         {booking.status === "completed" && !reviewed && (
@@ -306,22 +312,24 @@ function HistoryBookingRow({
   );
 }
 
-type HistoryFilter = "all" | "upcoming" | "completed" | "cancelled" | "expired";
+type HistoryFilter = "all" | "completed" | "not_completed" | "cancelled" | "expired";
 
 const FILTERS: { key: HistoryFilter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
+  { key: "not_completed", label: "Not completed" },
   { key: "cancelled", label: "Cancelled" },
   { key: "expired", label: "Expired" },
 ];
 
-function matchesFilter(status: string, filter: HistoryFilter) {
+function matchesFilter(b: any, filter: HistoryFilter) {
+  // A "not completed" service (e.g. a no-show) is stored as cancelled + a reason.
+  const notCompleted = b.status === "cancelled" && !!b.nonCompletionReason;
   if (filter === "all") return true;
-  if (filter === "upcoming") return ["pending", "confirmed"].includes(status);
-  if (filter === "completed") return status === "completed";
-  if (filter === "cancelled") return status === "cancelled";
-  if (filter === "expired") return status === "expired";
+  if (filter === "completed") return b.status === "completed";
+  if (filter === "not_completed") return notCompleted;
+  if (filter === "cancelled") return b.status === "cancelled" && !notCompleted;
+  if (filter === "expired") return b.status === "expired";
   return true;
 }
 
@@ -364,13 +372,14 @@ export default function MyBookings() {
     .filter((b) => !TERMINAL_STATUSES.includes(b.status))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Clients have at most one booking in flight — the soonest active one is "current".
-  const currentBooking = activeBookings[0];
+  // Every pending / confirmed / in-progress booking is "current".
+  const currentBookings = activeBookings;
 
+  // History = finished bookings only.
   const historyPool = safeBookings
-    .filter((b) => !currentBooking || String(b.id) !== String(currentBooking.id))
+    .filter((b) => TERMINAL_STATUSES.includes(b.status))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const filteredHistory = historyPool.filter((b) => matchesFilter(b.status, filter));
+  const filteredHistory = historyPool.filter((b) => matchesFilter(b, filter));
 
   const photographerFor = (b: any) => allPhotographers.find((p) => String(p.id) === String(b.photographerId));
 
@@ -394,8 +403,15 @@ export default function MyBookings() {
           <div className="py-16 text-center text-sm text-muted-foreground animate-pulse">Loading your bookings…</div>
         ) : (
           <>
-            {currentBooking ? (
-              <CurrentBookingCard booking={currentBooking} photographer={photographerFor(currentBooking)} />
+            {currentBookings.length > 0 ? (
+              <section className="space-y-4">
+                <h2 className="text-lg font-heading font-bold flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-muted-foreground" /> Current Bookings
+                </h2>
+                {currentBookings.map((b) => (
+                  <CurrentBookingCard key={b.id} booking={b} photographer={photographerFor(b)} />
+                ))}
+              </section>
             ) : (
               <div className="bg-card rounded-2xl border border-dashed border-border p-10 text-center space-y-4">
                 <CalendarX className="w-9 h-9 text-muted-foreground/30 mx-auto" />

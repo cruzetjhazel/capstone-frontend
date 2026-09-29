@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
-import { useBookings, useRequestBookingCancellation, useRequestBookingReschedule, useRequestBookingModification } from "@/hooks/useBookings";
+import { useBookings, useRequestBookingCancellation, useReportBookingNonCompletion, useDisputeBookingNonCompletion, useRequestBookingReschedule, useRequestBookingModification, useRequestBookingExtension } from "@/hooks/useBookings";
 import { usePhotographer } from "@/hooks/usePhotographers";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
@@ -57,19 +57,31 @@ const formatTime = (timeString: string) => {
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
-  const { data: bookings = [] } = useBookings(user?.email);
-  
+  const { data: bookings = [], isLoading: isBookingsLoading } = useBookings(user?.email);
+
   const { data: payments = [] } = usePaymentsForBooking(id);
   const { data: myReviews = [] } = useMyReviews();
   const submitReviewMutation = useSubmitReview();
   const { toast } = useToast();
   const cancelMutation = useRequestBookingCancellation();
+  const reportNonCompletion = useReportBookingNonCompletion();
+  const disputeNonCompletion = useDisputeBookingNonCompletion();
+  const [disputeText, setDisputeText] = useState("");
+  const [showDispute, setShowDispute] = useState(false);
   const rescheduleMutation = useRequestBookingReschedule();
   const modifyMutation = useRequestBookingModification();
+  const extensionMutation = useRequestBookingExtension();
   const isSubmittingRequest = cancelMutation.isPending || rescheduleMutation.isPending || modifyMutation.isPending;
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewComment, setReviewComment] = useState("");
+
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
+  const [extensionHours, setExtensionHours] = useState(1);
+  // undefined = not yet chosen (only relevant when booking.schedules.length > 1,
+  // which forces an explicit choice); null = the primary schedule itself
+  // (also a valid, deliberate choice — not the same as "unset").
+  const [extensionScheduleId, setExtensionScheduleId] = useState<string | null | undefined>(undefined);
 
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [requestFormType, setRequestFormType] = useState<RequestType>(null);
@@ -94,6 +106,17 @@ export default function BookingDetails() {
     const diffDays = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays >= 7;
   }, [booking?.date, booking?.serviceStatus]);
+
+  if (isBookingsLoading && !booking) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-3xl mx-auto py-16 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          Loading booking…
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!booking) {
     return (
@@ -140,6 +163,22 @@ export default function BookingDetails() {
     setPreferredDate("");
     setModificationOption("");
     setRequestModalOpen(true);
+  };
+
+  const handleRequestExtension = async () => {
+    try {
+      const effectiveScheduleId = (booking.schedules && booking.schedules.length > 1) ? extensionScheduleId : null;
+      await extensionMutation.mutateAsync({ id: booking.id, additionalHours: extensionHours, scheduleId: effectiveScheduleId });
+      toast({
+        title: "Extension requested",
+        description: "Your request for additional coverage has been sent to the photographer for approval.",
+      });
+      setShowExtensionModal(false);
+      setExtensionHours(1);
+      setExtensionScheduleId(undefined);
+    } catch (err: any) {
+      toast({ title: "Couldn't request extension", description: err?.message ?? "Please try again.", variant: "destructive" });
+    }
   };
 
   const handleInitialSubmit = (e: React.FormEvent) => {
@@ -269,20 +308,12 @@ export default function BookingDetails() {
                     <CheckCircle2 className="w-3.5 h-3.5" /> Payment Verified
                   </span>
                 )}
-                {booking.status === "confirmed" &&
-                  (booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid") && (
-                  <Link to={`/report-problem?bookingId=${booking.id}&noShow=1`}>
-                    <Button size="sm" variant="outline" className="text-xs rounded-full gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5">
-                      <AlertTriangle className="w-3.5 h-3.5" /> Report a no-show
-                    </Button>
-                  </Link>
-                )}
                 {booking.status === "completed" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Completed
                   </span>
                 )}
-                {booking.status === "completed" && !myReviews.some((r) => r.bookingId === String(booking.id)) && (
+                {(booking.status === "completed" || (booking.status === "cancelled" && !!booking.nonCompletionReason)) && !myReviews.some((r) => r.bookingId === String(booking.id)) && (
                   <Button size="sm" className="text-xs rounded-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setShowReviewModal(true)}>
                     <Star className="w-3.5 h-3.5" /> Review & Rate
                   </Button>
@@ -292,10 +323,78 @@ export default function BookingDetails() {
                     <Clock className="w-3.5 h-3.5" /> Expired
                   </span>
                 )}
+
               </>
             )}
           </div>
         </div>
+
+        {booking.status === "cancelled" && booking.nonCompletionReason && (
+          <div className="bg-destructive/10 p-5 rounded-2xl border border-destructive/30 space-y-2">
+            <p className="text-sm font-semibold text-destructive">
+              {booking.nonCompletionReason === "photographer_no_show"
+                ? "Not Completed — Photographer No-Show"
+                : "Not Completed — Reported Client No-Show"}
+            </p>
+
+            {booking.nonCompletionState === "open" && booking.nonCompletionReportedBy !== Number(user?.id) && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  You can dispute this until {booking.nonCompletionDeadline ? new Date(booking.nonCompletionDeadline).toLocaleString() : "the deadline"}.
+                </p>
+                {!showDispute ? (
+                  <Button size="sm" variant="outline" onClick={() => setShowDispute(true)}>Dispute this report</Button>
+                ) : (
+                  <div className="space-y-2">
+                    <textarea
+                      className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                      rows={3}
+                      placeholder="Explain why this report is incorrect (min 10 characters)"
+                      value={disputeText}
+                      onChange={(e) => setDisputeText(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={disputeText.trim().length < 10 || disputeNonCompletion.isPending}
+                      onClick={() =>
+                        disputeNonCompletion.mutate(
+                          { id: booking.id, reason: disputeText.trim() },
+                          {
+                            onSuccess: () => {
+                              setShowDispute(false);
+                              setDisputeText("");
+                              toast({ title: "Dispute submitted", description: "An admin will review this case." });
+                            },
+                            onError: (e: any) => toast({ title: "Something went wrong", description: e?.message ?? "Please try again.", variant: "destructive" as never }),
+                          }
+                        )
+                      }
+                    >
+                      {disputeNonCompletion.isPending ? "Submitting…" : "Submit dispute"}
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {booking.nonCompletionState === "open" && booking.nonCompletionReportedBy === Number(user?.id) && (
+              <p className="text-xs text-muted-foreground">
+                The studio can dispute this until {booking.nonCompletionDeadline ? new Date(booking.nonCompletionDeadline).toLocaleString() : "the deadline"}. If they don't, it stays Not Completed.
+              </p>
+            )}
+            {booking.nonCompletionState === "disputed" && (
+              <p className="text-xs text-muted-foreground">Disputed — an admin is reviewing this case.</p>
+            )}
+            {booking.nonCompletionState === "upheld" && (
+              <p className="text-xs text-muted-foreground">
+                An admin reviewed this and upheld the report.{booking.nonCompletionAdminNotes ? ` Note: ${booking.nonCompletionAdminNotes}` : ""}
+              </p>
+            )}
+            {booking.nonCompletionState === "final" && (
+              <p className="text-xs text-muted-foreground">The dispute period has ended. This booking is Not Completed.</p>
+            )}
+          </div>
+        )}
 
         {/* Service Progress — existing six-stage tracker, refined presentation only */}
         {booking.status !== 'cancelled' && booking.status !== 'rejected' && booking.status !== 'expired' && (
@@ -415,6 +514,48 @@ export default function BookingDetails() {
                 </div>
               </div>
 
+              {/* Multiple schedules (e.g. Prenup + Wedding on separate,
+                  non-contiguous dates) — only shown when there's more than
+                  the one primary schedule already covered by "Your Shoot"
+                  above, so a normal single-date booking's page looks
+                  exactly as it always has. */}
+              {booking.schedules && booking.schedules.length > 1 && (
+                <div className="pt-5 border-t border-border/60">
+                  <h3 className="text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    Photography Sessions
+                  </h3>
+                  <p className="text-xs text-muted-foreground -mt-1 mb-3">
+                    These sessions all belong to this one booking and package. The photographer reviews and confirms them together.
+                  </p>
+                  <div className="space-y-2.5">
+                    {booking.schedules.map((sch) => (
+                      <div key={sch.id ?? "primary"} className="flex items-start gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Calendar className="w-4 h-4 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {sch.label} <span className="text-muted-foreground font-normal">— {sch.eventDate}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {formatTime(sch.startTime)}
+                            {sch.endTime ? ` – ${formatTime(sch.endTime)}` : " · End time to be confirmed"}
+                          </p>
+                          {!sch.isPrimary && (
+                            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {sch.locationType
+                                ? [sch.eventAddress, sch.locationLabel].filter(Boolean).join(", ") || sch.locationType.replace(/_/g, " ")
+                                : "Same location as the booking"}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Package inclusions — compact icon rows, no boxed nesting */}
               <div className="pt-5 border-t border-border/60">
                 <h3 className="text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider mb-3">
@@ -492,6 +633,19 @@ export default function BookingDetails() {
                 ) : (
                   <>
                     <p className="text-xs text-muted-foreground mb-4">Need to change something? Submit a request to the studio.</p>
+                    {booking.extensionEligible && (
+                      <div className="mb-3">
+                        <Button
+                          onClick={() => setShowExtensionModal(true)}
+                          disabled={booking.hasPendingExtension}
+                          variant="outline"
+                          className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          {booking.hasPendingExtension ? "Extension request pending" : "Request Additional Coverage"}
+                        </Button>
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <Button onClick={() => handleOpenForm("reschedule")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyOrReschedule} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
                         <CalendarPlus className="w-3.5 h-3.5" /> Reschedule
@@ -508,6 +662,19 @@ export default function BookingDetails() {
                         <FileX className="w-3.5 h-3.5" /> Cancellation
                       </Button>
                     </div>
+                    {booking.status === "confirmed" &&
+                      booking.serviceStatus !== "editing" && booking.serviceStatus !== "delivered" &&
+                      new Date(`${booking.date}T${booking.startTime}`) < new Date() && (
+                      <Button
+                        onClick={() => reportNonCompletion.mutate({ id: booking.id, reason: "photographer_no_show" })}
+                        disabled={reportNonCompletion.isPending}
+                        variant="destructive"
+                        className="w-full text-xs font-semibold h-10 gap-1.5 mt-3"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {reportNonCompletion.isPending ? "Reporting…" : "Report photographer no-show"}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -545,6 +712,27 @@ export default function BookingDetails() {
                           request additional coverage from your photographer — subject to their approval and an
                           extra hourly charge.
                         </p>
+                        {booking.extensions && booking.extensions.length > 0 && (
+                          <div className="pt-2 mt-1 border-t border-border/30 space-y-1.5">
+                            <p className="text-[11px] font-semibold text-foreground">Additional Coverage</p>
+                            {booking.extensions.map((ext) => (
+                              <div key={ext.id} className="flex justify-between items-center text-[11px]">
+                                <span className="text-muted-foreground">
+                                  +{ext.requestedHours}h {ext.status === "approved" ? `(approved, ends ${ext.newEndTime})` : ext.status === "declined" ? "(declined)" : "(pending approval)"}
+                                </span>
+                                <span className={cn("font-medium", ext.status === "approved" && "text-foreground")}>
+                                  {ext.status === "declined" ? "—" : `${formatPrice(ext.additionalCharge)}`}
+                                </span>
+                              </div>
+                            ))}
+                            {booking.approvedExtensionCharge > 0 && (
+                              <div className="flex justify-between items-center text-xs pt-1 border-t border-border/20 font-semibold">
+                                <span>Total Additional Charge</span>
+                                <span>{formatPrice(booking.approvedExtensionCharge)}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div className="flex justify-between items-center">
@@ -744,6 +932,82 @@ export default function BookingDetails() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Request Additional Coverage (Extension) */}
+      {showExtensionModal && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-md rounded-2xl border border-border card-shadow p-6 relative animate-in fade-in zoom-in-95 duration-200">
+            <button
+              onClick={() => { setShowExtensionModal(false); setExtensionHours(1); setExtensionScheduleId(undefined); }}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3 className="font-heading font-semibold text-lg mb-1">Request Additional Coverage</h3>
+
+            {booking.schedules && booking.schedules.length > 1 ? (
+              <div className="mb-4">
+                <p className="text-sm text-muted-foreground mb-3">
+                  This booking has more than one schedule. Which one would you like to extend?
+                </p>
+                <div className="space-y-2">
+                  {booking.schedules.map((sch) => (
+                    <button
+                      key={sch.id ?? "primary"}
+                      type="button"
+                      onClick={() => setExtensionScheduleId(sch.id)}
+                      className={cn(
+                        "w-full text-left p-3 rounded-lg border text-sm transition-colors",
+                        extensionScheduleId === sch.id
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/40"
+                      )}
+                    >
+                      <p className="font-medium">{sch.label} — {sch.eventDate}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatTime(sch.startTime)} – {sch.endTime ? formatTime(sch.endTime) : "To be confirmed"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mb-4">
+                Your booked coverage ends at {formatTime(booking.endTime || "")}. If you need additional photography
+                time, you can request an extension. Additional hours are subject to photographer approval and will
+                be charged at the configured hourly rate if accepted.
+              </p>
+            )}
+
+            <div className="space-y-2 mb-5">
+              <label className="text-xs font-semibold text-muted-foreground">Additional hours</label>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={extensionHours}
+                onChange={(e) => setExtensionHours(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm"
+              />
+              {customBuild.hourlyRate != null && (
+                <p className="text-xs text-muted-foreground">
+                  Estimated additional charge: {formatPrice(customBuild.hourlyRate * extensionHours)}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => { setShowExtensionModal(false); setExtensionHours(1); setExtensionScheduleId(undefined); }}>Cancel</Button>
+              <Button
+                type="button"
+                onClick={handleRequestExtension}
+                disabled={extensionMutation.isPending || (booking.schedules && booking.schedules.length > 1 && extensionScheduleId === undefined)}
+              >
+                {extensionMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Send Request"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

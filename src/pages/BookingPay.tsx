@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatPrice } from "@/data/photographers";
-import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { bookingService, type BookingPaymentInfo } from "@/services/bookingService";
 import { useBooking } from "@/hooks/useBookings";
@@ -20,7 +20,7 @@ export default function BookingPay() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: b, isLoading: isBookingLoading } = useBooking(id);
-  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [paymentInfo, setPaymentInfo] = useState<BookingPaymentInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(true);
@@ -31,6 +31,7 @@ export default function BookingPay() {
   const [payerName, setPayerName] = useState("");
   const [refCode, setRefCode] = useState("");
   const [paidAt, setPaidAt] = useState(new Date().toISOString().split("T")[0]);
+  const [amountInput, setAmountInput] = useState("");
   const [state, setState] = useState<PayState>("form");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
@@ -44,6 +45,13 @@ export default function BookingPay() {
       .catch((err) => setInfoError(err instanceof Error ? err.message : "Could not load payment details."))
       .finally(() => setIsLoadingInfo(false));
   }, [id]);
+
+  // Default the amount to the selected plan (client may then raise it, e.g. for a tip)
+  useEffect(() => {
+    if (!paymentInfo) return;
+    const base = plan === "full" ? paymentInfo.amounts.full_payment_amount : paymentInfo.amounts.half_payment_amount;
+    setAmountInput(String(base));
+  }, [plan, paymentInfo]);
 
   if (isBookingLoading || isLoadingInfo) {
     return (
@@ -111,11 +119,17 @@ export default function BookingPay() {
   const expectedAmount = plan === "full" ? paymentInfo.amounts.full_payment_amount : paymentInfo.amounts.half_payment_amount;
   const remainingBalance = paymentInfo.amounts.total_price - expectedAmount;
 
-  const canSubmit = refCode.trim() !== "" && payerName.trim() !== "" && paidAt !== "";
+  const cleanRef = refCode.replace(/[\s-]/g, "");
+  const isRefValid = /^\d{13}$/.test(cleanRef); // GCash reference numbers are 13 digits
+  const paidAmount = Number(amountInput);
+  const isAmountValid = Number.isFinite(paidAmount) && paidAmount >= expectedAmount;
+  const extraAmount = paidAmount - expectedAmount;
+
+  const canSubmit = isRefValid && isAmountValid && payerName.trim() !== "" && paidAt !== "";
 
   const handleOpenConfirmation = () => {
     if (!canSubmit) {
-      toast({ title: "Missing information", description: "Please fill in the payer name and GCash reference number.", variant: "destructive" as never });
+      toast.error("Please fill in all required fields correctly.");
       return;
     }
     setIsConfirmModalOpen(true);
@@ -128,8 +142,8 @@ export default function BookingPay() {
     try {
       const result = await bookingService.submitPayment(b.id, {
         plan,
-        amount: expectedAmount,
-        reference_number: refCode.trim(),
+        amount: paidAmount,
+        reference_number: cleanRef,
         payer_name: payerName.trim(),
         payment_date: paidAt,
       });
@@ -151,7 +165,7 @@ export default function BookingPay() {
     <div className="min-h-screen bg-background pb-12">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border">
-        <div className="max-w-4xl mx-auto flex items-center justify-between px-6 h-16">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-16">
           <button
             onClick={() => navigate(-1)}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -167,7 +181,7 @@ export default function BookingPay() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-8 animate-fade-up">
+      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8 animate-fade-up">
         {/* Page Title & Intro */}
         <div>
           <h1 className="text-2xl font-heading font-bold text-foreground">Complete Your Payment</h1>
@@ -211,7 +225,7 @@ export default function BookingPay() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1fr_1.15fr_1fr] gap-6 lg:gap-8 items-start">
 
           {/* LEFT COLUMN: Merchant QR Info */}
           <div className="space-y-6">
@@ -279,25 +293,47 @@ export default function BookingPay() {
                   <Label htmlFor="ref" className="text-xs font-medium">GCash Reference No. *</Label>
                   <Input
                     id="ref"
-                    placeholder="e.g. 100293847592"
+                    inputMode="numeric"
+                    maxLength={17}
+                    placeholder="e.g. 1234 567 890123"
                     value={refCode}
-                    onChange={(e) => setRefCode(e.target.value)}
-                    className="font-mono text-sm"
+                    onChange={(e) => setRefCode(e.target.value.replace(/[^\d\s]/g, ""))}
+                    aria-invalid={refCode !== "" && !isRefValid}
+                    className={`font-mono text-sm ${refCode !== "" && !isRefValid ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   />
+                  {refCode !== "" && !isRefValid && (
+                    <p className="text-[11px] text-destructive">
+                      Enter the 13-digit reference number shown on your GCash receipt.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="amt" className="text-xs font-medium">Amount Paid (₱)</Label>
+                  <Label htmlFor="amt" className="text-xs font-medium">Amount Paid (₱) *</Label>
                   <Input
                     id="amt"
-                    type="text"
-                    value={formatPrice(expectedAmount)}
-                    readOnly
-                    className="font-mono text-sm bg-muted/50 cursor-not-allowed"
+                    type="number"
+                    inputMode="decimal"
+                    min={expectedAmount}
+                    step="0.01"
+                    value={amountInput}
+                    onChange={(e) => setAmountInput(e.target.value)}
+                    aria-invalid={!isAmountValid}
+                    className={`font-mono text-sm ${!isAmountValid ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    Fixed to your selected plan — this must match what you send in GCash exactly.
-                  </p>
+                  {!isAmountValid ? (
+                    <p className="text-[11px] text-destructive">
+                      Amount can't be lower than {formatPrice(expectedAmount)}.
+                    </p>
+                  ) : extraAmount > 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Includes {formatPrice(extraAmount)} extra (e.g. a tip). It won't reduce your on-site balance.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Must be at least {formatPrice(expectedAmount)}. You can enter more if you're adding a tip.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -329,32 +365,53 @@ export default function BookingPay() {
               </div>
             </div>
 
-            <div className="pt-2 space-y-4">
-              {/* Security Warning Notice */}
-              <div className="flex items-start gap-2.5 bg-muted/40 p-3.5 rounded-xl border border-border/40">
-                <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+          </div>
+
+          {/* RIGHT COLUMN: Payment Disclaimer */}
+          <div className="md:col-span-2 lg:col-span-1 lg:sticky lg:top-24 space-y-4">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-foreground">Payment Disclaimer</p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation.
+                  This payment is made <strong className="text-foreground">directly to the photographer/studio</strong> through GCash.
+                  The system and its administrators do not hold or process this payment. If the photographer or studio does not show up,
+                  fails to provide the agreed service, or a dispute or scam occurs, the system and its administrators are{" "}
+                  <strong className="text-foreground">not responsible or financially liable</strong> for any resulting payment, refund, loss, or damages.
+                  Please verify the photographer's details and keep proof of payment and communications.{" "}
+                  <Link to="/terms" target="_blank" className="text-primary font-medium hover:underline">
+                    Read the Terms &amp; Conditions
+                  </Link>
                 </p>
               </div>
-
-              {/* Auto-verification button */}
-              <Button
-                className="w-full h-11 text-sm font-semibold"
-                size="lg"
-                onClick={handleOpenConfirmation}
-                disabled={state === "verifying" || state === "verified" || !canSubmit}
-              >
-                {state === "verifying" ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Submitting…
-                  </>
-                ) : (
-                  "Submit Payment for Verification"
-                )}
-              </Button>
             </div>
+          </div>
+
+          {/* Confirmation notice card */}
+          <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card p-3.5">
+            <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation.
+            </p>
+          </div>
+
+          {/* Auto-verification button */}
+          <Button
+            className="w-full h-11 text-sm font-semibold"
+            size="lg"
+            onClick={handleOpenConfirmation}
+            disabled={state === "verifying" || state === "verified" || !canSubmit}
+          >
+            {state === "verifying" ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Submitting…
+              </>
+            ) : (
+              "Submit Payment for Verification"
+            )}
+          </Button>
           </div>
 
         </div>
@@ -384,7 +441,7 @@ export default function BookingPay() {
               </div>
               <div className="flex justify-between py-1 border-b border-border/40">
                 <span className="text-muted-foreground">Amount Submitted:</span>
-                <span className="font-bold text-primary font-mono">{formatPrice(expectedAmount)}</span>
+                <span className="font-bold text-primary font-mono">{formatPrice(paidAmount)}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-border/40">
                 <span className="text-muted-foreground">Payer Name:</span>
@@ -408,6 +465,10 @@ export default function BookingPay() {
                 </span>
               </div>
             )}
+
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              By confirming, you acknowledge that this payment goes directly to the photographer/studio and that the system and its administrators are not liable for no-shows, undelivered services, or payment disputes, as stated in the Terms &amp; Conditions.
+            </p>
 
             <div className="flex gap-3 pt-2">
               <Button

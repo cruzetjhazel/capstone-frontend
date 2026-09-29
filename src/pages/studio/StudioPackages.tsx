@@ -11,12 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api";
 import {
   usePhotographerPackages, useCreatePackage, useUpdatePackage, usePublishPackage,
   useRevertPackageToDraft, useArchivePackage, useRestorePackage, useDeletePackage,
 } from "@/hooks/usePhotographerPackages";
-import type { PackageRecord, PackageInput } from "@/services/photographerPackageService";
+import type { PackageRecord, PackageInput, PackageInclusion } from "@/services/photographerPackageService";
 import {
   usePhotographerAddOns, useCreateAddOn, useUpdateAddOn, useArchiveAddOn,
   useRestoreAddOn, useDeleteAddOn,
@@ -27,11 +28,23 @@ import {
   useCreateCustomComponent, useUpdateCustomComponent, useArchiveCustomComponent,
   useRestoreCustomComponent,
 } from "@/hooks/usePhotographerCustomPackage";
-import type { CustomComponentRecord } from "@/services/photographerCustomPackageService";
+import type {
+  CustomComponentRecord, CustomPackageConfigRecord, CustomPricingModel,
+} from "@/services/photographerCustomPackageService";
 
 // Sensible starting point for a brand-new fixed package's duration — the
 // photographer edits this immediately in the create form, same as price.
+// Clearing the field entirely is allowed: it means "duration not fixed".
 const DEFAULT_DURATION_MINUTES = 60;
+
+// One pricing method per photographer. Price never decides the schedule:
+// per-day / per-person use "agreed coverage hours" for scheduling only.
+const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string }[] = [
+  { id: "fixed", label: "Fixed price", help: "One base fee for the service." },
+  { id: "hourly", label: "Hourly rate", help: "Rate × the coverage hours the client picks." },
+  { id: "per_day", label: "Per day", help: "A set price for each booked event day." },
+  { id: "per_person", label: "Per person", help: "Rate × the number of people covered." },
+];
 
 // ---------- toast notifications ----------
 // A thin wrapper around react-hot-toast that keeps the familiar
@@ -92,20 +105,30 @@ interface PackageFormState {
   name: string;
   price: number;
   description: string;
-  inclusionsText: string;
+  inclusions: PackageInclusion[];
+  // 0 / blank = no fixed duration (sent to the API as null).
   durationMinutes: number;
   bufferMinutes: number;
+  scheduleMode: "timed" | "open";
+  allowsMultipleSessions: boolean;
+  maxSessions: number | "";
 }
 function emptyPackageForm(): PackageFormState {
   return {
-    name: "", price: 2500, description: "", inclusionsText: "",
-    durationMinutes: DEFAULT_DURATION_MINUTES, bufferMinutes: 0,
+    name: "", price: 2500, description: "", inclusions: [],
+    durationMinutes: DEFAULT_DURATION_MINUTES, bufferMinutes: 0, scheduleMode: "timed",
+    allowsMultipleSessions: false, maxSessions: "",
   };
 }
 function packageFormFromRecord(p: PackageRecord): PackageFormState {
   return {
-    name: p.name, price: p.price, description: p.description, inclusionsText: p.includedItems.join("\n"),
-    durationMinutes: p.durationMinutes, bufferMinutes: p.bufferMinutes,
+    name: p.name, price: p.price, description: p.description, inclusions: (p.includedItems as unknown as Array<string | { name?: string; detail?: string }>).map((i) =>
+      typeof i === "string"
+        ? { name: i, detail: "" }
+        : { name: i.name ?? "", detail: i.detail ?? "" }
+    ),
+    durationMinutes: p.durationMinutes ?? 0, bufferMinutes: p.bufferMinutes, scheduleMode: p.scheduleMode,
+    allowsMultipleSessions: p.allowsMultipleSessions, maxSessions: p.maxSessions ?? "",
   };
 }
 
@@ -121,11 +144,12 @@ function PackageFormModal({
   const [form, setForm] = useState<PackageFormState>(initial);
   const set = (patch: Partial<PackageFormState>) => setForm((prev) => ({ ...prev, ...patch }));
 
-  // Mirrors PackageRequest.php: duration_minutes required + min:1,
-  // buffer_minutes min:0. Catching this client-side avoids a round trip for
-  // what's otherwise a guaranteed 422.
-  const durationError = !form.durationMinutes || form.durationMinutes < 1
-    ? "Duration must be at least 1 minute."
+  // Duration is optional: blank means "no fixed length", stored as null. The
+  // only invalid value is a negative number. Buffer is likewise optional.
+  const isOpen = form.scheduleMode === "open";
+  const durationError =
+    form.durationMinutes < 0 ? "Duration can't be negative."
+    : !isOpen && !(form.durationMinutes > 0) ? "Enter a duration, or switch this package to open-ended."
     : "";
   const bufferError = form.bufferMinutes < 0 ? "Buffer can't be negative." : "";
   const canSubmit = !!form.name.trim() && !durationError && !bufferError;
@@ -135,10 +159,15 @@ function PackageFormModal({
     onSubmit({
       name: form.name.trim(),
       description: form.description || null,
-      included_items: form.inclusionsText.split("\n").map((s) => s.trim()).filter(Boolean),
+      included_items: form.inclusions
+        .map((i) => ({ name: i.name.trim(), detail: i.detail.trim() }))
+        .filter((i) => i.name),
       price: Number(form.price) || 0,
-      duration_minutes: Number(form.durationMinutes) || 0,
-      buffer_minutes: Number(form.bufferMinutes) || 0,
+      duration_minutes: Number(form.durationMinutes) > 0 ? Number(form.durationMinutes) : null,
+      buffer_minutes: isOpen ? 0 : Number(form.bufferMinutes) || 0,
+      schedule_mode: form.scheduleMode,
+      allows_multiple_sessions: form.allowsMultipleSessions,
+      max_sessions: form.allowsMultipleSessions && form.maxSessions !== "" ? Number(form.maxSessions) : null,
     });
   };
 
@@ -155,21 +184,31 @@ function PackageFormModal({
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Price (₱)</Label>
-        <Input type="number" className="h-9 text-sm font-semibold" value={form.price === 0 ? "" : form.price} onChange={(e) => set({ price: e.target.value === "" ? 0 : Number(e.target.value) })} />
+        <Input type="number" min={0} className="h-9 text-sm font-semibold" value={form.price === 0 ? "" : form.price} onChange={(e) => set({ price: e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)) })} />
+      </div>
+      <div className="rounded-lg border border-border p-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold">Open-ended (start time only)</p>
+          <p className="text-[11px] text-muted-foreground">
+            For weddings and big events that may run long or continue another day. Clients pick a start time only;
+            no end time is reserved and you confirm the schedule yourself. Leave off for short shoots (solo, model, etc.).
+          </p>
+        </div>
+        <Switch checked={isOpen} onCheckedChange={(v) => set({ scheduleMode: v ? "open" : "timed" })} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Session Duration (minutes)</Label>
+          <Label className="text-xs">{isOpen ? "Typical length (minutes)" : "Session Duration (minutes)"} <span className="text-muted-foreground font-normal">{isOpen ? "(info only, optional)" : "(required)"}</span></Label>
           <Input
             type="number" min={1} className={`h-9 text-sm ${durationError ? "border-destructive focus-visible:ring-destructive" : ""}`}
-            placeholder="e.g. 120"
+            placeholder="No fixed duration"
             value={form.durationMinutes === 0 ? "" : form.durationMinutes}
             onChange={(e) => set({ durationMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
           />
           {durationError && <p className="text-[11px] text-destructive">{durationError}</p>}
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Buffer After Session (minutes)</Label>
+        <div className={`space-y-1 ${isOpen ? "hidden" : ""}`}>
+          <Label className="text-xs">Buffer After Session (minutes) <span className="text-muted-foreground font-normal">(optional)</span></Label>
           <Input
             type="number" min={0} className={`h-9 text-sm ${bufferError ? "border-destructive focus-visible:ring-destructive" : ""}`}
             placeholder="e.g. 30"
@@ -180,15 +219,83 @@ function PackageFormModal({
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground -mt-2">
-        Availability reserves duration + buffer, so clients can't book you back-to-back with no gap between sessions.
+        {isOpen
+          ? "Only the start time is checked. No end time is assumed and nothing after it is blocked automatically. You review and confirm each request yourself."
+          : "Availability reserves duration + buffer so clients can't book you back-to-back."}
       </p>
+
+      <div className="rounded-lg border border-border p-3 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold">Allow multiple photography sessions</p>
+            <p className="text-[11px] text-muted-foreground">
+              Lets a client schedule several sessions (different dates, times or locations) under ONE booking of this
+              package — e.g. a graduation package covering two shooting days. The price stays the same.
+              Leave off for packages that should be booked separately.
+            </p>
+          </div>
+          <Switch checked={form.allowsMultipleSessions} onCheckedChange={(v) => set({ allowsMultipleSessions: v })} />
+        </div>
+        {form.allowsMultipleSessions && (
+          <div className="space-y-1">
+            <Label className="text-xs">Maximum sessions per booking <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input
+              type="number" min={2} max={20} className="h-9 text-sm" placeholder="No limit"
+              value={form.maxSessions}
+              onChange={(e) => set({ maxSessions: e.target.value === "" ? "" : Math.max(2, Number(e.target.value)) })}
+            />
+          </div>
+        )}
+      </div>
+
       <div className="space-y-1">
         <Label className="text-xs">Short Description</Label>
         <Input className="h-9 text-sm" placeholder="Short description" value={form.description} onChange={(e) => set({ description: e.target.value })} />
       </div>
-      <div className="space-y-1">
-        <Label className="text-xs">What's Included (one item per line)</Label>
-        <Textarea rows={5} className="text-sm resize-none" placeholder="Inclusions list..." value={form.inclusionsText} onChange={(e) => set({ inclusionsText: e.target.value })} />
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">What's Included</Label>
+          <span className="text-[11px] text-muted-foreground">{form.inclusions.length}/15</span>
+        </div>
+        <div className="space-y-2">
+          {form.inclusions.map((item, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <Input
+                className="h-9 text-sm flex-1"
+                placeholder="Inclusion (e.g. Edited photos)"
+                value={item.name}
+                onChange={(e) => {
+                  const next = [...form.inclusions];
+                  next[idx] = { ...next[idx], name: e.target.value };
+                  set({ inclusions: next });
+                }}
+              />
+              <Input
+                className="h-9 text-sm flex-1"
+                placeholder="Detail / quantity (optional)"
+                value={item.detail}
+                onChange={(e) => {
+                  const next = [...form.inclusions];
+                  next[idx] = { ...next[idx], detail: e.target.value };
+                  set({ inclusions: next });
+                }}
+              />
+              <Button
+                type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={() => set({ inclusions: form.inclusions.filter((_, i) => i !== idx) })}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <Button
+          type="button" variant="outline" size="sm" className="h-8 text-xs gap-1"
+          disabled={form.inclusions.length >= 15}
+          onClick={() => set({ inclusions: [...form.inclusions, { name: "", detail: "" }] })}
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Inclusion
+        </Button>
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="outline" size="sm" onClick={onClose} disabled={isSaving}>Cancel</Button>
@@ -261,6 +368,18 @@ function AddOnFormModal({
   );
 }
 
+// Short human summary of the photographer's chosen pricing method, shown on
+// the Custom Package Calculator card.
+function pricingSummary(cfg: CustomPackageConfigRecord): string {
+  const peso = (n: number | null | undefined) => `₱${Number(n ?? 0).toLocaleString()}`;
+  switch (cfg.pricingModel) {
+    case "hourly": return `${peso(cfg.hourlyRate)} per hour`;
+    case "per_day": return `${peso(cfg.unitRate)} per day`;
+    case "per_person": return `${peso(cfg.unitRate)} per person`;
+    default: return `Fixed base fee ${peso(cfg.baseFee)}`;
+  }
+}
+
 export default function StudioPackages() {
   // --- Packages ---
   const { data: packages = [], isLoading: packagesLoading } = usePhotographerPackages();
@@ -292,7 +411,8 @@ export default function StudioPackages() {
   // --- modal state ---
   const [packageModal, setPackageModal] = useState<{ mode: "create" | "edit"; source?: PackageRecord; initial: PackageFormState } | null>(null);
   const [addOnModal, setAddOnModal] = useState<{ mode: "create" | "edit"; source?: AddOnRecord; initial: AddOnFormState } | null>(null);
-  const [customDrawerOpen, setCustomDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"fixed" | "custom">("fixed");
+  const tab = customConfig?.enabled ? activeTab : "fixed"; // custom tab only exists while enabled
 
   const [packageToDraft, setPackageToDraft] = useState<PackageRecord | null>(null);
   const [pendingCustomToggle, setPendingCustomToggle] = useState<boolean | null>(null);
@@ -424,12 +544,12 @@ export default function StudioPackages() {
   };
 
   // --- custom package config toggle ---
+  // Only sends `enabled`: the backend keeps every stored pricing field.
   const confirmCustomToggle = async () => {
     if (pendingCustomToggle === null) return;
     try {
       await updateConfig.mutateAsync({
         enabled: pendingCustomToggle,
-        base_fee: pendingCustomToggle ? Number(customConfig?.baseFee ?? 0) : null,
       });
       toast({
         title: pendingCustomToggle
@@ -503,15 +623,51 @@ export default function StudioPackages() {
               </div>
               <p className="text-xs text-muted-foreground max-w-2xl">
                 {customConfig?.enabled
-                  ? `Base fee ₱${Number(customConfig.baseFee ?? 0).toLocaleString()} · ${components.filter((c) => c.status !== "archived").length} rate component${components.filter((c) => c.status !== "archived").length === 1 ? "" : "s"}.`
+                  ? `${pricingSummary(customConfig)} · ${components.filter((c) => c.status !== "archived").length} rate component${components.filter((c) => c.status !== "archived").length === 1 ? "" : "s"}.`
                   : "Clients can only select fixed packages."}
               </p>
             </div>
           </div>
-          <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 shrink-0 transition-transform active:scale-95" onClick={() => setCustomDrawerOpen(true)}>
-            <Wand2 className="w-3.5 h-3.5" /> Configure Custom Package
-          </Button>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-xs text-muted-foreground">{customConfig?.enabled ? "On" : "Off"}</span>
+            <Switch checked={customConfig?.enabled ?? false} onCheckedChange={(checked) => setPendingCustomToggle(checked)} />
+          </div>
         </section>
+
+        {/* TABS */}
+        <div className="flex gap-1 border-b border-border">
+          {([["fixed", "Fixed Packages"], ...(customConfig?.enabled ? [["custom", "Custom Package"]] : [])] as [string, string][]).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id as "fixed" | "custom")}
+              className={cn(
+                "px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors",
+                tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "custom" && (
+          <CustomPackageDrawer
+            inline
+            customConfig={customConfig}
+            components={components}
+            onClose={() => setActiveTab("fixed")}
+            onToggleEnabled={(checked) => setPendingCustomToggle(checked)}
+            updateConfig={updateConfig}
+            createComponent={createComponent}
+            updateComponentMut={updateComponentMut}
+            archiveComponentMut={archiveComponentMut}
+            errToast={errToast}
+          />
+        )}
+
+        {tab === "fixed" && (
+        <>
 
         {/* SECTION 1: FIXED PACKAGES */}
         <section className="bg-card rounded-xl card-shadow border border-border/50 p-6 space-y-6">
@@ -555,6 +711,8 @@ export default function StudioPackages() {
                     </div>
                     <p className="text-[11px] text-muted-foreground flex items-center gap-1">
                       <ListChecks className="w-3 h-3" /> {pk.includedItems.length} inclusion{pk.includedItems.length === 1 ? "" : "s"}
+                      <span className="mx-1">·</span>
+                      {pk.scheduleMode === "open" ? "Open-ended" : pk.durationMinutes ? `${pk.durationMinutes} min` : "—"}
                     </p>
                   </div>
 
@@ -631,6 +789,8 @@ export default function StudioPackages() {
         </section>
         </>
         )}
+        </>
+        )}
       </div>
 
       {/* ADD / EDIT FIXED PACKAGE MODAL */}
@@ -655,20 +815,7 @@ export default function StudioPackages() {
         />
       )}
 
-      {/* CONFIGURE CUSTOM PACKAGE DRAWER */}
-      {customDrawerOpen && (
-        <CustomPackageDrawer
-          customConfig={customConfig}
-          components={components}
-          onClose={() => setCustomDrawerOpen(false)}
-          onToggleEnabled={(checked) => setPendingCustomToggle(checked)}
-          updateConfig={updateConfig}
-          createComponent={createComponent}
-          updateComponentMut={updateComponentMut}
-          archiveComponentMut={archiveComponentMut}
-          errToast={errToast}
-        />
-      )}
+
 
       {/* CONFIRM TOGGLE CUSTOM PACKAGE MODAL */}
       {pendingCustomToggle !== null && (
@@ -806,11 +953,13 @@ export default function StudioPackages() {
 
 // ---------- Configure Custom Package drawer ----------
 function CustomPackageDrawer({
+  inline = false,
   customConfig, components, onClose, onToggleEnabled,
   updateConfig, createComponent, updateComponentMut, archiveComponentMut,
   errToast,
 }: {
-  customConfig: { enabled: boolean; baseFee: number | null; bufferMinutes: number; hourlyRate?: number | null; minHours?: number | null; maxHours?: number | null } | undefined;
+  inline?: boolean;
+  customConfig: CustomPackageConfigRecord | undefined;
   components: CustomComponentRecord[];
   onClose: () => void;
   onToggleEnabled: (checked: boolean) => void;
@@ -832,12 +981,12 @@ function CustomPackageDrawer({
   useEffect(() => setBufferMinutes(customConfig?.bufferMinutes ?? 0), [customConfig?.bufferMinutes]);
   const bufferDirty = Number(bufferMinutes) !== Number(customConfig?.bufferMinutes ?? 0);
 
-  // Optional "sliding hours" pricing — when hourlyRate is set (non-empty),
-  // clients see an hours slider instead of picking a discrete duration
-  // option (see Booking.tsx). Leaving hourlyRate blank keeps the existing
-  // duration-tier picker behavior unchanged.
-  const [hourlyEnabled, setHourlyEnabled] = useState<boolean>(customConfig?.hourlyRate != null);
-  useEffect(() => setHourlyEnabled(customConfig?.hourlyRate != null), [customConfig?.hourlyRate]);
+  // One pricing method per photographer. Price never decides the schedule:
+  // per-day / per-person use "agreed coverage hours" for scheduling only.
+  const storedModel: CustomPricingModel = customConfig?.pricingModel ?? (customConfig?.hourlyRate != null ? "hourly" : "fixed");
+  const [pricingModel, setPricingModel] = useState<CustomPricingModel>(storedModel);
+  useEffect(() => setPricingModel(storedModel), [storedModel]);
+
   const [hourlyRate, setHourlyRate] = useState<number>(customConfig?.hourlyRate ?? 0);
   useEffect(() => setHourlyRate(customConfig?.hourlyRate ?? 0), [customConfig?.hourlyRate]);
   const [minHours, setMinHours] = useState<number>(customConfig?.minHours ?? 1);
@@ -845,23 +994,46 @@ function CustomPackageDrawer({
   const [maxHours, setMaxHours] = useState<number>(customConfig?.maxHours ?? 8);
   useEffect(() => setMaxHours(customConfig?.maxHours ?? 8), [customConfig?.maxHours]);
 
-  // Base fee + sliding-hours rate now save together as one "Pricing" unit —
-  // splitting them into two Save buttons is what let a photographer end up
-  // with hourly pricing switched on but no rate set (or a base fee of 0
-  // while enabled), which is a booking-breaking combination.
+  const [unitRate, setUnitRate] = useState<number>(customConfig?.unitRate ?? 0);
+  useEffect(() => setUnitRate(customConfig?.unitRate ?? 0), [customConfig?.unitRate]);
+  const [coverageHours, setCoverageHours] = useState<number | "">(customConfig?.coverageHours ?? "");
+  useEffect(() => setCoverageHours(customConfig?.coverageHours ?? ""), [customConfig?.coverageHours]);
+  const [maxPeople, setMaxPeople] = useState<number | "">(customConfig?.maxPeople ?? "");
+  useEffect(() => setMaxPeople(customConfig?.maxPeople ?? ""), [customConfig?.maxPeople]);
+
+  // Multiple sessions under one custom booking (not available with fixed pricing).
+  const [multiEnabled, setMultiEnabled] = useState<boolean>(customConfig?.allowsMultipleSessions ?? false);
+  useEffect(() => setMultiEnabled(customConfig?.allowsMultipleSessions ?? false), [customConfig?.allowsMultipleSessions]);
+  const [maxSessions, setMaxSessions] = useState<number | "">(customConfig?.maxSessions ?? "");
+  useEffect(() => setMaxSessions(customConfig?.maxSessions ?? ""), [customConfig?.maxSessions]);
+
+  const isUnitModel = pricingModel === "per_day" || pricingModel === "per_person";
+
+  // Everything for the chosen pricing method saves together as one unit.
   const pricingDirty =
-    Number(baseFee) !== Number(customConfig?.baseFee ?? 0)
-    || hourlyEnabled !== (customConfig?.hourlyRate != null)
-    || Number(hourlyRate) !== Number(customConfig?.hourlyRate ?? 0)
-    || Number(minHours) !== Number(customConfig?.minHours ?? 1)
-    || Number(maxHours) !== Number(customConfig?.maxHours ?? 8);
+    pricingModel !== storedModel
+    || (pricingModel === "fixed" && Number(baseFee) !== Number(customConfig?.baseFee ?? 0))
+    || (pricingModel === "hourly" && (
+      Number(hourlyRate) !== Number(customConfig?.hourlyRate ?? 0)
+      || Number(minHours) !== Number(customConfig?.minHours ?? 1)
+      || Number(maxHours) !== Number(customConfig?.maxHours ?? 8)))
+    || (isUnitModel && (
+      Number(unitRate) !== Number(customConfig?.unitRate ?? 0)
+      || coverageHours !== (customConfig?.coverageHours ?? "")
+      || (pricingModel === "per_person" && maxPeople !== (customConfig?.maxPeople ?? ""))))
+    || (pricingModel !== "fixed" && multiEnabled !== (customConfig?.allowsMultipleSessions ?? false))
+    || (pricingModel !== "fixed" && multiEnabled && maxSessions !== (customConfig?.maxSessions ?? ""));
 
   const pricingError = (() => {
     if (!customConfig?.enabled) return "";
-    if (!hourlyEnabled && (!Number(baseFee) || Number(baseFee) <= 0)) return "Base session fee is required while custom packages are enabled.";
-    if (hourlyEnabled && (!Number(hourlyRate) || Number(hourlyRate) <= 0)) return "Rate per hour is required and must be greater than 0 while sliding-hours pricing is on.";
-    if (hourlyEnabled && (!Number(minHours) || Number(minHours) <= 0)) return "Minimum coverage hours must be greater than 0.";
-    if (hourlyEnabled && Number(maxHours) < Number(minHours)) return "Maximum coverage hours can't be less than minimum coverage hours.";
+    if (pricingModel === "fixed" && (!Number(baseFee) || Number(baseFee) <= 0)) return "Base session fee is required while fixed pricing is on.";
+    if (pricingModel === "hourly") {
+      if (!Number(hourlyRate) || Number(hourlyRate) <= 0) return "Rate per hour is required and must be greater than 0.";
+      if (!Number(minHours) || Number(minHours) <= 0) return "Minimum coverage hours must be greater than 0.";
+      if (Number(maxHours) < Number(minHours)) return "Maximum coverage hours can't be less than minimum coverage hours.";
+    }
+    if (isUnitModel && (!Number(unitRate) || Number(unitRate) <= 0)) return `Rate per ${pricingModel === "per_day" ? "day" : "person"} is required and must be greater than 0.`;
+    if (pricingModel !== "fixed" && multiEnabled && maxSessions !== "" && Number(maxSessions) < 2) return "Maximum sessions must be at least 2, or leave it blank for no limit.";
     return "";
   })();
 
@@ -890,7 +1062,6 @@ function CustomPackageDrawer({
     try {
       await updateConfig.mutateAsync({
         enabled: customConfig?.enabled ?? false,
-        base_fee: customConfig?.baseFee ?? null,
         buffer_minutes: Number(bufferMinutes) || 0,
       });
       toast({ title: "Buffer time updated." });
@@ -904,10 +1075,18 @@ function CustomPackageDrawer({
     try {
       await updateConfig.mutateAsync({
         enabled: customConfig?.enabled ?? false,
-        base_fee: hourlyEnabled ? null : Number(baseFee) || 0,
-        hourly_rate: hourlyEnabled ? Number(hourlyRate) || 0 : null,
-        min_hours: hourlyEnabled ? Number(minHours) || 1 : null,
-        max_hours: hourlyEnabled ? Number(maxHours) || 8 : null,
+        pricing_model: pricingModel,
+        base_fee: pricingModel === "fixed" ? (Number(baseFee) || 0) : null,
+        base_hours: null,
+        hourly_rate: pricingModel === "hourly" ? (Number(hourlyRate) || 0) : null,
+        min_hours: pricingModel === "hourly" ? (Number(minHours) || 1) : null,
+        max_hours: pricingModel === "hourly" ? (Number(maxHours) || 8) : null,
+        unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
+        coverage_hours: isUnitModel && coverageHours !== "" ? Number(coverageHours) : null,
+        max_people: pricingModel === "per_person" && maxPeople !== "" ? Number(maxPeople) : null,
+        allows_multiple_sessions: pricingModel !== "fixed" && multiEnabled,
+        max_sessions: pricingModel !== "fixed" && multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
+        base_fee_mode: null,
       });
       toast({ title: "Pricing updated." });
     } catch (err) {
@@ -1032,10 +1211,14 @@ function CustomPackageDrawer({
     }
   };
 
-  return (
-    <ModalShell title="Configure Custom Package" icon={<Wand2 className="w-5 h-5 text-primary" />} onClose={onClose} maxWidth="max-w-2xl">
-      {/* Enable toggle */}
-      <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-border/50 bg-muted/10">
+  const wrap = (children: React.ReactNode) => inline
+    ? <section className="bg-card rounded-xl card-shadow border border-border/50 p-6 space-y-4">{children}</section>
+    : <ModalShell title="Configure Custom Package" icon={<Wand2 className="w-5 h-5 text-primary" />} onClose={onClose} maxWidth="max-w-2xl">{children}</ModalShell>;
+
+  return wrap(
+    <>
+      {/* Enable toggle (the top card owns this when shown as a tab) */}
+      <div className={cn("flex items-center justify-between gap-4 p-4 rounded-lg border border-border/50 bg-muted/10", inline && "hidden")}>
         <div>
           <p className="text-sm font-semibold">Allow Custom Package Requests</p>
           <p className="text-xs text-muted-foreground mt-0.5">Clients can build a tailored session using the calculator below.</p>
@@ -1043,34 +1226,46 @@ function CustomPackageDrawer({
         <Switch checked={customConfig?.enabled ?? false} onCheckedChange={onToggleEnabled} />
       </div>
 
-      {/* Pricing: base fee + optional sliding-hours rate, saved together
-          so they can never end up out of sync with each other. */}
+      {/* Pricing: ONE method. Price never decides the schedule. */}
       <div className="space-y-3 p-3 rounded-lg border border-border">
-        {!hourlyEnabled && (
+        <div>
+          <p className="text-sm font-semibold">How do you charge for custom packages?</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Pick one method. Clients only see the option you choose. Price never sets your schedule; how long you are booked is a separate setting.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {PRICING_MODELS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setPricingModel(m.id)}
+              className={cn(
+                "text-left p-3 rounded-lg border-2 transition-colors",
+                pricingModel === m.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"
+              )}
+            >
+              <p className="text-sm font-semibold">{m.label}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{m.help}</p>
+            </button>
+          ))}
+        </div>
+
+        {pricingModel === "fixed" && (
           <div className="space-y-1.5">
             <Label className="text-xs">
               Base Session Fee (₱) {customConfig?.enabled && <span className="text-destructive">*</span>}
             </Label>
-            <Input type="number" className="h-9 text-sm" value={baseFee === 0 ? "" : baseFee} onChange={(e) => setBaseFee(e.target.value === "" ? 0 : Number(e.target.value))} />
+            <Input type="number" min={0} className="h-9 text-sm" value={baseFee === 0 ? "" : baseFee} onChange={(e) => setBaseFee(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
+            <p className="text-[11px] text-muted-foreground">One agreed price, whatever the hours. Add coverage-duration options below to set how long you are booked.</p>
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-2 border-t border-border/50">
-          <div className="pt-1 pr-2">
-            <p className="text-sm font-semibold">Sliding-Hours Pricing</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Let clients drag a slider to pick their coverage hours instead of choosing a fixed duration option below.
-              Price = selected hours × rate per hour. No base fee applies in this mode.
-            </p>
-          </div>
-          <Switch checked={hourlyEnabled} onCheckedChange={setHourlyEnabled} />
-        </div>
-
-        {hourlyEnabled && (
+        {pricingModel === "hourly" && (
           <div className="grid grid-cols-3 gap-2">
             <div className="space-y-1">
               <Label className="text-[11px]">Rate per hour (₱) <span className="text-destructive">*</span></Label>
-              <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Number(e.target.value))} />
+              <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
             </div>
             <div className="space-y-1">
               <Label className="text-[11px]">Minimum Coverage Hours <span className="text-destructive">*</span></Label>
@@ -1082,6 +1277,55 @@ function CustomPackageDrawer({
             </div>
           </div>
         )}
+
+        {isUnitModel && (
+          <div className={cn("grid gap-2", pricingModel === "per_person" ? "grid-cols-3" : "grid-cols-2")}>
+            <div className="space-y-1">
+              <Label className="text-[11px]">{pricingModel === "per_day" ? "Rate per day (₱)" : "Rate per person (₱)"} <span className="text-destructive">*</span></Label>
+              <Input type="number" min={0} className="h-9 text-sm" value={unitRate === 0 ? "" : unitRate} onChange={(e) => setUnitRate(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">Coverage hours per session (optional)</Label>
+              <Input type="number" min={1} max={24} className="h-9 text-sm" value={coverageHours} onChange={(e) => setCoverageHours(e.target.value === "" ? "" : Math.min(24, Math.max(1, Number(e.target.value))))} />
+            </div>
+            {pricingModel === "per_person" && (
+              <div className="space-y-1">
+                <Label className="text-[11px]">Max people (optional)</Label>
+                <Input type="number" min={1} className="h-9 text-sm" value={maxPeople} onChange={(e) => setMaxPeople(e.target.value === "" ? "" : Math.max(1, Number(e.target.value)))} />
+              </div>
+            )}
+            <p className="col-span-full text-[11px] text-muted-foreground">
+              {pricingModel === "per_day"
+                ? "Billed per distinct event date: two sessions on the same date count as one day."
+                : "Price = rate × number of people. Extra sessions never change the price."}
+              {" "}Coverage hours only set how long you are reserved per session. Leave blank if you confirm the duration for each booking.
+            </p>
+          </div>
+        )}
+
+        {pricingModel !== "fixed" && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="flex items-center justify-between">
+              <div className="pr-2">
+                <p className="text-sm font-semibold">Allow multiple photography sessions</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Lets a client add extra sessions (separate dates and times) under ONE custom booking. Each session is a separate schedule, and days in between are never blocked.
+                </p>
+              </div>
+              <Switch checked={multiEnabled} onCheckedChange={setMultiEnabled} />
+            </div>
+            {multiEnabled && (
+              <div className="space-y-1">
+                <Label className="text-[11px]">Max sessions per booking (optional)</Label>
+                <Input
+                  type="number" min={2} max={15} className="h-9 text-sm" value={maxSessions}
+                  onChange={(e) => setMaxSessions(e.target.value === "" ? "" : Math.min(15, Number(e.target.value)))}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {pricingError && <p className="text-[11px] text-destructive">{pricingError}</p>}
 
         <Button
@@ -1109,9 +1353,9 @@ function CustomPackageDrawer({
         </div>
       </div>
 
-      {/* Tier groups — still configurable even when sliding-hours pricing
-          is on; duration-tagged options just aren't required from clients
-          in that mode (see Booking.tsx), so leaving this visible doesn't
+      {/* Tier groups — still configurable whichever pricing method is on;
+          duration-tagged options just aren't required from clients outside
+          fixed pricing (see Booking.tsx), so leaving this visible doesn't
           hurt and avoids photographers losing already-configured tiers. */}
       <div className="space-y-4 pt-2 border-t border-border/50">
         <div className="flex items-center justify-between pt-2">
@@ -1274,9 +1518,11 @@ function CustomPackageDrawer({
         </div>
       </div>
 
-      <div className="flex justify-end pt-2">
-        <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-      </div>
-    </ModalShell>
+      {!inline && (
+        <div className="flex justify-end pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        </div>
+      )}
+    </>
   );
 }

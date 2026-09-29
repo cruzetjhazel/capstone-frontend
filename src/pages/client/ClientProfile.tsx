@@ -131,9 +131,11 @@ export default function Profile() {
     formPayload.append("gender", formData.gender);
     formPayload.append("address", formData.address);
     if (avatarFile) formPayload.append("profile_photo", avatarFile);
+    // PHP doesn't parse multipart bodies on real PATCH requests, so POST + spoof PATCH
+    formPayload.append("_method", "PATCH");
 
     try {
-      const res = await api.patch("/client/profile", formPayload, {
+      const res = await api.post("/client/profile", formPayload, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       const p = res.data?.data ?? res.data;

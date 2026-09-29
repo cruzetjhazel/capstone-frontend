@@ -16,15 +16,20 @@ const statusStyles: Record<Status, string> = {
   expired: "bg-muted text-muted-foreground",
 };
 
-export function StatusBadge({ status }: { status: Status }) {
+export function StatusBadge({ status, nonCompletionReason }: { status: Status; nonCompletionReason?: string | null }) {
+  const label =
+    status === "cancelled" && nonCompletionReason === "photographer_no_show" ? "Not Completed — No-Show" :
+    status === "cancelled" && nonCompletionReason === "client_no_show" ? "Not Completed — No-Show" :
+    status;
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize",
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+        label === status ? "capitalize" : "",
         statusStyles[status]
       )}
     >
-      {status}
+      {label}
     </span>
   );
 }

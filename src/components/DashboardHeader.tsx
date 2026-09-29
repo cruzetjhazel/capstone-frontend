@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, Menu, Home, LogOut, User } from "lucide-react";
+import { Bell, Menu, Home, LogOut, User, Loader2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { useRole } from "@/contexts/RoleContext";
@@ -42,22 +42,33 @@ const pageTitles: Record<string, string> = {
   "/admin/notifications": "Notifications",
 };
 
-export function DashboardHeader() {
+interface DashboardHeaderProps {
+  onMenuClick?: () => void;
+}
+
+export function DashboardHeader({ onMenuClick }: DashboardHeaderProps) {
   const { user, role, logout } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
-
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
   const title = pageTitles[location.pathname] || "Dashboard";
 
   const confirmLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    const toastId = toast.loading("Logging out…");
+
     try {
       await logout();
+      // Reusing the same id turns the loading toast into the success toast.
+      toast.success("Successfully logged out. See you next time!", { id: toastId });
       setIsLogoutModalOpen(false);
-      navigate("/login");
-      toast.success("Successfully logged out. See you next time!"); // Hot toast success
+      navigate("/login", { replace: true });
     } catch (error) {
-      toast.error("Failed to sign out. Please try again."); // Hot toast error
+      toast.error("Failed to sign out. Please try again.", { id: toastId });
+      setIsLoggingOut(false);
     }
   };
 
@@ -75,12 +86,18 @@ export function DashboardHeader() {
 
   return (
     <>
-      <header className="h-16 flex items-center justify-between px-6 lg:px-8 border-b border-border bg-card">
+      <header className="h-16 flex items-center justify-between gap-2 px-4 sm:px-6 lg:px-8 border-b border-border bg-card">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="lg:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden shrink-0"
+            onClick={onMenuClick}
+            aria-label="Open navigation menu"
+          >
             <Menu className="w-5 h-5" />
           </Button>
-          <h2 className="text-lg font-heading font-semibold">{title}</h2>
+          <h2 className="text-lg font-heading font-semibold truncate">{title}</h2>
         </div>
 
         <div className="flex items-center gap-3">
@@ -166,15 +183,24 @@ export function DashboardHeader() {
             <div className="flex gap-3 mt-6">
               <button 
                 onClick={() => setIsLogoutModalOpen(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors"
+                disabled={isLoggingOut}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button 
                 onClick={confirmLogout}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-destructive text-destructive-foreground text-sm font-semibold hover:bg-destructive/90 transition-colors"
+                disabled={isLoggingOut}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-destructive text-destructive-foreground text-sm font-semibold hover:bg-destructive/90 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Sign Out
+                {isLoggingOut ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Signing out…
+                  </>
+                ) : (
+                  "Sign Out"
+                )}
               </button>
             </div>
           </div>

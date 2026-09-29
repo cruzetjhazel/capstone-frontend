@@ -9,9 +9,9 @@ export type MonthAvailability = Record<string, DayAvailability>;
 // package_id OR a custom coverage duration — never both. The backend
 // resolves the custom buffer itself from the photographer's own
 // CustomPackageConfig; callers never send a buffer value.
-function durationSourceParams(packageId?: number, customDurationMinutes?: number) {
+function durationSourceParams(packageId?: number, customDurationMinutes?: number, sessionDurationMinutes?: number) {
   return packageId != null
-    ? { package_id: packageId }
+    ? { package_id: packageId, ...(sessionDurationMinutes != null ? { duration_minutes: sessionDurationMinutes } : {}) }
     : { custom_duration_minutes: customDurationMinutes };
 }
 
@@ -21,10 +21,11 @@ export const publicAvailabilityService = {
     photographerId: string,
     month: string,
     packageId?: number,
-    customDurationMinutes?: number
+    customDurationMinutes?: number,
+    sessionDurationMinutes?: number
   ): Promise<MonthAvailability> => {
     const res = await api.get(`/photographers/${photographerId}/availability/calendar`, {
-      params: { month, ...durationSourceParams(packageId, customDurationMinutes) },
+      params: { month, ...durationSourceParams(packageId, customDurationMinutes, sessionDurationMinutes) },
     });
     return res.data.data;
   },
@@ -34,10 +35,11 @@ export const publicAvailabilityService = {
     photographerId: string,
     date: string,
     packageId?: number,
-    customDurationMinutes?: number
+    customDurationMinutes?: number,
+    sessionDurationMinutes?: number
   ): Promise<string[]> => {
     const res = await api.get(`/photographers/${photographerId}/availability/slots`, {
-      params: { date, ...durationSourceParams(packageId, customDurationMinutes) },
+      params: { date, ...durationSourceParams(packageId, customDurationMinutes, sessionDurationMinutes) },
     });
     return res.data.data.start_times;
   },
