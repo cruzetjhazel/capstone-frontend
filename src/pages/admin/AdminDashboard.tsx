@@ -264,7 +264,7 @@ export default function AdminDashboard() {
           {/* Pending Applications Panel */}
           <div className="bg-card rounded-xl shadow-sm border border-border/50 flex flex-col">
             <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-              <h3 className="text-sm font-semibold tracking-tight">Pending Professional Review</h3>
+              <h3 className="text-sm font-semibold tracking-tight">Pending Photographer Review</h3>
               <Link to="/admin/verifications" className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1">
                 View All <ArrowUpRight className="w-3 h-3" />
               </Link>

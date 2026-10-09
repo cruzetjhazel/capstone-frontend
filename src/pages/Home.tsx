@@ -381,7 +381,8 @@ export default function Home() {
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About Bulan</Link></li>
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About Bulan Photography System</Link></li>
+              <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms and Conditions</Link></li>
             </ul>
           </div>
 

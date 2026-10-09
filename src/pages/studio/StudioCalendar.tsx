@@ -16,7 +16,7 @@ import { usePhotographerBookings } from "@/hooks/usePhotographerBookings";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 import { useNavigate } from "react-router-dom";
 import {
-  useBookingHours, useCreateBookingHour, useDeleteBookingHour, useUpdateSlotInterval,
+  useBookingHours, useCreateBookingHour, useDeleteBookingHour, useUpdateSlotInterval, useSlotInterval,
 } from "@/hooks/useBookingHours";
 import { useAvailabilityWindows } from "@/hooks/useAvailabilityWindows";
 
@@ -52,6 +52,41 @@ function formatTime12h(t: string): string {
   const period = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 || 12;
   return `${hour12}:${pad(m)} ${period}`;
+}
+
+// Time choices every `step` minutes. value = "HH:mm" (what the backend expects), label = "8:00 AM".
+const END_OF_DAY = "23:59";
+function timeOptions(step: number): string[] {
+  const out: string[] = [];
+  for (let m = 5 * 60; m < 24 * 60; m += step) out.push(`${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
+  return out;
+}
+
+function TimeSelect({
+  value, onChange, className, after, includeEndOfDay = false, step = 60, upTo, busy = [], disabled = false,
+}: {
+  upTo?: string;                              // latest time to offer (inclusive)
+  busy?: { start: string; end: string }[];   // hide times inside these existing periods
+  disabled?: boolean;
+  step?: number;         // minutes between options (pass the saved booking interval)
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+  after?: string;            // only show times later than this (for end-time dropdowns)
+  includeEndOfDay?: boolean; // adds 11:59 PM so a period can run to the end of the day
+}) {
+  const options = timeOptions(step).filter(
+    (t) => (!after || t > after) && (!upTo || t <= upTo) && !busy.some((p) => t >= p.start && t < p.end)
+  );
+  if (includeEndOfDay && (!after || END_OF_DAY > after) && (!upTo || END_OF_DAY <= upTo)) options.push(END_OF_DAY);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={className} disabled={disabled}>
+      <option value="">--:--</option>
+      {options.map((t) => (
+        <option key={t} value={t}>{formatTime12h(t)}</option>
+      ))}
+    </select>
+  );
 }
 
 // Reads a block's start/end time regardless of whether the API returns
@@ -95,10 +130,19 @@ export default function StudioCalendar() {
   const createBookingHour = useCreateBookingHour();
   const deleteBookingHour = useDeleteBookingHour();
   const updateSlotInterval = useUpdateSlotInterval();
+  const { data: slotInterval = 60 } = useSlotInterval();
   const [newBookingHourPeriod, setNewBookingHourPeriod] = useState<Record<number, { start: string; end: string }>>({});
 
   const bookingHoursForDay = (day: number) =>
     bookingHours.filter((h) => h.day_of_week === day).sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  // Existing periods for a day as "HH:mm" pairs, used to hide times that are already taken.
+  const busyPeriodsForDay = (day: number) =>
+    bookingHoursForDay(day).map((h) => ({ start: h.start_time.slice(0, 5), end: h.end_time.slice(0, 5) }));
+
+  // Start of the next existing period at or after `from` (the latest end time that is still allowed).
+  const nextBusyStartForDay = (day: number, from: string): string | undefined =>
+    from ? busyPeriodsForDay(day).map((p) => p.start).filter((s) => s >= from).sort()[0] : undefined;
 
   const addBookingHourPeriod = async (day: number) => {
     const draft = newBookingHourPeriod[day];
@@ -222,7 +266,9 @@ export default function StudioCalendar() {
     if (dayBookings.length > 1) return "mixed";
     if (dayBookings.length === 1) {
       const s = dayBookings[0].status;
-      return s === "confirmed" || s === "completed" ? "booked" : "pending";
+      // Matches the booking page: a slot only counts as taken once payment is confirmed.
+      const paid = dayBookings[0].paymentStatus === "partially_paid" || dayBookings[0].paymentStatus === "fully_paid";
+      return s === "completed" || (s === "confirmed" && paid) ? "booked" : "pending";
     }
     const hasOneOffWindow = !!windowsByDate[dateStr]?.length;
     if (hasAnyBookingHours && bookingHoursForDay(dayOfWeekForDateStr(dateStr)).length === 0 && !hasOneOffWindow) {
@@ -760,19 +806,21 @@ export default function StudioCalendar() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Start Time</label>
-                        <input
-                          type="time"
+                        <TimeSelect
                           value={blockStartTime}
-                          onChange={(e) => setBlockStartTime(e.target.value)}
+                          step={slotInterval}
+                          onChange={(v) => { setBlockStartTime(v); if (blockEndTime && blockEndTime <= v) setBlockEndTime(""); }}
                           className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 ring-primary"
                         />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">End Time</label>
-                        <input
-                          type="time"
+                        <TimeSelect
+                          includeEndOfDay
+                          after={blockStartTime || undefined}
+                          step={slotInterval}
                           value={blockEndTime}
-                          onChange={(e) => setBlockEndTime(e.target.value)}
+                          onChange={setBlockEndTime}
                           className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 ring-primary"
                         />
                       </div>
@@ -781,7 +829,12 @@ export default function StudioCalendar() {
 
                   <div className="flex gap-2 pt-2">
                     <Button variant="outline" size="sm" className="w-full" onClick={() => { setIsBlocking(false); resetBlockForm(); }}>Cancel</Button>
-                    <Button size="sm" className="w-full gap-1.5" onClick={() => setIsConfirmingBlock(true)}>
+                    <Button
+                      size="sm"
+                      className="w-full gap-1.5"
+                      onClick={() => setIsConfirmingBlock(true)}
+                      disabled={blockMode === "custom" && (!blockStartTime || !blockEndTime)}
+                    >
                       <Ban className="w-3.5 h-3.5" /> Confirm Block
                     </Button>
                   </div>
@@ -812,8 +865,9 @@ export default function StudioCalendar() {
               </div>
               <select
                 className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                defaultValue={60}
+                value={slotInterval}
                 onChange={(e) => updateSlotInterval.mutate(Number(e.target.value))}
+                disabled={updateSlotInterval.isPending}
               >
                 {SLOT_INTERVAL_OPTIONS.map((m) => <option key={m} value={m}>{m} minutes</option>)}
               </select>
@@ -832,7 +886,7 @@ export default function StudioCalendar() {
                 <div className="space-y-1.5">
                   {bookingHoursForDay(day).map((h) => (
                     <div key={h.id} className="flex items-center justify-between text-xs bg-background border border-border/40 rounded px-2 py-1.5">
-                      <span>{h.start_time}–{h.end_time}</span>
+                      <span>{formatTime12h(h.start_time)}–{formatTime12h(h.end_time)}</span>
                       <button onClick={() => setPeriodToDelete({ id: h.id, day, start: h.start_time, end: h.end_time })} className="text-muted-foreground hover:text-destructive">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -841,13 +895,27 @@ export default function StudioCalendar() {
                 </div>
 
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <input type="time" className="h-8 rounded border border-input px-1.5 text-xs w-[6.5rem]"
+                  <TimeSelect
+                    className="h-8 rounded border border-input bg-background px-1.5 text-xs w-[6.5rem]"
                     value={newBookingHourPeriod[day]?.start || ""}
-                    onChange={(e) => setNewBookingHourPeriod((p) => ({ ...p, [day]: { ...p[day], start: e.target.value } }))} />
+                    busy={busyPeriodsForDay(day)}
+                    step={slotInterval}
+                    onChange={(v) => setNewBookingHourPeriod((p) => ({
+                      ...p,
+                      [day]: { start: v, end: "" },
+                    }))}
+                  />
                   <span className="text-xs text-muted-foreground">to</span>
-                  <input type="time" className="h-8 rounded border border-input px-1.5 text-xs w-[6.5rem]"
+                  <TimeSelect
+                    className="h-8 rounded border border-input bg-background px-1.5 text-xs w-[6.5rem]"
+                    includeEndOfDay
+                    after={newBookingHourPeriod[day]?.start || undefined}
+                    upTo={nextBusyStartForDay(day, newBookingHourPeriod[day]?.start || "")}
+                    disabled={!newBookingHourPeriod[day]?.start}
+                    step={slotInterval}
                     value={newBookingHourPeriod[day]?.end || ""}
-                    onChange={(e) => setNewBookingHourPeriod((p) => ({ ...p, [day]: { ...p[day], end: e.target.value } }))} />
+                    onChange={(v) => setNewBookingHourPeriod((p) => ({ ...p, [day]: { start: p[day]?.start || "", end: v } }))}
+                  />
                   <Button size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => addBookingHourPeriod(day)} disabled={createBookingHour.isPending}>
                     <Plus className="w-3.5 h-3.5" />
                   </Button>

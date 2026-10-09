@@ -70,6 +70,7 @@ interface RawCustomPackage {
     // Null/absent means this photographer only offers the discrete duration-
     // component picker (unchanged existing behavior).
     hourly_rate?: number | string | null;
+    outdoor_hourly_rate?: number | string | null;
     min_hours?: number | null;
     max_hours?: number | null;
     allows_multiple_sessions?: boolean;
@@ -140,6 +141,7 @@ function normalizePackage(raw: Record<string, unknown>) {
     maxSessions: raw.max_sessions != null ? toNumber(raw.max_sessions) : null,
     name: String(raw.name ?? raw.title ?? "Package"),
     price: toNumber(raw.price ?? raw.base_price),
+    outdoorPrice: raw.outdoor_price != null ? toNumber(raw.outdoor_price) : null,
     // null = duration left open by the photographer; never invent a default.
     hours: durationMinutes != null ? durationMinutes / 60 : null,
     // 'open' = start time only; the length above is informational and never blocks time.
@@ -310,6 +312,7 @@ export const photographerService = {
           ...profile.customRates,
           baseFee: raw.config.enabled ? toNumber(raw.config.base_fee, defaultCustomRates.baseFee) : defaultCustomRates.baseFee,
           hourlyRate: raw.config.enabled && raw.config.hourly_rate != null ? toNumber(raw.config.hourly_rate) : null,
+          outdoorHourlyRate: raw.config.enabled && raw.config.outdoor_hourly_rate != null ? toNumber(raw.config.outdoor_hourly_rate) : null,
           baseHours: raw.config.enabled ? (raw.config.base_hours ?? null) : null,
           // The slider can't start below the hours the base fee already covers.
           minHours: raw.config.enabled
@@ -317,7 +320,15 @@ export const photographerService = {
             : null,
           maxHours: raw.config.enabled ? (raw.config.max_hours ?? null) : null,
           allowsMultipleSessions:
-            raw.config.enabled && raw.config.hourly_rate != null && !!raw.config.allows_multiple_sessions,
+            raw.config.enabled
+            && (raw.config.hourly_rate != null || raw.config.pricing_model === "per_day" || raw.config.pricing_model === "per_person")
+            && !!raw.config.allows_multiple_sessions,
+          pricingModel: raw.config.enabled
+            ? (raw.config.pricing_model ?? (raw.config.hourly_rate != null ? "hourly" : "fixed"))
+            : "fixed",
+          unitRate: raw.config.enabled && raw.config.unit_rate != null ? toNumber(raw.config.unit_rate) : null,
+          coverageHours: raw.config.enabled ? (raw.config.coverage_hours ?? null) : null,
+          maxPeople: raw.config.enabled ? (raw.config.max_people ?? null) : null,
           maxSessions: raw.config.enabled ? (raw.config.max_sessions ?? null) : null,
           baseFeeMode: raw.config.enabled ? (raw.config.base_fee_mode ?? null) : null,
           sessionMinHours: raw.config.enabled ? (raw.config.min_hours ?? 1) : null,

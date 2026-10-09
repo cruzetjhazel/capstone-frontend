@@ -76,8 +76,8 @@ export function useDisputeBookingNonCompletion() {
 export function useRequestBookingReschedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, eventDate, startTime, reason }: { id: string; eventDate: string; startTime: string; reason: string }) =>
-      bookingService.reschedule(id, eventDate, startTime, reason),
+    mutationFn: ({ id, eventDate, startTime, reason, type }: { id: string; eventDate: string; startTime: string; reason: string; type?: "standard" | "weather" | "venue" | "agreed" }) =>
+      bookingService.reschedule(id, eventDate, startTime, reason, type ?? "standard"),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["booking", id] });
       qc.invalidateQueries({ queryKey: ["bookings"] });
@@ -88,12 +88,22 @@ export function useRequestBookingReschedule() {
 export function useRequestBookingModification() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, type, reason }: { id: string; type: string; reason: string }) =>
-      bookingService.requestModification(id, type, reason),
+    mutationFn: ({ id, changes, reason }: { id: string; changes: { guest_count?: number; event_address?: string; special_requests?: string }; reason: string }) =>
+      bookingService.requestModification(id, changes, reason),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["booking", id] });
       qc.invalidateQueries({ queryKey: ["bookings"] });
     },
+  });
+}
+
+// Start times a booking could be rescheduled to on a given date.
+export function useRescheduleSlots(bookingId: string | undefined, date: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["rescheduleSlots", bookingId, date],
+    queryFn: () => bookingService.getRescheduleSlots(bookingId!, date),
+    enabled: enabled && !!bookingId && !!date,
+    staleTime: 0,
   });
 }
 

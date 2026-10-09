@@ -36,11 +36,13 @@ const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: stri
   system: { icon: Info, color: "text-amber-500", bg: "bg-amber-500/10" },
 };
 
-const filterOptions = ["All", "Booking", "Payment", "Message", "System"] as const;
+const filterOptions = ["All", "Booking", "Payment", "System"] as const;
 
 export default function Notifications() {
-  const { user } = useRole();
-  const { data: notifications = [], isLoading } = useNotifications(user?.email);
+  const { user, role } = useRole();
+  const [limit, setLimit] = useState(50);
+  const { data: notifications = [], isLoading, isFetching } = useNotifications(user?.email, limit);
+  const canLoadMore = notifications.length >= limit;
   const { markRead, markAllRead } = useNotificationActions(user?.email);
   const [filter, setFilter] = useState<string>("All");
 
@@ -50,7 +52,8 @@ export default function Notifications() {
   const filtered = notifications.filter((n) => filter === "All" || n.type === filter.toLowerCase());
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleMarkAsRead = async (id: string) => {
+  const handleMarkAsRead = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
     try {
       await markRead(id);
       toast.success("Notification marked as read");
@@ -58,6 +61,20 @@ export default function Notifications() {
       toast.error("Failed to update notification");
     }
   };
+
+  // Opening a notification (clicking the row or its action buttons) marks it read.
+  const markViewed = async (n: AppNotification) => {
+    if (n.read) return;
+    try {
+      await markRead(n.id);
+    } catch {
+      /* silent — the user can still mark it manually */
+    }
+  };
+
+  // Clients and photographers have different booking-details routes.
+  const detailsPath = (bookingId: string) =>
+    role === "studio" ? `/studio/bookings/${bookingId}` : `/booking/${bookingId}/details`;
 
   const handleConfirmMarkAllRead = async () => {
     setIsSubmitting(true);
@@ -137,9 +154,10 @@ export default function Notifications() {
               return (
                 <div
                   key={n.id}
+                  onClick={() => markViewed(n)}
                   className={cn(
-                    "flex items-start gap-4 px-6 py-4 transition-colors hover:bg-muted/30",
-                    !n.read && "bg-primary/[0.03]"
+                    "flex items-start gap-4 px-6 py-4 transition-colors cursor-pointer hover:bg-muted/30",
+                    n.read ? "opacity-60 bg-muted/20 hover:opacity-100" : "bg-primary/[0.03]"
                   )}
                 >
                   {/* Category Icon */}
@@ -177,14 +195,14 @@ export default function Notifications() {
                     {/* Contextual Quick Actions */}
                     {n.bookingId && (
                       <div className="flex flex-wrap gap-2 mt-3">
-                        {n.action === "pay" && (
+                        {n.action === "pay" && role === "client" && (
                           <Link to={`/booking/${n.bookingId}/pay`}>
                             <Button size="sm" className="gap-1.5 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">
                               <Wallet className="w-3.5 h-3.5" /> Pay Deposit / Balance
                             </Button>
                           </Link>
                         )}
-                        <Link to={`/booking/${n.bookingId}/details`}>
+                        <Link to={role === "admin" ? (n.title.includes("Dispute") ? "/admin/reports" : "/admin/bookings") : detailsPath(n.bookingId)}>
                           <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs rounded-lg">
                             <FileText className="w-3.5 h-3.5" /> View Details
                           </Button>
@@ -195,9 +213,16 @@ export default function Notifications() {
 
                   {/* Actions (Mark Read) */}
                   <div className="flex items-center gap-1 shrink-0">
-                    {!n.read && (
+                    {n.read ? (
+                      <span
+                        className="w-8 h-8 flex items-center justify-center text-emerald-600 dark:text-emerald-400"
+                        title="Read"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </span>
+                    ) : (
                       <button
-                        onClick={() => handleMarkAsRead(n.id)}
+                        onClick={(e) => handleMarkAsRead(e, n.id)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                         title="Mark as read"
                       >
@@ -210,6 +235,20 @@ export default function Notifications() {
             })
           )}
         </div>
+
+        {canLoadMore && (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLimit((l) => l + 50)}
+              disabled={isFetching}
+              className="rounded-xl text-xs"
+            >
+              {isFetching ? "Loading…" : "Load older notifications"}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* CONFIRMATION MODAL: MARK ALL AS READ */}

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, ArrowRight, Camera, Download, Printer, AlertCircle } from "lucide-react";
+import { CheckCircle2, ArrowRight, Camera, FileDown, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useBooking } from "@/hooks/useBookings";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
@@ -19,6 +19,25 @@ const formatDate = (dateString: string) => {
     month: "short",
     day: "numeric",
   });
+};
+
+// "YYYY-MM-DD" -> "October 10, 2026" (parsed manually so the day can't shift with timezones)
+const formatEventDate = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+// "HH:mm" or "HH:mm:ss" -> "2:30 PM"
+const formatTime = (t?: string | null) => {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 };
 
 export default function BookingReceipt() {
@@ -74,12 +93,31 @@ export default function BookingReceipt() {
   const onsitePayment = verifiedPayments.find((p) => p.type === "onsite") ?? null;
 
   const totalPrice = (booking as any).totalPrice ?? booking.subtotal;
+
+  // One entry per event day. Falls back to the single date if the booking has no schedules list.
+  const rawSchedules: any[] = (booking as any).schedules ?? [];
+  const eventSchedules: { label: string | null; date: string; start: string; end: string | null; location: string | null }[] =
+    rawSchedules.length > 0
+      ? rawSchedules.map((s) => ({
+          label: s.label ?? null,
+          date: s.eventDate,
+          start: s.startTime,
+          end: s.endTime || null,
+          location: s.locationLabel ?? null,
+        }))
+      : [{ label: null, date: booking.date, start: booking.startTime, end: (booking as any).endTime || null, location: null }];
   const isHalfPlan = onlinePayment.plan === "half";
   const totalPaidSoFar = verifiedPayments.reduce((sum, p) => sum + p.amount, 0);
   const remainingOnsiteBalance = Math.max(0, totalPrice - totalPaidSoFar);
   const isFullySettled = remainingOnsiteBalance <= 0;
 
-  const handlePrint = () => window.print();
+  // The browser's print dialog uses the page title as the default PDF filename.
+  const handleDownloadPdf = () => {
+    const previousTitle = document.title;
+    document.title = `Receipt-${booking.id}`;
+    window.print();
+    document.title = previousTitle;
+  };
 
   const handleDownloadText = () => {
     const lines = [
@@ -119,8 +157,10 @@ export default function BookingReceipt() {
     <div className="min-h-screen bg-background py-10 px-4 sm:px-6">
       <style>{`
         @media print {
+          @page { margin: 12mm; }
           .no-print { display: none !important; }
           body { background: white; }
+          .receipt-sheet { max-width: none !important; box-shadow: none !important; border: none !important; }
         }
       `}</style>
 
@@ -130,7 +170,7 @@ export default function BookingReceipt() {
         <div className="lg:col-span-7 flex justify-center w-full">
           <div
             ref={receiptRef}
-            className="w-full max-w-[500px] bg-card rounded-2xl shadow-sm border border-border p-8 sm:p-10 font-sans"
+            className="receipt-sheet w-full max-w-[500px] bg-card rounded-2xl shadow-sm border border-border p-8 sm:p-10 font-sans"
           >
             {/* Header */}
             <div className="flex justify-between items-start mb-8">
@@ -166,7 +206,18 @@ export default function BookingReceipt() {
               <div className="col-span-2">
                 <p className="text-xs font-medium text-muted-foreground mb-1">Event Details</p>
                 <p className="text-foreground capitalize font-medium">{booking.eventType}</p>
-                <p className="text-muted-foreground mt-0.5">{booking.date} • {booking.startTime}</p>
+                <ul className="mt-1 space-y-1">
+                  {eventSchedules.map((s, i) => (
+                    <li key={i} className="text-muted-foreground">
+                      {eventSchedules.length > 1 && s.label ? (
+                        <span className="font-medium text-foreground">{s.label}: </span>
+                      ) : null}
+                      {formatEventDate(s.date)} • {formatTime(s.start)}
+                      {s.end ? `–${formatTime(s.end)}` : ""}
+                      {s.location ? <span> ({s.location})</span> : null}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-muted-foreground mt-0.5">{booking.eventLocation}</p>
               </div>
             </div>
@@ -272,18 +323,10 @@ export default function BookingReceipt() {
           <div className="space-y-3">
             <Button
               variant="outline"
-              onClick={handlePrint}
+              onClick={handleDownloadPdf}
               className="w-full h-12 text-sm font-semibold justify-center gap-2 rounded-xl shadow-sm"
             >
-              <Printer className="w-4 h-4 text-muted-foreground" /> Print / Save as PDF
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={handleDownloadText}
-              className="w-full h-12 text-sm font-semibold justify-center gap-2 rounded-xl shadow-sm"
-            >
-              <Download className="w-4 h-4 text-muted-foreground" /> Download Receipt (.txt)
+              <FileDown className="w-4 h-4 text-muted-foreground" /> Download Receipt (PDF)
             </Button>
 
             <Button

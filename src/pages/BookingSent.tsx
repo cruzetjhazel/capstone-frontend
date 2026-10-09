@@ -13,9 +13,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/data/photographers";
-import { useBooking } from "@/hooks/useBookings";
+import { useBooking, useRequestBookingCancellation } from "@/hooks/useBookings";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
+
+const formatScheduleDate = (ymd: string) =>
+  new Date(`${ymd}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 
 export default function BookingSent() {
   const { id } = useParams();
@@ -30,6 +37,7 @@ export default function BookingSent() {
   // a function") and aborting before navigate("/bookings") ever ran —
   // that's why the button appeared to do nothing.
   const { toast: showToast } = useToast();
+  const cancelMutation = useRequestBookingCancellation();
 
   const [status, setStatus] = useState<"pending" | "accepted" | "cancelled" | "rejected" | "expired">("pending");
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -38,13 +46,15 @@ export default function BookingSent() {
 
   useEffect(() => {
     if (booking?.status) {
-      if (booking.status === "accepted" || booking.status === "confirmed" || booking.status === "completed") {
+      // Widened to string: the booking status type doesn't include every label compared below.
+      const s: string = booking.status;
+      if (s === "accepted" || s === "confirmed" || s === "completed") {
         setStatus("accepted");
-      } else if (booking.status === "cancelled") {
+      } else if (s === "cancelled") {
         setStatus("cancelled");
-      } else if (booking.status === "rejected") {
+      } else if (s === "rejected") {
         setStatus("rejected");
-      } else if (booking.status === "expired") {
+      } else if (s === "expired") {
         setStatus("expired");
       } else {
         setStatus("pending");
@@ -52,21 +62,35 @@ export default function BookingSent() {
     }
   }, [booking?.status]);
 
-  const handleCancelRequest = () => {
+  const handleCancelRequest = async () => {
     if (!cancellationReason.trim()) {
       showToast({ title: "Reason required", description: "Please provide a reason for cancelling your booking request.", variant: "destructive" as never });
       return;
     }
 
     setIsSubmittingCancel(true);
-    // Simulate API cancellation request
-    setTimeout(() => {
-      setIsSubmittingCancel(false);
+    try {
+      // Real call (it used to be a fake setTimeout that never touched the server).
+      await cancelMutation.mutateAsync({ id: String(booking!.id), reason: cancellationReason });
       setIsCancelModalOpen(false);
-      setStatus("cancelled")
-      showToast({ title: "Cancellation submitted", description: "Booking cancellation request submitted successfully." });
-    }, 800);
+      setStatus("cancelled");
+      showToast({ title: "Booking cancelled", description: "Your booking request was cancelled and the photographer was notified." });
+    } catch (error) {
+      showToast({ title: "Couldn't cancel the booking", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" as never });
+    } finally {
+      setIsSubmittingCancel(false);
+    }
   };
+
+
+  const scheduleDates: string[] = Array.from(
+    new Set(
+      (((booking as any)?.schedules ?? []) as { eventDate: string }[])
+        .map((s) => s.eventDate)
+        .filter(Boolean)
+    )
+  ).sort();
+  const dateList = scheduleDates.length > 0 ? scheduleDates : booking?.date ? [booking.date] : [];
 
   if (isLoading) {
     return (
@@ -114,7 +138,7 @@ export default function BookingSent() {
               </div>
               <h1 className="text-2xl font-heading font-bold">Request Accepted!</h1>
               <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                <strong>{booking.photographerName}</strong> accepted your request. Complete online payment via Xendit to confirm your booking.
+                <strong>{booking.photographerName}</strong> accepted your request. Pay the photographer directly through GCash, then submit your reference number for verification.
               </p>
             </>
           )}
@@ -124,9 +148,11 @@ export default function BookingSent() {
               <div className="w-16 h-16 mx-auto rounded-full bg-destructive/10 flex items-center justify-center mb-4">
                 <XCircle className="w-9 h-9 text-destructive" />
               </div>
-              <h1 className="text-2xl font-heading font-bold">Booking Request Cancelled</h1>
+              <h1 className="text-2xl font-heading font-bold">{(booking as any).isDeclined ? "Booking Request Declined" : "Booking Request Cancelled"}</h1>
               <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                This booking request has been cancelled and the temporary schedule hold has been released.
+                {(booking as any).isDeclined
+                  ? `${booking.photographerName} declined this booking request.${(booking as any).rejectionReason ? ` Reason: “${(booking as any).rejectionReason}”` : ""}`
+                  : "This booking request has been cancelled and the temporary schedule hold has been released."}
               </p>
             </>
           )}
@@ -148,7 +174,7 @@ export default function BookingSent() {
             {status === "pending" && (
               <>
                 <Hourglass className="w-3.5 h-3.5 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">Pending Professional Review</span>
+                <span className="text-amber-600 dark:text-amber-400">Pending Photographer Review</span>
               </>
             )}
             {status === "accepted" && (
@@ -160,7 +186,7 @@ export default function BookingSent() {
             {status === "cancelled" && (
               <>
                 <XCircle className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-muted-foreground">Cancelled</span>
+                <span className="text-muted-foreground">{(booking as any).isDeclined ? "Declined" : "Cancelled"}</span>
               </>
             )}
             {status === "expired" && (
@@ -175,7 +201,7 @@ export default function BookingSent() {
           {status === "pending" && (
             <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-center gap-2 max-w-md mx-auto">
               <Clock className="w-4 h-4 shrink-0" />
-              <span>A temporary time hold (max 24 hours) has been placed on your requested date & time.</span>
+              <span>A temporary time hold (max 48 hours) has been placed on your requested date & time.</span>
             </div>
           )}
 
@@ -190,12 +216,16 @@ export default function BookingSent() {
               <p className="font-medium truncate">{booking.eventType}</p>
             </div>
             <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Date</p>
-              <p className="font-medium truncate">{booking.date}</p>
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">
+                {dateList.length > 1 ? `Dates (${dateList.length} days)` : "Date"}
+              </p>
+              {dateList.map((d) => (
+                <p key={d} className="font-medium text-sm">{formatScheduleDate(d)}</p>
+              ))}
             </div>
             <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Total Amount</p>
-              <p className="font-semibold text-primary">{formatPrice(booking.dueNow)}</p>
+              <p className="font-semibold text-primary">{formatPrice((booking as any).totalPrice ?? booking.dueNow)}</p>
             </div>
           </div>
 
@@ -204,9 +234,9 @@ export default function BookingSent() {
             <div className="mt-6 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <Bell className="w-5 h-5 text-primary shrink-0 mt-0.5 sm:mt-0" />
               <div className="flex-1">
-                <p className="font-semibold text-sm">Action Required: Complete Online Payment</p>
+                <p className="font-semibold text-sm">Action Required: Submit Your GCash Payment</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Pay {formatPrice(booking.dueNow)} online via Xendit to transition your booking from Accepted to Confirmed.
+                  Pay {formatPrice(booking.dueNow)} directly to the photographer via GCash, then submit your reference number for the photographer to verify.
                 </p>
               </div>
               <Button size="sm" className="gap-1.5 shrink-0 w-full sm:w-auto" onClick={() => navigate(`/booking/${booking.id}/pay`)}>
@@ -241,7 +271,7 @@ export default function BookingSent() {
 
         <p className="text-xs text-muted-foreground text-center">
           {status === "pending" 
-            ? "Professionals review requests within 24 hours. You'll receive a notification when accepted." 
+            ? "Photographers have up to 48 hours to respond. You'll receive a notification when accepted." 
             : "You can monitor all status changes and payment updates from your Client Dashboard."}
         </p>
       </div>
@@ -256,7 +286,7 @@ export default function BookingSent() {
             </div>
             
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to cancel this booking request? This will release your temporary hold on {booking.date}.
+              Are you sure you want to cancel this booking request? This will release your temporary hold on {dateList.map(formatScheduleDate).join(", ")}.
             </p>
 
             <div className="space-y-1.5">

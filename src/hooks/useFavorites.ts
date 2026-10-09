@@ -20,6 +20,7 @@ type RawFavorite = {
   business_name: string | null;
   style: string | null;
   profile_photo_url: string | null;
+  cover_photo_url: string | null;
   is_available: boolean;
   favorited_at: string;
 };
@@ -155,5 +156,97 @@ export function useRemoveFavorite() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: FAVORITES_QUERY_KEY });
     },
+  });
+}
+
+// ---------- Package favorites ----------
+
+export interface FavoritePackage {
+  id: number;
+  packageId: string;
+  photographerId: string;
+  photographerName: string | null;
+  profilePhotoUrl: string | null;
+  name: string;
+  description: string | null;
+  includedItems: string[];
+  price: number;
+  outdoorPrice: number | null;
+  durationMinutes: number | null;
+  isAvailable: boolean;
+  favoritedAt: string;
+}
+
+type RawFavoritePackage = {
+  id: number;
+  package_id: number;
+  photographer_id: number;
+  photographer_name: string | null;
+  profile_photo_url: string | null;
+  name: string;
+  description: string | null;
+  included_items: Array<string | { name: string; detail?: string }> | null;
+  price: string | number;
+  outdoor_price: string | number | null;
+  duration_minutes: number | null;
+  is_available: boolean;
+  favorited_at: string;
+};
+
+function toFavoritePackage(raw: RawFavoritePackage): FavoritePackage {
+  return {
+    id: raw.id,
+    packageId: String(raw.package_id),
+    photographerId: String(raw.photographer_id),
+    photographerName: raw.photographer_name,
+    profilePhotoUrl: raw.profile_photo_url,
+    name: raw.name,
+    description: raw.description,
+    includedItems: (raw.included_items ?? []).map((i) => (typeof i === "string" ? i : i.name)),
+    price: Number(raw.price),
+    outdoorPrice: raw.outdoor_price != null ? Number(raw.outdoor_price) : null,
+    durationMinutes: raw.duration_minutes,
+    isAvailable: raw.is_available,
+    favoritedAt: raw.favorited_at,
+  };
+}
+
+export const favoritePackageService = {
+  list: async (): Promise<FavoritePackage[]> => {
+    const raw = await apiRequest<RawFavoritePackage[]>("/client/favorites/packages");
+    return raw.map(toFavoritePackage);
+  },
+  add: async (packageId: string): Promise<FavoritePackage> => {
+    const raw = await apiMutate<RawFavoritePackage>(`/client/favorites/packages/${packageId}`, "POST");
+    return toFavoritePackage(raw);
+  },
+  remove: async (packageId: string): Promise<void> => {
+    await apiMutate<null>(`/client/favorites/packages/${packageId}`, "DELETE");
+  },
+};
+
+const FAVORITE_PACKAGES_QUERY_KEY = ["favorite-packages"];
+
+export function useFavoritePackages(enabled = true) {
+  return useQuery({
+    queryKey: FAVORITE_PACKAGES_QUERY_KEY,
+    queryFn: () => favoritePackageService.list(),
+    enabled,
+  });
+}
+
+export function useAddFavoritePackage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (packageId: string) => favoritePackageService.add(packageId),
+    onSettled: () => qc.invalidateQueries({ queryKey: FAVORITE_PACKAGES_QUERY_KEY }),
+  });
+}
+
+export function useRemoveFavoritePackage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (packageId: string) => favoritePackageService.remove(packageId),
+    onSettled: () => qc.invalidateQueries({ queryKey: FAVORITE_PACKAGES_QUERY_KEY }),
   });
 }

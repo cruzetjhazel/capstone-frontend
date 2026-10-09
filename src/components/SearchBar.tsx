@@ -4,7 +4,7 @@ import { Search, Camera, MapPin } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { usePhotographers } from "@/hooks/usePhotographers";
-
+import { placeCoverageHint } from "@/data/coverage";
 
 interface Props {
   initialService?: string;
@@ -22,6 +22,7 @@ const LOCATION_PRESETS = [
   "Irosin, Sorsogon",
   "Sorsogon City, Sorsogon",
   "Legazpi, Albay",
+  "Manila, Metro Manila",
   "Anywhere",
 ];
 
@@ -237,9 +238,12 @@ export default function SearchBar({
             onChange={(e) => setLocation(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && setPanel(null)}
             placeholder="e.g. Sorsogon City, Sorsogon"
-            className="w-full px-4 py-3 rounded-full border border-border bg-card text-sm focus:outline-none focus:border-primary mb-4"
+            className="w-full px-4 py-3 rounded-full border border-border bg-card text-sm focus:outline-none focus:border-primary mb-2"
             autoFocus
           />
+          {placeCoverageHint(location) && (
+            <p className="text-[11px] text-muted-foreground mb-4 px-1">{placeCoverageHint(location)}</p>
+          )}
 
           <p className="text-xs text-muted-foreground/70 uppercase tracking-wider mb-2">Quick picks</p>
           <div className="space-y-1">

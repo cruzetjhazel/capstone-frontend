@@ -16,6 +16,17 @@ import { useBooking } from "@/hooks/useBookings";
 type PayState = "form" | "verifying" | "verified" | "mismatch";
 type Plan = "half" | "full";
 
+// Keeps the form across accidental navigation/refresh (per-tab, cleared on submit).
+const readDraft = (bookingId?: string) => {
+  try {
+    return JSON.parse(sessionStorage.getItem(`bookingPayDraft:${bookingId}`) ?? "{}") as Partial<{
+      plan: Plan; payerName: string; refCode: string; paidAt: string;
+    }>;
+  } catch {
+    return {};
+  }
+};
+
 export default function BookingPay() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -27,10 +38,10 @@ export default function BookingPay() {
   const [infoError, setInfoError] = useState<string | null>(null);
 
   // Form Fields
-  const [plan, setPlan] = useState<Plan>("half");
-  const [payerName, setPayerName] = useState("");
-  const [refCode, setRefCode] = useState("");
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().split("T")[0]);
+  const [plan, setPlan] = useState<Plan>(() => readDraft(id).plan ?? "half");
+  const [payerName, setPayerName] = useState(() => readDraft(id).payerName ?? "");
+  const [refCode, setRefCode] = useState(() => readDraft(id).refCode ?? "");
+  const [paidAt, setPaidAt] = useState(() => readDraft(id).paidAt ?? new Date().toISOString().split("T")[0]);
   const [amountInput, setAmountInput] = useState("");
   const [state, setState] = useState<PayState>("form");
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -52,6 +63,14 @@ export default function BookingPay() {
     const base = plan === "full" ? paymentInfo.amounts.full_payment_amount : paymentInfo.amounts.half_payment_amount;
     setAmountInput(String(base));
   }, [plan, paymentInfo]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`bookingPayDraft:${id}`, JSON.stringify({ plan, payerName, refCode, paidAt }));
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, [id, plan, payerName, refCode, paidAt]);
 
   if (isBookingLoading || isLoadingInfo) {
     return (
@@ -122,7 +141,7 @@ export default function BookingPay() {
   const cleanRef = refCode.replace(/[\s-]/g, "");
   const isRefValid = /^\d{13}$/.test(cleanRef); // GCash reference numbers are 13 digits
   const paidAmount = Number(amountInput);
-  const isAmountValid = Number.isFinite(paidAmount) && paidAmount >= expectedAmount;
+  const isAmountValid = Number.isFinite(paidAmount) && Math.abs(paidAmount - expectedAmount) < 0.005;
   const extraAmount = paidAmount - expectedAmount;
 
   const canSubmit = isRefValid && isAmountValid && payerName.trim() !== "" && paidAt !== "";
@@ -149,15 +168,19 @@ export default function BookingPay() {
       });
 
       setState("verified");
-      toast({ title: "Payment submitted", description: result.message });
-      setTimeout(() => navigate(`/booking/${b.id}/details`), 1200);
+      try { sessionStorage.removeItem(`bookingPayDraft:${b.id}`); } catch { /* ignore */ }
+      toast.success(result.message || "Payment submitted.");
+
+      // Refresh booking/payment data first so the details page opens with
+      // up-to-date info, then go straight there (no delay).
+      await queryClient.invalidateQueries({
+        predicate: (q) => /booking|payment/i.test(JSON.stringify(q.queryKey)),
+        refetchType: "all",
+      });
+      navigate(`/booking/${b.id}/details`, { replace: true });
     } catch (err) {
       setState("mismatch");
-      toast({
-        title: "Submission failed",
-        description: err instanceof Error ? err.message : "Failed to submit payment. Please double-check details.",
-        variant: "destructive" as never,
-      });
+      toast.error(err instanceof Error ? err.message : "Failed to submit payment. Please double-check details.");
     }
   };
 
@@ -270,7 +293,7 @@ export default function BookingPay() {
 
           </div>
 
-          {/* RIGHT COLUMN: GCash Payment Reference Form */}
+          {/* MIDDLE COLUMN: GCash Payment Reference Form */}
           <div className="bg-card rounded-2xl card-shadow border border-border/50 p-6 md:p-8 flex flex-col justify-between space-y-6">
             <div>
               <h3 className="font-heading font-semibold flex items-center gap-2 mb-5 text-base text-foreground">
@@ -314,7 +337,7 @@ export default function BookingPay() {
                     id="amt"
                     type="number"
                     inputMode="decimal"
-                    min={expectedAmount}
+                    readOnly
                     step="0.01"
                     value={amountInput}
                     onChange={(e) => setAmountInput(e.target.value)}
@@ -323,7 +346,7 @@ export default function BookingPay() {
                   />
                   {!isAmountValid ? (
                     <p className="text-[11px] text-destructive">
-                      Amount can't be lower than {formatPrice(expectedAmount)}.
+                      Amount must be exactly {formatPrice(expectedAmount)}.
                     </p>
                   ) : extraAmount > 0 ? (
                     <p className="text-[11px] text-muted-foreground">
@@ -331,7 +354,7 @@ export default function BookingPay() {
                     </p>
                   ) : (
                     <p className="text-[11px] text-muted-foreground">
-                      Must be at least {formatPrice(expectedAmount)}. You can enter more if you're adding a tip.
+                      Pay exactly {formatPrice(expectedAmount)}. Choose the other plan above if you want to pay a different amount.
                     </p>
                   )}
                 </div>
@@ -364,54 +387,54 @@ export default function BookingPay() {
                 )}
               </div>
             </div>
-
           </div>
 
-          {/* RIGHT COLUMN: Payment Disclaimer */}
+          {/* RIGHT COLUMN: Disclaimer, confirmation notice, submit button */}
           <div className="md:col-span-2 lg:col-span-1 lg:sticky lg:top-24 space-y-4">
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-foreground">Payment Disclaimer</p>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  This payment is made <strong className="text-foreground">directly to the photographer/studio</strong> through GCash.
-                  The system and its administrators do not hold or process this payment. If the photographer or studio does not show up,
-                  fails to provide the agreed service, or a dispute or scam occurs, the system and its administrators are{" "}
-                  <strong className="text-foreground">not responsible or financially liable</strong> for any resulting payment, refund, loss, or damages.
-                  Please verify the photographer's details and keep proof of payment and communications.{" "}
-                  <Link to="/terms" target="_blank" className="text-primary font-medium hover:underline">
-                    Read the Terms &amp; Conditions
-                  </Link>
-                </p>
+            {/* Payment Disclaimer */}
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-foreground">Payment Disclaimer</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    This payment is made <strong className="text-foreground">directly to the photographer/studio</strong> through GCash.
+                    The system and its administrators do not hold or process this payment. If the photographer or studio does not show up,
+                    fails to provide the agreed service, or a dispute or scam occurs, the system and its administrators are{" "}
+                    <strong className="text-foreground">not responsible or financially liable</strong> for any resulting payment, refund, loss, or damages.
+                    Please verify the photographer's details and keep proof of payment and communications.{" "}
+<Link to={`/terms?returnTo=${encodeURIComponent(`/booking/${b.id}/pay`)}`} className="text-primary font-medium hover:underline">
+                      Read the Terms &amp; Conditions
+                    </Link>
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Confirmation notice card */}
-          <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card p-3.5">
-            <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation.
-            </p>
-          </div>
+            {/* Confirmation notice card */}
+            <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card p-3.5">
+              <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation.
+              </p>
+            </div>
 
-          {/* Auto-verification button */}
-          <Button
-            className="w-full h-11 text-sm font-semibold"
-            size="lg"
-            onClick={handleOpenConfirmation}
-            disabled={state === "verifying" || state === "verified" || !canSubmit}
-          >
-            {state === "verifying" ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Submitting…
-              </>
-            ) : (
-              "Submit Payment for Verification"
-            )}
-          </Button>
+            {/* Submit button */}
+            <Button
+              className="w-full h-11 text-sm font-semibold"
+              size="lg"
+              onClick={handleOpenConfirmation}
+              disabled={state === "verifying" || state === "verified" || !canSubmit}
+            >
+              {state === "verifying" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Submitting…
+                </>
+              ) : (
+                "Submit Payment for Verification"
+              )}
+            </Button>
           </div>
 
         </div>

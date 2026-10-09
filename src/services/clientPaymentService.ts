@@ -14,7 +14,8 @@ export interface ClientPayment {
   paymentDate: string; // "YYYY-MM-DD"
   notes: string | null;
   matchingStatus: string;
-  verifiedAt: string | null;
+verifiedAt: string | null;
+verifiedByName: string | null;
   verificationNotes: string | null;
   createdAt: string;
 }
@@ -32,7 +33,8 @@ type RawPayment = {
   payment_date: string;
   notes: string | null;
   matching_status: string;
-  verified_at: string | null;
+verified_at: string | null;
+verified_by_name: string | null;
   verification_notes: string | null;
   created_at: string;
 };
@@ -50,7 +52,8 @@ function toClientPayment(raw: RawPayment): ClientPayment {
     paymentDate: raw.payment_date,
     notes: raw.notes,
     matchingStatus: raw.matching_status,
-    verifiedAt: raw.verified_at,
+verifiedAt: raw.verified_at,
+verifiedByName: raw.verified_by_name,
     verificationNotes: raw.verification_notes,
     createdAt: raw.created_at,
   };

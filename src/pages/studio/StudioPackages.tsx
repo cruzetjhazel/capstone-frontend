@@ -106,6 +106,8 @@ interface PackageFormState {
   price: number;
   description: string;
   inclusions: PackageInclusion[];
+  // blank = same price everywhere; otherwise charged when the booking is not at the studio.
+  outdoorPrice: number | "";
   // 0 / blank = no fixed duration (sent to the API as null).
   durationMinutes: number;
   bufferMinutes: number;
@@ -115,14 +117,14 @@ interface PackageFormState {
 }
 function emptyPackageForm(): PackageFormState {
   return {
-    name: "", price: 2500, description: "", inclusions: [],
+    name: "", price: 2500, outdoorPrice: "", description: "", inclusions: [],
     durationMinutes: DEFAULT_DURATION_MINUTES, bufferMinutes: 0, scheduleMode: "timed",
     allowsMultipleSessions: false, maxSessions: "",
   };
 }
 function packageFormFromRecord(p: PackageRecord): PackageFormState {
   return {
-    name: p.name, price: p.price, description: p.description, inclusions: (p.includedItems as unknown as Array<string | { name?: string; detail?: string }>).map((i) =>
+    name: p.name, price: p.price, outdoorPrice: p.outdoorPrice ?? "", description: p.description, inclusions: (p.includedItems as unknown as Array<string | { name?: string; detail?: string }>).map((i) =>
       typeof i === "string"
         ? { name: i, detail: "" }
         : { name: i.name ?? "", detail: i.detail ?? "" }
@@ -163,6 +165,7 @@ function PackageFormModal({
         .map((i) => ({ name: i.name.trim(), detail: i.detail.trim() }))
         .filter((i) => i.name),
       price: Number(form.price) || 0,
+      outdoor_price: form.outdoorPrice === "" ? null : Number(form.outdoorPrice),
       duration_minutes: Number(form.durationMinutes) > 0 ? Number(form.durationMinutes) : null,
       buffer_minutes: isOpen ? 0 : Number(form.bufferMinutes) || 0,
       schedule_mode: form.scheduleMode,
@@ -185,6 +188,17 @@ function PackageFormModal({
       <div className="space-y-1">
         <Label className="text-xs">Price (₱)</Label>
         <Input type="number" min={0} className="h-9 text-sm font-semibold" value={form.price === 0 ? "" : form.price} onChange={(e) => set({ price: e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)) })} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Outdoor / On-location Price (₱) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+        <Input
+          type="number" min={0} className="h-9 text-sm" placeholder="Same as the price above"
+          value={form.outdoorPrice}
+          onChange={(e) => set({ outdoorPrice: e.target.value === "" ? "" : Math.max(0, Number(e.target.value)) })}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Charged instead of the price above when the client books anywhere other than your studio. Leave blank to charge the same price everywhere.
+        </p>
       </div>
       <div className="rounded-lg border border-border p-3 flex items-start justify-between gap-3">
         <div>
@@ -373,7 +387,9 @@ function AddOnFormModal({
 function pricingSummary(cfg: CustomPackageConfigRecord): string {
   const peso = (n: number | null | undefined) => `₱${Number(n ?? 0).toLocaleString()}`;
   switch (cfg.pricingModel) {
-    case "hourly": return `${peso(cfg.hourlyRate)} per hour`;
+    case "hourly": return cfg.outdoorHourlyRate != null
+      ? `${peso(cfg.hourlyRate)} per hour (studio) · ${peso(cfg.outdoorHourlyRate)} per hour (outdoor)`
+      : `${peso(cfg.hourlyRate)} per hour`;
     case "per_day": return `${peso(cfg.unitRate)} per day`;
     case "per_person": return `${peso(cfg.unitRate)} per person`;
     default: return `Fixed base fee ${peso(cfg.baseFee)}`;
@@ -989,6 +1005,8 @@ function CustomPackageDrawer({
 
   const [hourlyRate, setHourlyRate] = useState<number>(customConfig?.hourlyRate ?? 0);
   useEffect(() => setHourlyRate(customConfig?.hourlyRate ?? 0), [customConfig?.hourlyRate]);
+  const [outdoorHourlyRate, setOutdoorHourlyRate] = useState<number | "">(customConfig?.outdoorHourlyRate ?? "");
+  useEffect(() => setOutdoorHourlyRate(customConfig?.outdoorHourlyRate ?? ""), [customConfig?.outdoorHourlyRate]);
   const [minHours, setMinHours] = useState<number>(customConfig?.minHours ?? 1);
   useEffect(() => setMinHours(customConfig?.minHours ?? 1), [customConfig?.minHours]);
   const [maxHours, setMaxHours] = useState<number>(customConfig?.maxHours ?? 8);
@@ -1015,6 +1033,7 @@ function CustomPackageDrawer({
     || (pricingModel === "fixed" && Number(baseFee) !== Number(customConfig?.baseFee ?? 0))
     || (pricingModel === "hourly" && (
       Number(hourlyRate) !== Number(customConfig?.hourlyRate ?? 0)
+      || Number(outdoorHourlyRate || 0) !== Number(customConfig?.outdoorHourlyRate ?? 0)
       || Number(minHours) !== Number(customConfig?.minHours ?? 1)
       || Number(maxHours) !== Number(customConfig?.maxHours ?? 8)))
     || (isUnitModel && (
@@ -1079,6 +1098,7 @@ function CustomPackageDrawer({
         base_fee: pricingModel === "fixed" ? (Number(baseFee) || 0) : null,
         base_hours: null,
         hourly_rate: pricingModel === "hourly" ? (Number(hourlyRate) || 0) : null,
+        outdoor_hourly_rate: pricingModel === "hourly" && outdoorHourlyRate !== "" && Number(outdoorHourlyRate) > 0 ? Number(outdoorHourlyRate) : null,
         min_hours: pricingModel === "hourly" ? (Number(minHours) || 1) : null,
         max_hours: pricingModel === "hourly" ? (Number(maxHours) || 8) : null,
         unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
@@ -1275,6 +1295,18 @@ function CustomPackageDrawer({
               <Label className="text-[11px]">Maximum Coverage Hours <span className="text-destructive">*</span></Label>
               <Input type="number" min={1} max={24} className="h-9 text-sm" value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value) || 1)} />
             </div>
+          </div>
+        )}
+
+        {pricingModel === "hourly" && (
+          <div className="space-y-1">
+            <Label className="text-[11px]">Outdoor / on-location rate per hour (₱) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input
+              type="number" min={0} className="h-9 text-sm" placeholder="Same as the rate above"
+              value={outdoorHourlyRate}
+              onChange={(e) => setOutdoorHourlyRate(e.target.value === "" ? "" : Math.max(0, Number(e.target.value)))}
+            />
+            <p className="text-[11px] text-muted-foreground">Used instead of the rate above when the client books anywhere other than your studio (outdoor, client location, outside Bicol, other).</p>
           </div>
         )}
 

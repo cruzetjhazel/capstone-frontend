@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { PaymentTrail } from "@/components/PaymentTrail";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
@@ -25,22 +26,22 @@ import {
 const MATCHING_STATUS_LABELS: Record<PaymentMatchingStatus, string> = {
   submitted: "Submitted",
   pending_match: "Pending Match",
-  matched: "Matched",
-  not_matched: "Not Matched",
-  manually_verified: "Manually Verified",
-  rejected: "Rejected",
+  matched: "Verified (Legacy Auto-Match)",
+  not_matched: "Awaiting Photographer Confirmation",
+  manually_verified: "Verified by Photographer",
+	rejected: "Rejected by Photographer",
 };
 
 const MATCHING_STATUS_STYLES: Record<PaymentMatchingStatus, { color: string; icon: any }> = {
   submitted: { color: "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/50", icon: Clock },
   pending_match: { color: "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900/50", icon: Loader2 },
   matched: { color: "text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/50", icon: CheckCircle2 },
-  not_matched: { color: "text-red-600 bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900/50", icon: AlertTriangle },
+  not_matched: { color: "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900/50", icon: Clock },
   manually_verified: { color: "text-teal-600 bg-teal-50 border-teal-200 dark:bg-teal-950/30 dark:border-teal-900/50", icon: ShieldCheck },
   rejected: { color: "text-muted-foreground bg-muted border-border", icon: X },
 };
 
-const NON_CANCELLABLE_BOOKING_STATUSES = ["cancelled", "completed", "rejected"];
+const NON_CANCELLABLE_BOOKING_STATUSES = ["cancelled", "completed", "expired"];
 
 const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
   none: "No refund",
@@ -412,6 +413,12 @@ export default function AdminPayments() {
                     <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Booking Payment Status</p>
                     <p className="font-semibold text-sm capitalize">{selectedPayment.booking.paymentStatus.replace("_", " ")}</p>
                   </div>
+                  {selectedPayment.type === "online" && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Verification Trail</p>
+                      <PaymentTrail payment={selectedPayment} />
+                    </div>
+                  )}
                   {selectedPayment.verificationNotes && (
                     <div>
                       <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Verification Notes</p>

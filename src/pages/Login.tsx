@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, ArrowLeft, KeyRound, Mail, X, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +15,34 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [retryAfter, setRetryAfter] = useState(0);
 
+  // Counts down the temporary block so the user knows exactly when to try again.
+  useEffect(() => {
+    if (retryAfter <= 0) return;
+    const timer = setInterval(() => {
+      setRetryAfter((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [retryAfter > 0]);
+  
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
 
-  const { login } = useRole();
+  const { login, user, isLoading } = useRole();
   const navigate = useNavigate();
+
+  // Already signed in: send them to their dashboard instead of showing the login form.
+  // The accountStatus check matters: ProtectedRoute sends non-active accounts to /login,
+  // so redirecting them back out would create an infinite redirect loop.
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+  if (user && user.accountStatus === "active") {
+    return <Navigate to={getPostLoginPath(user)} replace />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +56,39 @@ export default function Login() {
       toast.success("Successfully logged in! Welcome back.");
       navigate(getPostLoginPath(loggedIn));
     } catch (err) {
+      const account = (err as any)?.response?.data?.account;
+      if (account) {
+        // Suspended / deactivated: show the dedicated page instead of a toast.
+        navigate("/account-status", {
+          state: {
+            account: {
+              status: account.status,
+              email,
+              reason: account.reason ?? null,
+              suspendedAt: account.suspended_at ?? null,
+              deactivatedAt: account.deactivated_at ?? null,
+              appeal: account.appeal
+                ? {
+                    status: account.appeal.status,
+                    submittedAt: account.appeal.submitted_at ?? null,
+                    adminResponse: account.appeal.admin_response ?? null,
+                  }
+                : null,
+            },
+          },
+        });
+        return;
+      }
+      if ((err as any)?.response?.status === 429) {
+        const seconds = Number((err as any)?.response?.data?.retry_after) || 60;
+        setRetryAfter(seconds);
+        setError("");
+        toast.error(`Too many login attempts. Please try again in ${seconds} seconds.`, { id: "login-error" });
+        return;
+      }
       const errorMessage = getApiErrorMessage(err, "Invalid email or password.");
       setError(errorMessage);
-      toast.error(errorMessage);
+      toast.error(errorMessage, { id: "login-error" });
     } finally {
       setSubmitting(false);
     }
@@ -138,7 +188,7 @@ export default function Login() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="pr-10"
+                  className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setError(""); }}
                   autoComplete="current-password"
@@ -160,16 +210,23 @@ export default function Login() {
             </div>
 
             <div className="min-h-[1.25rem]">
-              {error && (
+              {retryAfter > 0 ? (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                  <ShieldX className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Too many login attempts. Please try again in {retryAfter} second{retryAfter === 1 ? "" : "s"}.
+                  </span>
+                </div>
+              ) : error ? (
                 <div className="flex items-center gap-1.5 text-xs text-destructive">
                   <ShieldX className="w-3.5 h-3.5 shrink-0" />
                   <span>{error}</span>
                 </div>
-              )}
+              ) : null}
             </div>
 
-            <Button className="w-full" size="lg" type="submit" disabled={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
+            <Button className="w-full" size="lg" type="submit" disabled={submitting || retryAfter > 0}>
+              {submitting ? "Signing in…" : retryAfter > 0 ? `Try again in ${retryAfter}s` : "Sign in"}
             </Button>
           </form>
 

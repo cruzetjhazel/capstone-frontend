@@ -102,17 +102,14 @@ const SEVERITY_CONFIG: Record<ReportSeverity, { color: string }> = {
 function NoShowResolvePanel({ report, onResolved }: { report: AdminReport; onResolved: () => void }) {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<"upheld" | "overturned" | null>(null);
+  const [pending, setPending] = useState<"upheld" | "overturned" | null>(null);
 
   const isNoShowDispute = report.reason === "No-show dispute" && /^\d+$/.test(report.referenceId);
   if (!isNoShowDispute) return null;
   if (report.status === "resolved" || report.status === "closed") return null;
 
   const decide = async (decision: "upheld" | "overturned") => {
-    const question =
-      decision === "upheld"
-        ? "Uphold the no-show report? The booking stays Not Completed."
-        : "Overturn the no-show report? The booking goes back to Confirmed.";
-    if (!window.confirm(question)) return;
+    setPending(null);
 
     setBusy(decision);
     try {
@@ -133,6 +130,26 @@ function NoShowResolvePanel({ report, onResolved }: { report: AdminReport; onRes
     <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-4 space-y-3">
       <div>
         <p className="text-sm font-semibold">Disputed no-show — booking #{report.referenceId}</p>
+        {pending && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-card w-full max-w-sm rounded-2xl border border-border shadow-2xl p-6 space-y-4">
+              <h3 className="text-lg font-bold font-heading">
+                {pending === "upheld" ? "Uphold this report?" : "Overturn this report?"}
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {pending === "upheld"
+                  ? `Booking #${report.referenceId} will be cancelled and marked as Not Completed. If the client reported it, they can then leave a review.`
+                  : `The no-show report on booking #${report.referenceId} will be dismissed and the booking goes back to Confirmed.`}
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPending(null)}>Back</Button>
+                <Button size="sm" variant={pending === "upheld" ? "destructive" : "default"} onClick={() => decide(pending)}>
+                  {pending === "upheld" ? "Yes, uphold" : "Yes, overturn"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground mt-0.5">
           Uphold keeps the booking as Not Completed. Overturn restores it to Confirmed. Refunds are still recorded separately from the Payments page.
         </p>
@@ -146,10 +163,10 @@ function NoShowResolvePanel({ report, onResolved }: { report: AdminReport; onRes
         className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
       />
       <div className="flex gap-2 justify-end">
-        <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => decide("overturned")}>
+        <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setPending("overturned")}>
           {busy === "overturned" ? "Overturning…" : "Overturn report"}
         </Button>
-        <Button size="sm" variant="destructive" disabled={busy !== null} onClick={() => decide("upheld")}>
+        <Button size="sm" variant="destructive" disabled={busy !== null} onClick={() => setPending("upheld")}>
           {busy === "upheld" ? "Upholding…" : "Uphold report"}
         </Button>
       </div>

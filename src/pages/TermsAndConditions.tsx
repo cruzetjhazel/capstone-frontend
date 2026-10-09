@@ -8,20 +8,32 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { useRole, getPostLoginPath } from "@/contexts/RoleContext";
 
 export default function TermsAndConditions() {
+const { user, isLoading } = useRole();
+  const [searchParams] = useSearchParams();
+
+  // Only in-app paths ("/something") are accepted — never "//evil.com" or full URLs.
+  const rawReturn = searchParams.get("returnTo");
+  const returnTo = rawReturn && rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : null;
+
+  const signedOut = !isLoading && !user;
+  const homePath = user ? getPostLoginPath(user) : "/";
+  const backTo = returnTo ?? (signedOut ? "/register" : homePath);
+  const backLabel = returnTo?.endsWith("/pay") ? "Back to payment" : signedOut ? "Back to sign up" : "Back";
   return (
     <div className="min-h-screen bg-background">
       {/* Top Bar */}
       <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
         <div className="max-w-5xl mx-auto px-5 sm:px-6 py-4">
           <Link
-            to="/register"
+            to={backTo}
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to sign up
+            {backLabel}
           </Link>
         </div>
       </header>
@@ -410,11 +422,11 @@ export default function TermsAndConditions() {
           </div>
 
           <Link
-            to="/register"
+            to={backTo}
             className="inline-flex items-center gap-2 mt-5 text-sm font-medium text-primary hover:underline"
           >
             <ArrowLeft className="w-4 h-4" />
-            Return to sign up
+            {signedOut ? "Return to sign up" : backLabel}
           </Link>
         </div>
       </main>

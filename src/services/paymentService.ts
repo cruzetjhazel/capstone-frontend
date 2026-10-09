@@ -27,7 +27,9 @@ export interface PhotographerPayment {
   notes: string | null;
   matchingStatus: PaymentMatchingStatus;
   verifiedAt: string | null;
+  verifiedByName: string | null;
   verificationNotes: string | null;
+  createdAt: string;
 }
 
 type RawPayment = {
@@ -46,7 +48,9 @@ type RawPayment = {
   notes: string | null;
   matching_status: PaymentMatchingStatus;
   verified_at: string | null;
+  verified_by_name: string | null;
   verification_notes: string | null;
+  created_at: string;
 };
 
 function toPayment(raw: RawPayment): PhotographerPayment {
@@ -68,7 +72,9 @@ function toPayment(raw: RawPayment): PhotographerPayment {
     notes: raw.notes,
     matchingStatus: raw.matching_status,
     verifiedAt: raw.verified_at,
+    verifiedByName: raw.verified_by_name,
     verificationNotes: raw.verification_notes,
+    createdAt: raw.created_at,
   };
 }
 

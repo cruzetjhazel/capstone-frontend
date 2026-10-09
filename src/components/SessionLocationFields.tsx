@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
+import { allowedLocationTypes, provinceAllowed, cityAllowed, coverageNote, type CoverageArea } from "@/data/coverage";
 
 export const SESSION_LOCATION_TYPES = ["Studio", "Client Location", "Outdoor Location", "Outside Bicol", "Other"];
 const needsPsgc = (t: string) => t === "Client Location" || t === "Outdoor Location" || t === "Other";
@@ -47,10 +48,11 @@ export function sessionLocationPayload(l: SessionLocation) {
 const selectCls = "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm";
 
 export function SessionLocationFields({
-  value, onChange,
+  value, onChange, coverageArea,
 }: {
   value: SessionLocation;
   onChange: (v: SessionLocation) => void;
+  coverageArea?: CoverageArea;
 }) {
   const [provinces, setProvinces] = useState<Province[]>([]);
   const [cities, setCities] = useState<CityMunicipality[]>([]);
@@ -69,6 +71,26 @@ export function SessionLocationFields({
     if (value.cityMunicipalityId == null) { setBarangays([]); return; }
     locationService.getBarangays(value.cityMunicipalityId).then(setBarangays).catch(() => setBarangays([]));
   }, [value.cityMunicipalityId]);
+
+  // Fill in (and lock) a province / city when the photographer's coverage leaves only one choice.
+  const onlyProvince = provinces.filter((p) => provinceAllowed(coverageArea, p.name));
+  const onlyCity = cities.filter((c) => cityAllowed(coverageArea, c.name));
+  const lockedProvinceId = onlyProvince.length === 1 ? onlyProvince[0].id : null;
+  const lockedCityId = onlyCity.length === 1 ? onlyCity[0].id : null;
+
+  useEffect(() => {
+    if (needsPsgc(value.locationType) && lockedProvinceId != null && value.provinceId == null) {
+      onChange({ ...value, provinceId: lockedProvinceId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.locationType, lockedProvinceId, value.provinceId]);
+
+  useEffect(() => {
+    if (needsPsgc(value.locationType) && lockedCityId != null && value.cityMunicipalityId == null) {
+      onChange({ ...value, cityMunicipalityId: lockedCityId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.locationType, lockedCityId, value.cityMunicipalityId]);
 
   // Keep a readable one-line summary in sync for the booking summary panel.
   useEffect(() => {
@@ -92,27 +114,31 @@ export function SessionLocationFields({
         value={value.locationType}
         onChange={(e) => onChange({ ...emptySessionLocation(), locationType: e.target.value, summary: e.target.value })}
       >
-        {SESSION_LOCATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        {allowedLocationTypes(coverageArea, SESSION_LOCATION_TYPES).map((t) => <option key={t} value={t}>{t}</option>)}
       </select>
+      {value.locationType !== "Studio" && coverageNote(coverageArea) && (
+        <p className="text-[11px] text-muted-foreground">{coverageNote(coverageArea)}</p>
+      )}
 
       {needsPsgc(value.locationType) && (
         <>
           <select
             className={selectCls}
             value={value.provinceId ?? ""}
+            disabled={lockedProvinceId != null}
             onChange={(e) => onChange({ ...value, provinceId: e.target.value ? Number(e.target.value) : null, cityMunicipalityId: null, barangayId: null })}
           >
             <option value="">Select province…</option>
-            {provinces.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {provinces.filter((p) => provinceAllowed(coverageArea, p.name)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <select
             className={selectCls}
             value={value.cityMunicipalityId ?? ""}
-            disabled={!value.provinceId}
+            disabled={!value.provinceId || lockedCityId != null}
             onChange={(e) => onChange({ ...value, cityMunicipalityId: e.target.value ? Number(e.target.value) : null, barangayId: null })}
           >
             <option value="">Select city/municipality…</option>
-            {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {cities.filter((c) => cityAllowed(coverageArea, c.name)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <select
             className={selectCls}

@@ -46,16 +46,26 @@ function getCurrentStepIndex(b: any) {
   return -1;
 }
 
-const TERMINAL_STATUSES = ["completed", "cancelled", "expired"];
+const TERMINAL_STATUSES = ["completed", "cancelled", "expired", "no_show"];
 
-const getStatusBadge = (status: string, date?: string, nonCompletionReason?: string | null) => {
+const getStatusBadge = (status: string, date?: string, nonCompletionReason?: string | null, isDeclined?: boolean, nonCompletionState?: string | null) => {
+  if (status === "cancelled" && isDeclined) {
+    return { label: "Declined", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
+  }
+    if (nonCompletionReason && (nonCompletionState === "open" || nonCompletionState === "awaiting_admin" || nonCompletionState === "disputed")) {
+    return {
+      label: nonCompletionState === "disputed" ? "No-Show Disputed — Admin Review" : "No-Show Reported — Admin Review",
+      className: "bg-amber-500/10 text-amber-600",
+      icon: Clock3,
+    };
+  }
   if (status === "confirmed" && date && isToday(date)) {
     return { label: "In Progress", className: "bg-blue-500/10 text-blue-600", icon: Clock3 };
   }
-  if (status === "cancelled" && nonCompletionReason === "photographer_no_show") {
-    return { label: "Not Completed — Photographer No-Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
+  if ((status === "no_show" || status === "cancelled") && nonCompletionReason === "photographer_no_show") {
+    return { label: "Not Completed — No Photographer Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
   }
-  if (status === "cancelled" && nonCompletionReason === "client_no_show") {
+  if ((status === "no_show" || status === "cancelled") && nonCompletionReason === "client_no_show") {
     return { label: "Not Completed — Client No-Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
   }
   switch (status) {
@@ -63,6 +73,7 @@ const getStatusBadge = (status: string, date?: string, nonCompletionReason?: str
     case "confirmed": return { label: "Confirmed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
     case "completed": return { label: "Completed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
     case "cancelled": return { label: "Cancelled", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
+    case "no_show": return { label: "No Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
     case "expired": return { label: "Expired", className: "bg-slate-500/10 text-slate-500", icon: Clock3 };
     default: return { label: status, className: "bg-muted text-muted-foreground", icon: Clock3 };
   }
@@ -124,7 +135,7 @@ function PaymentSummary({ booking }: { booking: any }) {
 
 function ClientPaymentAction({ booking, prominent = false }: { booking: any; prominent?: boolean }) {
   const { remaining } = getPaymentSummary(booking);
-  const canPay = booking.status === "confirmed" && remaining > 0 && booking.paymentStatus !== "pending_verification";
+  const canPay = booking.status === "confirmed" && remaining > 0 && booking.paymentStatus === "pending";
   if (!canPay) return null;
   return (
     <Link to={`/booking/${booking.id}/pay`}>
@@ -164,8 +175,8 @@ function BookingThumb({
   );
 }
 
-function StatusPill({ status, date, nonCompletionReason }: { status: string; date?: string; nonCompletionReason?: string | null }) {
-  const badge = getStatusBadge(status, date, nonCompletionReason);
+function StatusPill({ status, date, nonCompletionReason, isDeclined, nonCompletionState }: { status: string; date?: string; nonCompletionReason?: string | null; isDeclined?: boolean; nonCompletionState?: string | null }) {
+  const badge = getStatusBadge(status, date, nonCompletionReason, isDeclined, nonCompletionState);
   const Icon = badge.icon;
   return (
     <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full shrink-0", badge.className)}>
@@ -246,7 +257,7 @@ function CurrentBookingCard({ booking, photographer }: { booking: any; photograp
         </div>
 
         <div className="flex sm:flex-col items-start sm:items-end gap-3 shrink-0">
-          <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} />
+          <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} isDeclined={booking.isDeclined} nonCompletionState={booking.nonCompletionState} />
           <ClientPaymentAction booking={booking} prominent />
           <Link to={`/booking/${booking.id}/details`}>
             <Button variant="outline" size="sm" className="gap-1.5 rounded-xl">
@@ -294,10 +305,10 @@ function HistoryBookingRow({
       </div>
 
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} />
+        <StatusPill status={booking.status} date={booking.date} nonCompletionReason={booking.nonCompletionReason} isDeclined={booking.isDeclined} nonCompletionState={booking.nonCompletionState} />
         <PaymentSummary booking={booking} />
         <ClientPaymentAction booking={booking} />
-        {booking.status === "completed" && !reviewed && (
+        {booking.isReviewable && !reviewed && !(booking.nonCompletionReason === "photographer_no_show" && booking.nonCompletionState !== "upheld") && (
           <Button size="sm" className="gap-1.5 text-xs h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-white" onClick={onReview}>
             <Star className="w-3.5 h-3.5" /> Review & Rate
           </Button>
@@ -312,23 +323,25 @@ function HistoryBookingRow({
   );
 }
 
-type HistoryFilter = "all" | "completed" | "not_completed" | "cancelled" | "expired";
+type HistoryFilter = "all" | "completed" | "not_completed" | "cancelled" | "declined" | "expired";
 
 const FILTERS: { key: HistoryFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "completed", label: "Completed" },
   { key: "not_completed", label: "Not completed" },
   { key: "cancelled", label: "Cancelled" },
+  { key: "declined", label: "Declined" },
   { key: "expired", label: "Expired" },
 ];
 
 function matchesFilter(b: any, filter: HistoryFilter) {
   // A "not completed" service (e.g. a no-show) is stored as cancelled + a reason.
-  const notCompleted = b.status === "cancelled" && !!b.nonCompletionReason;
+  const notCompleted = b.status === "no_show" || (b.status === "cancelled" && !!b.nonCompletionReason);
   if (filter === "all") return true;
   if (filter === "completed") return b.status === "completed";
   if (filter === "not_completed") return notCompleted;
-  if (filter === "cancelled") return b.status === "cancelled" && !notCompleted;
+  if (filter === "cancelled") return b.status === "cancelled" && !notCompleted && !b.isDeclined;
+  if (filter === "declined") return b.status === "cancelled" && !!b.isDeclined;
   if (filter === "expired") return b.status === "expired";
   return true;
 }

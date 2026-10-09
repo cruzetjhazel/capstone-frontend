@@ -24,10 +24,11 @@ const SERVICE_OPTIONS = [
 ];
 
 const AREA_PRESETS = [
-  "Bulan only",
-  "Bulan and nearby municipalities",
+  "Bulan Only",
+  "Bulan and Nearby Municipalities",
   "Anywhere in Sorsogon",
-  "Travel outside Sorsogon",
+  "Travel Outside Sorsogon",
+  "Travel Outside Bicol",
 ];
 
 const SHOOTING_TYPES = ["Indoor", "Outdoor", "Event Coverage", "Drone / Aerial", "Hybrid (Indoor + Outdoor)"];
@@ -37,6 +38,17 @@ const PHOTOGRAPHY_STYLES = [
   "Cinematic", "Moody", "Bright & Airy", "Classic/Traditional", 
   "Vintage/Retro", "Fine Art", "Documentary/Editorial", "Vibrant"
 ];
+
+const MAX_STYLES = 6;
+const CLIENT_DRAFT_KEY = "bulan_client_registration_draft";
+
+type ClientDraft = {
+  savedAt: string;
+  name?: string; email?: string; phone?: string; birthday?: string; gender?: string;
+  clientAddress?: string; region?: string;
+  provinceId?: number | null; cityMunicipalityId?: number | null; barangayId?: number | null;
+  manualProvince?: string; manualCity?: string; manualBarangay?: string;
+};
 
 const API_BASE = "http://127.0.0.1:8000/api";
 
@@ -62,15 +74,15 @@ const REGIONS = [
   "BARMM (Bangsamoro)",
 ];
 
-const GMAIL_REGEX = /^[a-z0-9._%+-]+@gmail\.com$/i;
-const isGmailAddress = (value: string) => GMAIL_REGEX.test(value.trim());
+
 
 // Frontend labels → backend enum values
 const AREA_COVERAGE_MAP: Record<string, string> = {
-  "Bulan only": "bulan_only",
-  "Bulan and nearby municipalities": "bulan_nearby",
+  "Bulan Only": "bulan_only",
+  "Bulan and Nearby Municipalities": "bulan_nearby",
   "Anywhere in Sorsogon": "anywhere_sorsogon",
-  "Travel outside Sorsogon": "travel_outside_sorsogon",
+  "Travel Outside Sorsogon": "travel_outside_sorsogon",
+  "Travel Outside Bicol": "travel_outside_bicol",
 };
 
 const SHOOTING_TYPE_MAP: Record<string, string> = {
@@ -184,6 +196,11 @@ export default function Register() {
   const [existingPortfolioCount, setExistingPortfolioCount] = useState(0);
   const [isResumingApplication, setIsResumingApplication] = useState(false);
   const [hasExistingProfile, setHasExistingProfile] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [draftPrompt, setDraftPrompt] = useState<ClientDraft | null>(null);
+  const [pendingGeo, setPendingGeo] = useState<{ provinceId: number | null; cityId: number | null; barangayId: number | null } | null>(null);
+  const [pendingBarangayName, setPendingBarangayName] = useState("");
 
   const { setUserFromRegistration, refreshApplication } = useRole();
   const navigate = useNavigate();
@@ -245,7 +262,15 @@ export default function Register() {
         setIsResumingApplication(true);
         setAccountType(application.photographer_type === "studio" ? "studio" : "freelancer");
         setBusinessName(application.business_name ?? "");
-        setAddress(application.location ?? "");
+        const rawLocation: string = application.location ?? "";
+        const locParts = rawLocation.split(",").map((p) => p.trim()).filter(Boolean);
+        const n = locParts.length;
+        if (n >= 3 && /^sorsogon$/i.test(locParts[n - 1]) && /^bulan$/i.test(locParts[n - 2])) {
+          setPendingBarangayName(locParts[n - 3]);
+          setAddress(locParts.slice(0, n - 3).join(", "));
+        } else {
+          setAddress(rawLocation);
+        }
         if (application.photographer_type === "studio") {
           setYearsOperating(application.years_active != null ? String(application.years_active) : "");
           setTeamSize(application.team_size != null ? String(application.team_size) : "");
@@ -311,7 +336,7 @@ export default function Register() {
           // no profile yet — Step 7 stays blank, handled by create (POST) as before
         }
 
-        handleStepChange(1);
+        handleStepChange(2);
       } catch (err) {
         setResumeError(err instanceof Error ? err.message : "Could not load your existing application.");
       } finally {
@@ -327,14 +352,14 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken" | "error">("idle");
+  const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
 
   useEffect(() => {
     // Resuming an application: the email belongs to the logged-in account, skip the check
     if (isResuming || isResumingApplication) return;
 
     const value = email.trim();
-    if (!isGmailAddress(value)) {
+    if (!isValidEmail(value)) {
       setEmailStatus("idle");
       return;
     }
@@ -354,7 +379,9 @@ export default function Register() {
           setEmailStatus("error");
           return;
         }
-        setEmailStatus(data.available ? "available" : "taken");
+        setEmailStatus(
+          data.available ? "available" : data.reason === "invalid_format" ? "invalid" : "taken"
+        );
       } catch (err) {
         if ((err as Error).name !== "AbortError") setEmailStatus("error");
       }
@@ -509,6 +536,105 @@ export default function Register() {
   const [instagram, setInstagram] = useState("");
   const [website, setWebsite] = useState("");
 
+    // --- Client draft: detect on load ---
+  useEffect(() => {
+    const wantsResume =
+      searchParams.get("continue") === "true" ||
+      searchParams.get("edit") === "true" ||
+      searchParams.get("retry") === "true";
+    if (wantsResume) return;
+    try {
+      const raw = localStorage.getItem(CLIENT_DRAFT_KEY);
+      if (raw) setDraftPrompt(JSON.parse(raw));
+    } catch {
+      localStorage.removeItem(CLIENT_DRAFT_KEY);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- Client draft: autosave (password is never saved) ---
+  useEffect(() => {
+    if (accountType !== "client" || step < 2 || clientCreated) return;
+    const hasData = name.trim() || email.trim() || phone.trim() || birthday || gender || clientAddress.trim() || region;
+    if (!hasData) return;
+    try {
+      localStorage.setItem(CLIENT_DRAFT_KEY, JSON.stringify({
+        savedAt: new Date().toISOString(),
+        name, email, phone, birthday, gender, clientAddress, region,
+        provinceId, cityMunicipalityId, barangayId,
+        manualProvince, manualCity, manualBarangay,
+      }));
+    } catch { /* storage unavailable */ }
+  }, [accountType, step, clientCreated, name, email, phone, birthday, gender, clientAddress, region,
+      provinceId, cityMunicipalityId, barangayId, manualProvince, manualCity, manualBarangay]);
+
+  // --- Restoring a draft's province -> city -> barangay one level at a time ---
+  useEffect(() => {
+    if (!pendingGeo) return;
+    if (pendingGeo.provinceId && provinceId !== pendingGeo.provinceId) {
+      if (provinces.some((p) => p.id === pendingGeo.provinceId)) setProvinceId(pendingGeo.provinceId);
+      return;
+    }
+    if (pendingGeo.cityId && cityMunicipalityId !== pendingGeo.cityId) {
+      if (citiesMunicipalities.some((c) => c.id === pendingGeo.cityId)) setCityMunicipalityId(pendingGeo.cityId);
+      return;
+    }
+    if (pendingGeo.barangayId && barangayId !== pendingGeo.barangayId) {
+      if (barangays.some((b) => b.id === pendingGeo.barangayId)) setBarangayId(pendingGeo.barangayId);
+      return;
+    }
+    setPendingGeo(null);
+  }, [pendingGeo, provinces, citiesMunicipalities, barangays, provinceId, cityMunicipalityId, barangayId]);
+
+  // --- Photographers: default to Sorsogon > Bulan ---
+  const isProAccount = accountType === "freelancer" || accountType === "studio";
+  useEffect(() => {
+    if (!isProAccount || provinceId != null) return;
+    const sorsogon = provinces.find((p) => /sorsogon/i.test(p.name));
+    if (sorsogon) setProvinceId(sorsogon.id);
+  }, [isProAccount, provinces, provinceId]);
+  useEffect(() => {
+    if (!isProAccount || cityMunicipalityId != null) return;
+    const bulan = citiesMunicipalities.find((c) => /^bulan\b/i.test(c.name.trim()));
+    if (bulan) setCityMunicipalityId(bulan.id);
+  }, [isProAccount, citiesMunicipalities, cityMunicipalityId]);
+
+  // Re-select a saved barangay when resuming an application
+  useEffect(() => {
+    if (!pendingBarangayName || barangays.length === 0) return;
+    const match = barangays.find((b) => b.name.trim().toLowerCase() === pendingBarangayName.toLowerCase());
+    if (match) setBarangayId(match.id);
+    setPendingBarangayName("");
+  }, [barangays, pendingBarangayName]);
+
+  const restoreClientDraft = () => {
+    const d = draftPrompt;
+    if (!d) return;
+    setAccountType("client");
+    setName(d.name ?? "");
+    setEmail(d.email ?? "");
+    setPhone(d.phone ?? "");
+    setBirthday(d.birthday ?? "");
+    setGender(d.gender ?? "");
+    setClientAddress(d.clientAddress ?? "");
+    setRegion(d.region ?? "");
+    setManualProvince(d.manualProvince ?? "");
+    setManualCity(d.manualCity ?? "");
+    setManualBarangay(d.manualBarangay ?? "");
+    if (d.region === BICOL_REGION && d.provinceId) {
+      setPendingGeo({ provinceId: d.provinceId, cityId: d.cityMunicipalityId ?? null, barangayId: d.barangayId ?? null });
+      setTimeout(() => setPendingGeo(null), 5000);
+    }
+    setDraftPrompt(null);
+    handleStepChange(2);
+    toast("Draft restored. Please re-enter your password to continue.");
+  };
+
+  const discardClientDraft = () => {
+    try { localStorage.removeItem(CLIENT_DRAFT_KEY); } catch { /* ignore */ }
+    setDraftPrompt(null);
+  };
+
   const totalSteps = accountType ? STEP_TITLES[accountType].length : 3;
 
   const handleStep3Submit = async (e: React.FormEvent) => {
@@ -521,7 +647,12 @@ export default function Register() {
     try {
       const payload: Record<string, unknown> = {
         business_name: businessName.trim(),
-        location: address.trim(),
+                location: [
+          address.trim(),
+          barangays.find((b) => b.id === barangayId)?.name,
+          citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
+          provinces.find((p) => p.id === provinceId)?.name,
+        ].filter(Boolean).join(", "),
       };
       if (accountType === "studio") {
         payload.years_active = Number(yearsOperating);
@@ -597,17 +728,24 @@ export default function Register() {
   };
 
   const toggleStyle = (style: string) => {
-    setPhotographyStyles((prev) => 
+    if (!photographyStyles.includes(style) && photographyStyles.length >= MAX_STYLES) {
+      toast.error(`You can select up to ${MAX_STYLES} style tags.`);
+      return;
+    }
+    setPhotographyStyles((prev) =>
       prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
     );
   };
 
   const handleAddCustomStyle = () => {
     const trimmed = customStyleInput.trim();
-    if (trimmed && !photographyStyles.includes(trimmed)) {
-      setPhotographyStyles((prev) => [...prev, trimmed]);
-      setCustomStyleInput("");
+    if (!trimmed || photographyStyles.some((s) => s.toLowerCase() === trimmed.toLowerCase())) return;
+    if (photographyStyles.length >= MAX_STYLES) {
+      toast.error(`You can select up to ${MAX_STYLES} style tags.`);
+      return;
     }
+    setPhotographyStyles((prev) => [...prev, trimmed]);
+    setCustomStyleInput("");
   };
 
   const handleAdditionalProofChange = (files: File[]) => {
@@ -673,7 +811,7 @@ export default function Register() {
   const canStep2 =
     !!name.trim() &&
     isValidEmail(email) &&
-    (isResumingApplication || (isGmailAddress(email) && emailStatus === "available")) &&
+    (isResumingApplication || emailStatus === "available") &&
     isValidPhilippinePhone(normalizePhilippinePhone(phone)) &&
     (isResumingApplication || (isStrongPassword(password) && password === confirmPassword)) &&
     (isResumingApplication || termsAccepted);
@@ -686,8 +824,8 @@ export default function Register() {
 
   const canProStep3 =
     accountType === "studio"
-      ? !!(businessName.trim() && address.trim() && yearsOperating && teamSize)
-      : !!(businessName.trim() && address.trim() && yearsExp);
+            ? !!(businessName.trim() && barangayId && yearsOperating && teamSize)
+            : !!(businessName.trim() && barangayId && yearsExp);
 
   const canStep4 =
     services.length > 0 &&
@@ -711,8 +849,9 @@ export default function Register() {
   const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && (facebook.trim() || instagram.trim() || website.trim());
 
   /* ---------- Submit Handlers ---------- */
-  const handleFinalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleFinalSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setShowSubmitConfirm(false);
     if (!canStep7Profile || isLoading) return;
 
     setIsLoading(true);
@@ -811,6 +950,7 @@ export default function Register() {
     // so a bug here won't be mislabeled as a connection error
     setIsLoading(false);
     await setUserFromRegistration(data.data.user, data.data.token);
+    try { localStorage.removeItem(CLIENT_DRAFT_KEY); } catch { /* ignore */ }
     setClientCreated(true);
   };
 
@@ -906,7 +1046,81 @@ export default function Register() {
 
   return (
     <div className="min-h-screen flex bg-white relative text-foreground">
-      <BackLink onDark />
+      <BackLink
+        onDark
+        onClick={(e) => {
+          if (accountType === "client" && step > 1) {
+            e.preventDefault();
+            setShowExitConfirm(true);
+          }
+        }}
+      />
+
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-base text-foreground">Leave registration?</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your progress is saved as a draft (your password is not saved). You can continue it next time.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowExitConfirm(false)}>Stay</Button>
+              <Button className="flex-1" onClick={() => navigate("/")}>Leave</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {draftPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mx-auto">
+              <FileText className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-base text-foreground">Continue your earlier registration?</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                We found a saved draft{draftPrompt.name ? ` for ${draftPrompt.name}` : ""}
+                {draftPrompt.savedAt ? `, last saved ${new Date(draftPrompt.savedAt).toLocaleString()}` : ""}.
+                Continue it, or start a new one?
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={discardClientDraft}>Start new</Button>
+              <Button className="flex-1" onClick={restoreClientDraft}>Continue draft</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mx-auto">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-base text-foreground">Submit your application?</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                It will be sent for admin review. Please make sure your details, documents and portfolio are correct.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowSubmitConfirm(false)} disabled={isLoading}>
+                Review again
+              </Button>
+              <Button className="flex-1" onClick={() => handleFinalSubmit()} disabled={isLoading}>
+                {isLoading ? "Submitting…" : "Yes, submit"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!isProfileBuilderStep && (
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
@@ -1017,10 +1231,10 @@ export default function Register() {
                       <ValidationHint text="Valid email address" valid />
                     ) : !isValidEmail(email) ? (
                       <p className="text-xs text-destructive">Enter a valid email address.</p>
-                    ) : !isGmailAddress(email) ? (
-                      <p className="text-xs text-destructive">Only @gmail.com addresses are accepted.</p>
                     ) : emailStatus === "checking" ? (
                       <ValidationHint text="Checking availability..." valid={false} />
+                    ) : emailStatus === "invalid" ? (
+                      <p className="text-xs text-destructive">Enter a valid email address.</p>
                     ) : emailStatus === "taken" ? (
                       <p className="text-xs text-destructive">This email is already registered.</p>
                     ) : emailStatus === "error" ? (
@@ -1258,10 +1472,31 @@ export default function Register() {
                     placeholder={accountType === "studio" ? "e.g. Rivera Studio" : "e.g. Juan dela Cruz Photography"} maxLength={120} />
                 </Field>
 
-                <Field label={accountType === "studio" ? "Studio address" : "Based in"} required>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Province" required>
+                    <Input value={provinces.find((p) => p.id === provinceId)?.name ?? "Sorsogon"} readOnly disabled />
+                  </Field>
+                  <Field label="City / Municipality" required>
+                    <Input value={citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name ?? "Bulan"} readOnly disabled />
+                  </Field>
+                </div>
+
+                <Field label="Barangay" required>
+                  <select
+                    value={barangayId ?? ""}
+                    disabled={!cityMunicipalityId}
+                    onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+                  >
+                    <option value="">Select barangay…</option>
+                    {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </Field>
+
+                <Field label={accountType === "studio" ? "Street / building (optional)" : "Street / purok (optional)"}>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Zone 8, Bulan, Sorsogon" className="pl-9" maxLength={200} />
+                    <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. Purok 3, Rizal St." className="pl-9" maxLength={150} />
                   </div>
                 </Field>
 
@@ -1616,7 +1851,7 @@ export default function Register() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <form className="lg:col-span-6 space-y-5" onSubmit={handleFinalSubmit}>
+                <form className="lg:col-span-6 space-y-5" onSubmit={(e) => { e.preventDefault(); if (canStep7Profile && !isLoading) setShowSubmitConfirm(true); }}>
                   
                   <Field label="Brand bio/description" required hint="Tell clients who you are. Min 20 characters">
                     <Textarea 
@@ -1628,7 +1863,7 @@ export default function Register() {
                     />
                   </Field>
 
-                  <Field label="Your Photography Style" required hint="Select tags below or create custom ones that match your brand identity">
+                  <Field label="Your Photography Style" required hint={`Select up to ${MAX_STYLES} tags or create custom ones (${photographyStyles.length}/${MAX_STYLES} selected)`}>
                     <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-border bg-card mb-2">
                       {PHOTOGRAPHY_STYLES.map((style) => {
                         const active = photographyStyles.includes(style);
@@ -1864,10 +2099,11 @@ export default function Register() {
 /* ============================================================
    Small building blocks
 ============================================================ */
-function BackLink({ onDark = false }: { onDark?: boolean }) {
+function BackLink({ onDark = false, onClick }: { onDark?: boolean; onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void }) {
   return (
     <Link
       to="/"
+      onClick={onClick}
       className={`absolute top-5 left-5 z-20 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full border border-transparent text-foreground/80 transition-colors hover:bg-card hover:border-border hover:text-foreground hover:shadow-sm hover:backdrop-blur ${
         onDark ? "lg:text-white/80" : ""
       }`}

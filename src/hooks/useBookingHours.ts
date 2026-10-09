@@ -41,3 +41,11 @@ export function useUpdateSlotInterval() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["bookingHours"] }),
   });
 }
+
+export function useSlotInterval() {
+  return useQuery({
+    queryKey: ["bookingHours", "interval"], // starts with "bookingHours", so saving the interval refreshes it automatically
+    queryFn: () => bookingHourService.getInterval(),
+    staleTime: 60_000,
+  });
+}

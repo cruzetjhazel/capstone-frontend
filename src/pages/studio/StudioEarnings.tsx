@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { PaymentTrail } from "@/components/PaymentTrail";
 import { paymentService, type PhotographerPayment } from "@/services/paymentService";
 import { photographerBookingService, type StudioBookingRecord } from "@/services/photographerBookingService";
 import { paymentReferenceService, type PaymentReference } from "@/services/paymentReferenceService";
@@ -33,7 +34,7 @@ function getPlanLabel(p: PhotographerPayment): string {
 function StatusPill({ status }: { status: DisplayStatus }) {
   const map: Record<DisplayStatus, { label: string; className: string }> = {
     confirmed: { label: "Confirmed", className: "bg-success/10 text-success border-success/20" },
-    needs_review: { label: "Needs Review", className: "bg-warning/10 text-warning border-warning/20" },
+    needs_review: { label: "Awaiting Your Confirmation", className: "bg-warning/10 text-warning border-warning/20" },
     rejected: { label: "Rejected", className: "bg-destructive/10 text-destructive border-destructive/20" },
     processing: { label: "Processing", className: "bg-muted text-muted-foreground border-border" },
   };
@@ -401,7 +402,7 @@ export default function StudioEarnings() {
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="needs_review">Needs Review</SelectItem>
+                    <SelectItem value="needs_review">Awaiting Your Confirmation</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
@@ -562,6 +563,8 @@ export default function StudioEarnings() {
                   </div>
                 </div>
 
+                {selectedPayment.type !== "onsite" && <PaymentTrail payment={selectedPayment} />}
+
                 {isLoadingBooking && (
                   <div className="flex items-center justify-center py-8 text-muted-foreground gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" /> Loading booking details…
@@ -606,10 +609,10 @@ export default function StudioEarnings() {
                   <div className="space-y-3">
                     <h3 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider text-muted-foreground border-b border-border/50 pb-2">
                       <ShieldCheck className="w-4 h-4 text-primary" />
-                      Manual Review Required
+                      Confirm This Payment
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      This GCash reference couldn't be automatically matched. Confirm you received the payment, or reject it so the client can resubmit.
+                      Check your GCash transaction history for this reference number and amount. Verify it if you received the payment, or reject it so the client can resubmit.
                     </p>
                     <Textarea
                       placeholder="Notes (required to reject, optional to verify)…"

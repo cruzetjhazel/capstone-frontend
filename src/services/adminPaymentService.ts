@@ -49,7 +49,7 @@ export interface AdminPayment {
   paymentDate: string; // Y-m-d
   notes: string | null;
   matchingStatus: PaymentMatchingStatus;
-  verifiedBy: number | null;
+  verifiedByName: string | null;
   verifiedAt: string | null;
   verificationAction: string | null;
   verificationNotes: string | null;
@@ -75,7 +75,7 @@ interface RawPayment {
   payment_date: string;
   notes: string | null;
   matching_status: string;
-  verified_by: number | null;
+  verified_by_name: string | null;
   verified_at: string | null;
   verification_action: string | null;
   verification_notes: string | null;
@@ -106,7 +106,7 @@ function mapPayment(raw: RawPayment): AdminPayment {
     paymentDate: raw.payment_date,
     notes: raw.notes,
     matchingStatus: raw.matching_status as PaymentMatchingStatus,
-    verifiedBy: raw.verified_by,
+    verifiedByName: raw.verified_by_name,
     verifiedAt: raw.verified_at,
     verificationAction: raw.verification_action,
     verificationNotes: raw.verification_notes,

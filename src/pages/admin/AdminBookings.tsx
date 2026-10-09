@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 
 // --- Types Aligned with System Requirements ---
-type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Rejected" | "Cancelled" | "Completed" | "Expired";
+type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Declined" | "Cancelled" | "Completed" | "Expired" | "Not Completed" | "No Show";
 type PaymentStatus = "Pending" | "Pending Verification" | "Partially Paid" | "Fully Paid" | "Failed" | "Cancelled";
 type TrackingStatus = "Upcoming" | "In Progress" | "Completed" | "Pending";
 type PaymentPlan = "Half Payment" | "Full Payment";
@@ -56,6 +56,11 @@ interface BookingRecord {
   paymentDate?: string | null;
   clientNotes: string | null;
   cancellationReason?: string | null;
+    noShow?: {
+    reason: string; state: string | null; reportedBy: "client" | "photographer";
+    reportedAt: string | null; statement: string | null; deadline: string | null;
+    disputedAt: string | null; disputeReason: string | null; adminNotes: string | null; canDecide: boolean;
+  } | null;
   serviceTracking: ServiceTrackingStep[];
 }
 
@@ -90,6 +95,7 @@ function fromApi(raw: any): BookingRecord {
     paymentDate: raw.paymentDate,
     clientNotes: raw.clientNotes,
     cancellationReason: raw.cancellationReason,
+        noShow: raw.noShow ?? null,
     serviceTracking: raw.serviceTracking ?? [],
   };
 }
@@ -118,10 +124,12 @@ const bookingStatusConfig: Record<string, string> = {
   "Pending": "bg-amber-500/10 text-amber-600",
   "Accepted": "bg-blue-500/10 text-blue-600",
   "Confirmed": "bg-emerald-500/10 text-emerald-600",
-  "Rejected": "bg-orange-500/10 text-orange-600",
+  "Declined": "bg-orange-500/10 text-orange-600",
   "Completed": "bg-primary/10 text-primary",
   "Cancelled": "bg-destructive/10 text-destructive",
   "Expired": "bg-muted text-muted-foreground",
+  "Not Completed": "bg-destructive/10 text-destructive",
+  "No Show": "bg-destructive/10 text-destructive",
 };
 
 const paymentStatusConfig: Record<string, string> = {
@@ -158,6 +166,8 @@ export default function AdminBookings() {
   const [viewPayment, setViewPayment] = useState<BookingRecord | null>(null);
   const [cancelModal, setCancelModal] = useState<BookingRecord | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [noShowNotes, setNoShowNotes] = useState("");
+  const [isResolving, setIsResolving] = useState(false);
 
   // Studio filter options — reuse the existing user-management endpoint.
   useEffect(() => {
@@ -175,7 +185,7 @@ export default function AdminBookings() {
 
     const statusMap: Record<string, string> = {
       Pending: "pending", Accepted: "accepted", Confirmed: "confirmed",
-      Rejected: "rejected", Cancelled: "cancelled", Completed: "completed",
+            Declined: "declined", Cancelled: "cancelled", Completed: "completed", "No-Show Review": "no_show_review", "Not Completed": "not_completed", "No Show": "no_show",
     };
     const paymentMap: Record<string, string> = {
       Pending: "pending", "Pending Verification": "pending_verification",
@@ -247,6 +257,21 @@ export default function AdminBookings() {
       setIsCancelling(false);
     }
   };
+    const resolveNoShow = async (decision: "upheld" | "overturned") => {
+    if (!viewBooking) return;
+    setIsResolving(true);
+    try {
+      await api.post(`/admin/bookings/${viewBooking.rawId}/non-completion/resolve`, { decision, notes: noShowNotes.trim() || undefined });
+      toast.success(decision === "upheld" ? "No-show confirmed. The booking is now marked as No Show." : "Report dismissed. The booking continues.");
+      setNoShowNotes("");
+      setViewBooking(null);
+      fetchBookings();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Couldn't save the decision."));
+    } finally {
+      setIsResolving(false);
+    }
+  };
 
   const startItem = totalCount === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
   const endItem = Math.min(currentPage * ITEMS_PER_PAGE, totalCount);
@@ -256,7 +281,7 @@ export default function AdminBookings() {
     { label: "Pending", value: platformStats.pending.toLocaleString(), subtext: "Awaiting studio action", icon: Clock, color: "bg-amber-500/10 text-amber-600" },
     { label: "Confirmed", value: platformStats.confirmed.toLocaleString(), subtext: "Active bookings", icon: CheckCircle2, color: "bg-blue-500/10 text-blue-600" },
     { label: "Completed", value: platformStats.completed.toLocaleString(), subtext: "Finished events", icon: CheckCircle, color: "bg-primary/10 text-primary" },
-    { label: "Cancelled/Rejected", value: platformStats.cancelled_or_rejected.toLocaleString(), subtext: "Not proceeding", icon: XCircle, color: "bg-destructive/10 text-destructive" },
+    { label: "Cancelled / Declined", value: platformStats.cancelled_or_rejected.toLocaleString(), subtext: "Not proceeding", icon: XCircle, color: "bg-destructive/10 text-destructive" },
   ];
 
   return (
@@ -303,9 +328,12 @@ export default function AdminBookings() {
                 <SelectItem value="Pending">Pending</SelectItem>
                 <SelectItem value="Accepted">Accepted</SelectItem>
                 <SelectItem value="Confirmed">Confirmed</SelectItem>
-                <SelectItem value="Rejected">Rejected</SelectItem>
+                <SelectItem value="Declined">Declined</SelectItem>
                 <SelectItem value="Cancelled">Cancelled</SelectItem>
                 <SelectItem value="Completed">Completed</SelectItem>
+                                <SelectItem value="Not Completed">Not Completed</SelectItem>
+                <SelectItem value="No Show">No Show</SelectItem>
+                <SelectItem value="No-Show Review">No-Show Review</SelectItem>
               </SelectContent>
             </Select>
 
@@ -433,7 +461,7 @@ export default function AdminBookings() {
                           <CreditCard className="w-4 h-4" />
                         </button>
 
-                        {(b.status !== "Cancelled" && b.status !== "Completed" && b.status !== "Rejected") && (
+                        {(b.status !== "Cancelled" && b.status !== "Completed" && b.status !== "Declined" && b.status !== "Expired" && b.status !== "Not Completed" && b.status !== "No Show") && (
                           <button
                             onClick={() => setCancelModal(b)}
                             title="Force Cancel (Admin Override)"
@@ -713,6 +741,43 @@ export default function AdminBookings() {
                   </div>
                 </div>
               </div>
+                            {viewBooking.noShow && (
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" /> No-Show Review
+                  </h3>
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3">
+                    <p className="text-sm font-semibold">
+                      {viewBooking.noShow.reportedBy === "client" ? "The client reports the photographer did not show up." : "The photographer reports the client did not show up."}
+                    </p>
+                    {viewBooking.noShow.reportedAt && <p className="text-xs text-muted-foreground">Reported {new Date(viewBooking.noShow.reportedAt).toLocaleString()}</p>}
+                    {viewBooking.noShow.statement && <p className="text-sm bg-background p-3 rounded-lg border border-border">Statement: "{viewBooking.noShow.statement}"</p>}
+                    {viewBooking.noShow.disputeReason ? (
+                      <p className="text-sm bg-background p-3 rounded-lg border border-border">Dispute: "{viewBooking.noShow.disputeReason}"</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {viewBooking.noShow.canDecide ? `No dispute yet. The other party can still send their side${viewBooking.noShow.deadline ? ` until ${new Date(viewBooking.noShow.deadline).toLocaleString()}` : ""}. You can decide now.` : "No dispute was submitted."}
+                      </p>
+                    )}
+                    {viewBooking.noShow.state === "upheld" && <p className="text-xs font-semibold text-red-600">Confirmed as a no-show.</p>}
+                    {viewBooking.noShow.canDecide && (
+                      <div className="space-y-2">
+                        <textarea
+                          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                          rows={2}
+                          placeholder="Admin notes (optional)"
+                          value={noShowNotes}
+                          onChange={(e) => setNoShowNotes(e.target.value)}
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="destructive" disabled={isResolving} onClick={() => resolveNoShow("upheld")}>Confirm no-show</Button>
+                          <Button size="sm" variant="outline" disabled={isResolving} onClick={() => resolveNoShow("overturned")}>Dismiss report</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Additional Requests / Notes */}
               {(viewBooking.clientNotes || viewBooking.cancellationReason) && (

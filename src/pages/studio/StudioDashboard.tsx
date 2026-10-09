@@ -23,7 +23,7 @@ import { photographerProfileService, type ProfileCompleteness } from "@/services
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
-// A "pending" booking's 24h review window (set by CreateBookingAction) may
+// A "pending" booking's 48h review window (set by CreateBookingAction) may
 // have lapsed server-side before ExpireStaleBookingHoldsAction next runs and
 // flips its status to "expired". AcceptBookingAction rejects these with a
 // validation error, so we detect it client-side first and disable the

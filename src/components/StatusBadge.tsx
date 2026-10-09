@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type Status = "pending" | "confirmed" | "completed" | "paid" | "cancelled" | "expired";
+type Status = "pending" | "confirmed" | "completed" | "paid" | "cancelled" | "expired" | "no_show";
 
 const statusStyles: Record<Status, string> = {
   pending: "bg-warning/10 text-warning",
@@ -10,6 +10,7 @@ const statusStyles: Record<Status, string> = {
   paid: "bg-success/10 text-success",
   cancelled: "bg-destructive/10 text-destructive",
   rejected: "bg-destructive/10 text-destructive",
+  no_show: "bg-destructive/10 text-destructive",
   // Expired is a lapsed hold (nobody actively cancelled it), so it gets its
   // own muted/neutral treatment rather than the destructive red used for
   // cancelled/rejected.
@@ -18,8 +19,9 @@ const statusStyles: Record<Status, string> = {
 
 export function StatusBadge({ status, nonCompletionReason }: { status: Status; nonCompletionReason?: string | null }) {
   const label =
+    status === "no_show" ? "No Show" :
     status === "cancelled" && nonCompletionReason === "photographer_no_show" ? "Not Completed — No-Show" :
-    status === "cancelled" && nonCompletionReason === "client_no_show" ? "Not Completed — No-Show" :
+    status === "cancelled" && nonCompletionReason === "client_no_show" ? "Not Completed — Client No-Show" :
     status;
   return (
     <span

@@ -13,6 +13,7 @@ interface RawPackage {
   description: string | null;
   included_items: PackageInclusion[] | null;
   price: number | string;
+  outdoor_price?: number | string | null;
   duration_minutes: number | null;
   buffer_minutes: number | null;
   schedule_mode?: "timed" | "open";
@@ -30,6 +31,8 @@ export interface PackageRecord {
   includedItems: PackageInclusion[];
   price: number;
   // null = no fixed duration ("to be confirmed with the client").
+  // Charged instead of `price` when the booking is not at the studio. null = same price.
+  outdoorPrice: number | null;
   durationMinutes: number | null;
   bufferMinutes: number;
   scheduleMode: "timed" | "open";
@@ -44,6 +47,7 @@ export interface PackageInput {
   included_items?: PackageInclusion[];
   price: number;
   duration_minutes: number | null;
+  outdoor_price?: number | null;
   buffer_minutes?: number;
   schedule_mode?: "timed" | "open";
   allows_multiple_sessions?: boolean;
@@ -57,6 +61,7 @@ function toPackage(raw: RawPackage): PackageRecord {
     description: raw.description ?? "",
     includedItems: raw.included_items ?? [],
     price: Number(raw.price),
+    outdoorPrice: raw.outdoor_price == null ? null : Number(raw.outdoor_price),
     durationMinutes: raw.duration_minutes ?? null,
     bufferMinutes: raw.buffer_minutes ?? 0,
     scheduleMode: raw.schedule_mode === "open" ? "open" : "timed",

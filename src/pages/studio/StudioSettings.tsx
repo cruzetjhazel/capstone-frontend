@@ -28,17 +28,19 @@ const SERVICE_OPTIONS = [
 ];
 
 const AREA_PRESETS = [
-  "Bulan only",
-  "Bulan and nearby municipalities",
+  "Bulan Only",
+  "Bulan and Nearby Municipalities",
   "Anywhere in Sorsogon",
-  "Travel outside Sorsogon",
+  "Travel Outside Sorsogon",
+  "Travel Outside Bicol",
 ];
 
 const AREA_COVERAGE_MAP: Record<string, string> = {
-  "Bulan only": "bulan_only",
-  "Bulan and nearby municipalities": "bulan_nearby",
+  "Bulan Only": "bulan_only",
+  "Bulan and Nearby Municipalities": "bulan_nearby",
   "Anywhere in Sorsogon": "anywhere_sorsogon",
-  "Travel outside Sorsogon": "travel_outside_sorsogon",
+  "Travel Outside Sorsogon": "travel_outside_sorsogon",
+  "Travel Outside Bicol": "travel_outside_bicol",
 };
 
 const SHOOTING_TYPES = ["Indoor", "Outdoor", "Event Coverage", "Drone / Aerial", "Hybrid (Indoor + Outdoor)"];

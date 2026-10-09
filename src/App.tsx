@@ -14,6 +14,7 @@ import { FavoritesProvider } from "@/contexts/FavoritesContext";
 import Home from "./pages/Home";
 import Explore from "./pages/Explore";
 import Login from "./pages/Login";
+import AccountStatus from "./pages/AccountStatus";
 import Register from "./pages/Register";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import ResetPassword from "./pages/ResetPassword";
@@ -69,6 +70,7 @@ import AdminReviewApplication from "./pages/admin/AdminReviewApplication";
 import AdminSystemLogs from "./pages/admin/AdminSystemLogs"; 
 import AdminArchive from "./pages/admin/AdminArchive"; 
 import AdminReports from "./pages/admin/AdminReports";
+import AdminAppeals from "./pages/admin/AdminAppeals";
 
 const queryClient = new QueryClient();
 
@@ -78,7 +80,7 @@ function RouteThemeEnforcer() {
   const { theme, systemTheme } = useTheme();
 
   const isPublicRoute = 
-    ["/", "/explore", "/login", "/register", "/photographers", "/about"].includes(location.pathname) || 
+    ["/", "/explore", "/login", "/register", "/photographers", "/about", "/account-status"].includes(location.pathname) || 
     location.pathname.startsWith("/photographers/");
 
   useEffect(() => {
@@ -140,6 +142,8 @@ const ProtectedRoute = ({
   return children;
 };
 
+
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -155,6 +159,7 @@ const App = () => (
               <Route path="/" element={<Home />} />
               <Route path="/explore" element={<Explore />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/account-status" element={<AccountStatus />} />
               <Route path="/register" element={<Register />} />
               <Route path="/terms" element={<TermsAndConditions />} />
               <Route path="/reset-password" element={<ResetPassword />} />
@@ -214,7 +219,7 @@ const App = () => (
               <Route path="/admin/archive" element={<ProtectedRoute allowedRole="admin"><AdminArchive /></ProtectedRoute>} /> 
               <Route path="/admin/reports" element={<ProtectedRoute allowedRole="admin"><AdminReports /></ProtectedRoute>} /> 
               <Route path="/admin/notifications" element={<ProtectedRoute allowedRole="admin"><Notifications /></ProtectedRoute>} /> 
-              
+              <Route path="/admin/appeals" element={<ProtectedRoute allowedRole="admin"><AdminAppeals /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </FavoritesProvider>

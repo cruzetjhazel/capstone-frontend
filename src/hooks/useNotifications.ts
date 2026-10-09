@@ -1,15 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { notificationService } from "@/services/notificationService";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { notificationService, type AppNotification } from "@/services/notificationService";
 
 const LIST_KEY = ["notifications"] as const;
 const UNREAD_KEY = ["notifications", "unread-count"] as const;
 
-export function useNotifications(email: string | undefined) {
+export function useNotifications(email: string | undefined, limit = 50) {
   return useQuery({
-    queryKey: [...LIST_KEY, email],
-    queryFn: () => notificationService.list(),
+    queryKey: [...LIST_KEY, email, limit],
+    queryFn: () => notificationService.list(limit),
     enabled: !!email,
     staleTime: 15_000,
+    placeholderData: keepPreviousData, // keeps the list on screen while "load older" fetches
   });
 }
 
@@ -32,7 +33,24 @@ export function useNotificationActions(email: string | undefined) {
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => notificationService.markAsRead(id),
-    onSuccess: invalidate,
+    // Flip the notification to "read" on screen immediately, then sync with the server.
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: [...LIST_KEY, email] });
+      const snapshots = qc.getQueriesData<AppNotification[]>({ queryKey: [...LIST_KEY, email] });
+      const wasUnread = snapshots.some(([, list]) => list?.some((n) => n.id === id && !n.read));
+
+      qc.setQueriesData<AppNotification[]>({ queryKey: [...LIST_KEY, email] }, (old) =>
+        old?.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+      if (wasUnread) {
+        qc.setQueryData<number>([...UNREAD_KEY, email], (old) => Math.max(0, (old ?? 1) - 1));
+      }
+      return { snapshots };
+    },
+    onError: (_err, _id, ctx) => {
+      ctx?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: invalidate,
   });
 
   const markAllReadMutation = useMutation({

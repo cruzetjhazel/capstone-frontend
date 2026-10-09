@@ -80,6 +80,21 @@ export function useRejectReschedule() {
   return useBookingMutation((id: string) => photographerBookingService.rejectReschedule(id), (id) => id);
 }
 
+export function useApproveModification() {
+  return useBookingMutation((id: string) => photographerBookingService.approveModification(id), (id) => id);
+}
+
+export function useRejectModification() {
+  return useBookingMutation((id: string) => photographerBookingService.rejectModification(id), (id) => id);
+}
+
+export function useCancelBookingAsPhotographer() {
+  return useBookingMutation(
+    ({ id, reason }: { id: string; reason: string }) => photographerBookingService.cancelBooking(id, reason),
+    ({ id }) => id
+  );
+}
+
 export function useApproveExtension() {
   return useBookingMutation(
     ({ id, extensionId }: { id: string; extensionId: string }) => photographerBookingService.approveExtension(id, extensionId),
@@ -100,6 +115,10 @@ export function useUpdateServiceTracker() {
     ({ id, status }: { id: string; status: string }) => photographerBookingService.updateServiceTracker(id, status),
     ({ id }) => id
   );
+}
+
+export function useConfirmShoot() {
+  return useBookingMutation((id: string) => photographerBookingService.confirmShoot(id), (id) => id);
 }
 
 export function useMarkServiceCompleted() {

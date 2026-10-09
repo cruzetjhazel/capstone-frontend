@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Bell, Menu, Home, LogOut, User, Loader2 } from "lucide-react";
+import {Menu, Home, LogOut, User, Loader2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { getInitials } from "@/lib/utils";
 import { ThemeToggleCompact } from "./ThemeToggle";
+import { NotificationBell } from "./NotificationBell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,11 +79,6 @@ export function DashboardHeader({ onMenuClick }: DashboardHeaderProps) {
     return "/profile";
   };
 
-  const getNotificationPath = () => {
-    if (role === "studio") return "/studio/notifications";
-    if (role === "admin") return "/admin/notifications";
-    return "/notifications";
-  };
 
   return (
     <>
@@ -109,15 +105,7 @@ export function DashboardHeader({ onMenuClick }: DashboardHeaderProps) {
           
           <ThemeToggleCompact />
           
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="relative" 
-            onClick={() => navigate(getNotificationPath())}
-          >
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-accent rounded-full" />
-          </Button>
+          <NotificationBell />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

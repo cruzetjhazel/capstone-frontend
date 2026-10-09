@@ -62,7 +62,7 @@ export const getRoleDashboardPath = (role: string) => {
 /** Status-aware post-login/post-registration destination. Prefer this over getRoleDashboardPath. */
 export const getPostLoginPath = (user: User): string => {
   if (user.accountType === "administrator") return "/admin";
-  if (user.accountType === "client") return "/";
+  if (user.accountType === "client") return "/bookings";
 
   // photographer
   const status = user.application?.status;
@@ -78,21 +78,27 @@ function deriveRole(accountType: AccountType): Role {
 }
 
 async function fetchApplication(): Promise<PhotographerApplicationInfo | null> {
-  try {
-    const res = await api.get("/photographer/application");
-    const app = res.data?.data ?? res.data;
-    if (!app) return null;
-    return {
-      status: app.status,
-      photographerType: app.photographer_type,
-      businessName: app.business_name ?? null,
-      submittedAt: app.submitted_at ?? null,
-      revisionNotes: app.revision_notes ?? null,
-      rejectionReason: app.rejection_reason ?? null,
-    };
-  } catch {
-    return null;
+  // Retry transient failures. Only a 404 means "no application".
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await api.get("/photographer/application");
+      const app = res.data?.data ?? res.data;
+      if (!app) return null;
+      return {
+        status: app.status,
+        photographerType: app.photographer_type,
+        businessName: app.business_name ?? null,
+        submittedAt: app.submitted_at ?? null,
+        revisionNotes: app.revision_notes ?? null,
+        rejectionReason: app.rejection_reason ?? null,
+      };
+    } catch (err: any) {
+      if (err?.response?.status === 404) return null;
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
   }
+  return null;
 }
 
 async function fetchProfilePhoto(accountType: AccountType): Promise<string | null> {
@@ -147,6 +153,15 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           const res = await api.get("/auth/me");
           const rawUser = res.data?.data ?? res.data;
           const nextUser = await buildUser(rawUser);
+          if (nextUser.accountStatus !== "active") {
+            // Suspended/deactivated since the last visit: drop the stale token.
+            clearAuthToken();
+            if (!cancelled) {
+              setUser(null);
+              setIsLoading(false);
+            }
+            return;
+          }
           if (!cancelled) {
             setUser(nextUser);
             setIsLoading(false);
@@ -188,7 +203,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
     setAuthToken(payload.token);
 
-    const nextUser = await buildUser(payload.user);
+    let nextUser: User;
+    try {
+      nextUser = await buildUser(payload.user);
+    } catch (err) {
+      clearAuthToken(); // don't leave a half-logged-in token behind
+      throw err;
+    }
     setUser(nextUser);
     return nextUser;
   };
@@ -226,15 +247,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   const refreshApplication = async () => {
     if (!user || user.accountType !== "photographer") return;
-    const application = await fetchApplication();
-    const nextUser = { ...user, application };
-    setUser(nextUser);
+    try {
+      const application = await fetchApplication();
+      setUser((prev) => (prev ? { ...prev, application } : prev));
+    } catch {
+      // keep current application info if the refresh fails
+    }
   };
 
   const refreshProfilePhoto = (url: string | null) => {
-    if (!user) return;
-    const nextUser = { ...user, profilePhotoUrl: url };
-    setUser(nextUser);
+    setUser((prev) => (prev ? { ...prev, profilePhotoUrl: url } : prev));
   };
 
   return (

@@ -16,6 +16,8 @@ export interface Package {
   id?: number;
   name: string;
   price: number;
+  // Charged instead of `price` when the booking is not at the studio.
+  outdoorPrice?: number | null;
   // null = the photographer left the duration open ("to be confirmed").
   // Never substitute an assumed length for it.
   hours: number | null;
@@ -57,6 +59,8 @@ export interface CustomRates {
   // hours slider instead of requiring a discrete duration option below.
   // null/undefined means this photographer only uses the discrete picker.
   hourlyRate?: number | null;
+  // Hourly rate used when the booking is not at the studio.
+  outdoorHourlyRate?: number | null;
   // Hours the baseFee already covers (sliding-hours mode). null = legacy
   // "hours x rate, no base fee" pricing.
   baseHours?: number | null;
@@ -68,6 +72,12 @@ export interface CustomRates {
   baseFeeMode?: "once" | "per_schedule" | null;
   // Photographer's raw minimum hours (minHours above is raised to baseHours).
   sessionMinHours?: number | null;
+  // Per-day / per-person pricing. Price = unitRate x (distinct event days | people).
+  // coverageHours only sets how long the photographer is reserved per session.
+  pricingModel?: "fixed" | "hourly" | "per_day" | "per_person";
+  unitRate?: number | null;
+  coverageHours?: number | null;
+  maxPeople?: number | null;
   photoTiers: { label: string; value: number; price: number }[];
   photographerTiers: { label: string; value: number; price: number }[];
   deliveryTiers: { id: string; label: string; price: number }[];
@@ -133,7 +143,7 @@ export interface Photographer {
   // to decide whether they should show up for an event location outside
   // their base, since the platform's photographer roster is Bulan-based
   // but clients can search any event location.
-  coverageArea?: "bulan_only" | "bulan_nearby" | "anywhere_sorsogon" | "travel_outside_sorsogon" | null;
+  coverageArea?: "bulan_only" | "bulan_nearby" | "anywhere_sorsogon" | "travel_outside_sorsogon" | "travel_outside_bicol" | null;
   avatar: string;
   services: string[];
   about: string;

@@ -20,8 +20,9 @@ export function BookingTracker({ currentStage, compact = false }: BookingTracker
     <div className="w-full">
       <div className="flex items-center">
         {trackingStages.map((stage, i) => {
-          const done = i < currentIdx;
-          const active = i === currentIdx;
+          // Delivered and Completed are finished states, not "in progress": solid with a check.
+          const done = i < currentIdx || (i === currentIdx && (stage.id === "delivered" || stage.id === "completed"));
+          const active = i === currentIdx && !done;
           return (
             <div key={stage.id} className="flex-1 flex flex-col items-center relative">
               {/* Connector line */}
@@ -39,6 +40,7 @@ export function BookingTracker({ currentStage, compact = false }: BookingTracker
                   "relative z-10 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2",
                   done && "bg-primary border-primary text-primary-foreground",
                   active && "bg-primary border-primary text-primary-foreground ring-4 ring-primary/20 animate-pulse",
+                  i === currentIdx && done && "ring-4 ring-primary/20",
                   !done && !active && "bg-card border-border text-muted-foreground"
                 )}
               >
@@ -47,7 +49,7 @@ export function BookingTracker({ currentStage, compact = false }: BookingTracker
               {!compact && (
                 <p className={cn(
                   "text-[10px] mt-2 text-center leading-tight",
-                  active ? "font-semibold text-foreground" : "text-muted-foreground"
+                  i === currentIdx ? "font-semibold text-foreground" : "text-muted-foreground"
                 )}>
                   {stage.label}
                 </p>

@@ -20,6 +20,7 @@ export interface AppNotification {
   title: string;
   description: string;
   time: string;
+  createdAt: string;
   read: boolean;
   bookingId: string | null;
   action: NotificationActionKind;
@@ -44,6 +45,7 @@ function toAppNotification(raw: RawNotification): AppNotification {
     title: raw.title,
     description: raw.description,
     time: formatRelativeTime(raw.created_at),
+    createdAt: raw.created_at,
     read: raw.read,
     bookingId: raw.booking_id,
     action: raw.action,
@@ -51,8 +53,8 @@ function toAppNotification(raw: RawNotification): AppNotification {
 }
 
 export const notificationService = {
-  list: async (): Promise<AppNotification[]> => {
-    const res = await api.get("/notifications");
+  list: async (limit = 50): Promise<AppNotification[]> => {
+    const res = await api.get("/notifications", { params: { limit } });
     return (res.data.data as RawNotification[]).map(toAppNotification);
   },
 

@@ -12,6 +12,8 @@ export interface BookingHourRecord extends BookingHourPayload {
 
 export const bookingHourService = {
   list: async (): Promise<BookingHourRecord[]> => (await api.get("/photographer/booking-hours")).data.data,
+  getInterval: async (): Promise<number> =>
+    (await api.get("/photographer/booking-hours/interval")).data.data.slot_interval_minutes,
   create: async (payload: BookingHourPayload): Promise<BookingHourRecord> =>
     (await api.post("/photographer/booking-hours", payload)).data.data,
   update: async (id: string, payload: BookingHourPayload): Promise<BookingHourRecord> =>

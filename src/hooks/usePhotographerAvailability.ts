@@ -12,7 +12,8 @@ export function useMonthAvailability(
     queryKey: ["availability", "calendar", photographerId, month, packageId, customDurationMinutes, sessionDurationMinutes],
     queryFn: () => publicAvailabilityService.getMonthSummary(photographerId!, month, packageId, customDurationMinutes, sessionDurationMinutes),
     enabled: !!photographerId,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always" as const,
   });
 }
 
@@ -28,7 +29,8 @@ export function availableStartTimesQuery(
     queryKey: ["availability", "slots", photographerId, date, packageId, customDurationMinutes, sessionDurationMinutes],
     queryFn: () => publicAvailabilityService.getAvailableStartTimes(photographerId!, date, packageId, customDurationMinutes, sessionDurationMinutes),
     enabled: !!photographerId && !!date,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always" as const,
     placeholderData: (prev: string[] | undefined) => prev, // v5
     // keepPreviousData: true,                              // v4: use this instead
   };

@@ -3,7 +3,8 @@ import {
   Camera, Loader2, LayoutDashboard, CalendarDays, CreditCard, 
   Settings, BarChart3, FolderOpen, LogOut, Search, ImageIcon, 
   ShieldCheck, Sparkles, Star, Heart, Users, Trash2, ShieldAlert,
-  AlertTriangle, ClipboardList, Compass, HelpCircle, ChevronDown, X
+  AlertTriangle, ClipboardList, Compass, HelpCircle, ChevronDown, X,
+  Scale
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { cn, getInitials } from "@/lib/utils";
@@ -105,6 +106,7 @@ const adminNav: NavCategory[] = [
       { label: "Users", icon: Users, to: "/admin/users" },
       { label: "Verifications", icon: ShieldCheck, to: "/admin/verifications" },
       { label: "Reports & Disputes", icon: AlertTriangle, to: "/admin/reports" },
+      { label: "Suspension Appeals", icon: Scale, to: "/admin/appeals" },
     ]
   },
   {

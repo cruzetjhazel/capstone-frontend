@@ -31,6 +31,21 @@ const TRACKING_STEPS = [
   { label: "Completed", description: "All services delivered and finished" }
 ];
 
+const formatScheduleDate = (ymd: string) =>
+  new Date(`${ymd}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+const formatScheduleTime = (t?: string | null) => {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+};
+
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
@@ -242,20 +257,35 @@ export default function BookingDetails() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
-                <div className="flex items-start gap-2.5 text-sm">
-                  <Calendar className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs">Shoot Date</p>
-                    <p className="text-muted-foreground text-xs">{booking.date}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5 text-sm">
-                  <Clock className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs">Event Time</p>
-                    <p className="text-muted-foreground text-xs">{booking.startTime}</p>
-                  </div>
-                </div>
+                {(() => {
+                  const schedules = (((booking as any).schedules ?? []) as {
+                    label?: string; eventDate: string; startTime: string; endTime?: string | null;
+                  }[]).filter((s) => s.eventDate);
+                  const list = schedules.length > 0
+                    ? schedules
+                    : [{ label: "", eventDate: booking.date, startTime: booking.startTime, endTime: null }];
+                  const multi = list.length > 1;
+
+                  return (
+                    <div className="flex items-start gap-2.5 text-sm sm:col-span-2">
+                      <Calendar className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
+                      <div className="w-full">
+                        <p className="font-semibold text-xs">
+                          {multi ? `Shoot Dates (${list.length} days)` : "Shoot Date & Time"}
+                        </p>
+                        <div className="mt-1 space-y-1">
+                          {list.map((s, i) => (
+                            <p key={`${s.eventDate}-${s.startTime}-${i}`} className="text-muted-foreground text-xs">
+                              {multi && s.label ? <span className="font-medium text-foreground">{s.label}: </span> : null}
+                              {formatScheduleDate(s.eventDate)} • {formatScheduleTime(s.startTime)}
+                              {s.endTime ? ` – ${formatScheduleTime(s.endTime)}` : ""}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="flex items-start gap-2.5 text-sm sm:col-span-2">
                   <MapPin className="w-4.5 h-4.5 text-primary shrink-0 mt-0.5" />
                   <div>

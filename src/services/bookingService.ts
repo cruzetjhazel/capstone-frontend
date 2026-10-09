@@ -38,22 +38,63 @@ type RawBooking = {
   guest_count: number | null;
   subtotal: string;
   total_price: string;
-  status: "pending" | "confirmed" | "completed" | "cancelled" | "expired";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show";
   payment_status: "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;
+  cancellation_reason: string | null;
+  rejection_reason: string | null;
+  cancelled_by: "client" | "photographer" | "admin" | null;
+  is_declined: boolean;
+  buffer_minutes: number;
+  reschedule_request: {
+    requested_event_date: string | null;
+    requested_start_time: string | null;
+    type?: "standard" | "weather" | "venue" | "agreed";
+    reason: string | null;
+    requested_at: string;
+    decision: "approved" | "rejected" | null;
+    decided_at: string | null;
+  } | null;
+  modification_request: {
+    type: string;
+    reason: string;
+    changes: { guest_count?: number | null; event_address?: string | null; special_requests?: string | null } | null;
+    requested_at: string;
+    decision: "approved" | "rejected" | null;
+    decided_at: string | null;
+  } | null;
   non_completion_reason: string | null;
   non_completion_reported_by: number | null;
-  non_completion_state: "open" | "disputed" | "upheld" | "final" | null;
+  non_completion_state: "open" | "awaiting_admin" | "disputed" | "upheld" | "overturned" | "final" | null;
   non_completion_dispute_deadline_at: string | null;
   non_completion_dispute_reason: string | null;
   non_completion_admin_notes: string | null;
   is_reviewable: boolean;
+  allowed_actions?: {
+    can_modify: boolean;
+    can_reschedule: boolean;
+    can_postpone: boolean;
+    can_cancel: boolean;
+    can_report_photographer_no_show: boolean;
+    no_show_report_deadline: string | null;
+    no_show_report_expired: boolean;
+  };
+  reschedule_history?: {
+    type: "standard" | "weather" | "venue" | "agreed";
+    original_event_date: string | null;
+    original_start_time: string | null;
+    new_event_date: string | null;
+    new_start_time: string | null;
+    reason: string | null;
+    decided_at: string | null;
+  }[];
   remaining_balance: number;
   created_at: string;
-  service_status: "event_day" | "editing" | "delivered" | null;
+  service_status: "upcoming" | "event_day" | "editing" | "delivered" | "completed" | null;
   has_reviewed: boolean;
   extension_eligible: boolean;
+  completion_blocked_until?: string | null;
   has_pending_extension: boolean;
   approved_extension_charge: number;
   extensions: RawBookingExtension[];
@@ -224,6 +265,28 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
         }
       : undefined,
     hasActiveRequest: !!raw.cancellation_requested_at && !raw.cancellation_decision,
+    cancellationDecision: raw.cancellation_decision,
+    cancellationReason: raw.cancellation_reason,
+    rejectionReason: raw.rejection_reason,
+    cancelledBy: raw.cancelled_by,
+    isDeclined: raw.is_declined,
+    bufferMinutes: raw.buffer_minutes,
+    rescheduleInfo: raw.reschedule_request
+      ? {
+          date: raw.reschedule_request.requested_event_date,
+          time: raw.reschedule_request.requested_start_time,
+          reason: raw.reschedule_request.reason,
+          type: raw.reschedule_request.type ?? "standard",
+          decision: raw.reschedule_request.decision,
+        }
+      : null,
+    modificationInfo: raw.modification_request
+      ? {
+          reason: raw.modification_request.reason,
+          changes: raw.modification_request.changes ?? {},
+          decision: raw.modification_request.decision,
+        }
+      : null,
     nonCompletionReason: raw.non_completion_reason,
     nonCompletionReportedBy: raw.non_completion_reported_by,
     nonCompletionState: raw.non_completion_state,
@@ -231,6 +294,8 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     nonCompletionDisputeReason: raw.non_completion_dispute_reason,
     nonCompletionAdminNotes: raw.non_completion_admin_notes,
     isReviewable: raw.is_reviewable,
+    allowedActions: raw.allowed_actions ?? null,
+    rescheduleHistory: raw.reschedule_history ?? [],
     extensionEligible: raw.extension_eligible,
     hasPendingExtension: raw.has_pending_extension,
     approvedExtensionCharge: raw.approved_extension_charge,
@@ -310,6 +375,8 @@ export interface CreateBookingPayload {
   // Present when the client used the sliding-hours picker instead of a
   // discrete duration option — see CreateBookingAction::resolveCustomPackage.
   custom_hours?: number;
+  // Head-count for per-person custom pricing.
+  custom_people?: number;
   add_on_ids?: number[];      // fixed-package bookings only
 }
 
@@ -468,20 +535,32 @@ export const bookingService = {
     return toBookingRecord(raw);
   },
 
-  reschedule: async (bookingId: string, eventDate: string, startTime: string, reason: string): Promise<BookingRecord> => {
+  reschedule: async (bookingId: string, eventDate: string, startTime: string, reason: string, type: "standard" | "weather" | "venue" | "agreed" = "standard"): Promise<BookingRecord> => {
     const raw = await apiMutate<RawBooking>(
       `/client/bookings/${bookingId}/reschedule`,
       "POST",
-      { event_date: eventDate, start_time: startTime, reason }
+      { event_date: eventDate, start_time: startTime, reason, type }
     );
     return toBookingRecord(raw);
   },
 
-  requestModification: async (bookingId: string, type: string, reason: string): Promise<BookingRecord> => {
+  // Start times the booking could move to on `date` (server checks the photographer's real schedule).
+  getRescheduleSlots: async (bookingId: string, date: string): Promise<string[]> => {
+    const data = await apiRequest<{ date: string; start_times: string[] }>(
+      `/client/bookings/${bookingId}/reschedule-slots?date=${encodeURIComponent(date)}`
+    );
+    return data.start_times;
+  },
+
+  requestModification: async (
+    bookingId: string,
+    changes: { guest_count?: number; event_address?: string; special_requests?: string },
+    reason: string
+  ): Promise<BookingRecord> => {
     const raw = await apiMutate<RawBooking>(
       `/client/bookings/${bookingId}/request-modification`,
       "POST",
-      { type, reason }
+      { changes, reason }
     );
     return toBookingRecord(raw);
   },

@@ -10,6 +10,7 @@ interface RawConfig {
   base_hours?: number | null;
   buffer_minutes: number | string | null;
   hourly_rate?: number | string | null;
+  outdoor_hourly_rate?: number | string | null;
   min_hours?: number | null;
   max_hours?: number | null;
   allows_multiple_sessions?: boolean;
@@ -29,6 +30,8 @@ export interface CustomPackageConfigRecord {
   bufferMinutes: number;
   // Hourly rate (only used when pricingModel === "hourly").
   hourlyRate: number | null;
+  // Hourly rate used when the booking is not at the studio. null = same as hourlyRate.
+  outdoorHourlyRate: number | null;
   baseHours: number | null;
   allowsMultipleSessions: boolean;
   maxSessions: number | null;
@@ -50,6 +53,7 @@ export interface CustomPackageConfigInput {
   base_hours?: number | null;
   buffer_minutes?: number;
   hourly_rate?: number | null;
+  outdoor_hourly_rate?: number | null;
   allows_multiple_sessions?: boolean;
   max_sessions?: number | null;
   base_fee_mode?: "once" | "per_schedule" | null;
@@ -97,6 +101,7 @@ function toConfig(raw: RawConfig): CustomPackageConfigRecord {
     baseFee: raw.base_fee === null ? null : Number(raw.base_fee),
     bufferMinutes: raw.buffer_minutes == null ? 0 : Number(raw.buffer_minutes),
     hourlyRate: raw.hourly_rate == null ? null : Number(raw.hourly_rate),
+    outdoorHourlyRate: raw.outdoor_hourly_rate == null ? null : Number(raw.outdoor_hourly_rate),
     baseHours: raw.base_hours ?? null,
     minHours: raw.min_hours ?? null,
     maxHours: raw.max_hours ?? null,

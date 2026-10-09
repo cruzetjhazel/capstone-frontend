@@ -7,6 +7,7 @@ import MarketingNavbar from "@/components/MarketingNavbar";
 import SearchBar from "@/components/SearchBar";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import type { Photographer } from "@/data/photographers";
+import { servesPlace, placeCoverageHint, coverageLabel, type CoverageArea } from "@/data/coverage";
 import {
   typeFilters,
   priceFilters,
@@ -39,7 +40,7 @@ const GENERIC_LOCATIONS = [
 // Actual municipalities bordering Bulan, Sorsogon. Adjust this list if the
 // business definition of "nearby" changes — it only affects the
 // "bulan_nearby" coverage tier.
-const BULAN_NEARBY_MUNICIPALITIES = ["irosin", "juban", "casiguran", "barcelona", "matnog"];
+
 
 /** Splits a "City/Municipality, Province" string into its two parts (best-effort). */
 function parsePlace(raw: string): { municipality: string; province: string } {
@@ -58,25 +59,21 @@ function parsePlace(raw: string): { municipality: string; province: string } {
 function photographerServesLocation(photographer: Photographer, whereText: string): boolean {
   const query = whereText.toLowerCase().trim();
   if (!query || GENERIC_LOCATIONS.includes(query)) return true;
-
-  const { municipality, province } = parsePlace(query);
-  if (municipality === "bulan") return true; // every photographer's home turf
-
-  // Unset coverage_area is treated as the most conservative tier
-  // (bulan_only) rather than silently showing everywhere.
-  switch (photographer.coverageArea ?? "bulan_only") {
-    case "bulan_only":
-      return false;
-    case "bulan_nearby":
-      return province === "sorsogon" && BULAN_NEARBY_MUNICIPALITIES.includes(municipality);
-    case "anywhere_sorsogon":
-      return province === "sorsogon";
-    case "travel_outside_sorsogon":
-      return true;
-    default:
-      return false;
-  }
+  return servesPlace(photographer.coverageArea, query);
 }
+
+const SHOOTING_FILTER_OPTIONS: string[] = ["All", "indoor", "outdoor", "event_coverage", "drone_aerial", "hybrid"];
+const SHOOTING_FILTER_LABELS: Record<string, string> = {
+  All: "All",
+  indoor: "Indoor",
+  outdoor: "Outdoor",
+  event_coverage: "Event Coverage",
+  drone_aerial: "Drone / Aerial",
+  hybrid: "Hybrid (Indoor + Outdoor)",
+};
+const COVERAGE_FILTER_OPTIONS: string[] = [
+  "All", "bulan_only", "bulan_nearby", "anywhere_sorsogon", "travel_outside_sorsogon", "travel_outside_bicol",
+];
 
 const sortOptions = ["rating", "favorites", "reviews", "price-low", "price-high"] as const;
 const sortLabels: Record<(typeof sortOptions)[number], string> = {
@@ -99,6 +96,8 @@ export default function Explore() {
   const activePriceIdx = Number(searchParams.get("price") || 0);
   const activeRatingIdx = Number(searchParams.get("rating") || 0);
   const activeExperienceIdx = Number(searchParams.get("experience") || 0);
+  const activeShooting = searchParams.get("shooting") || "All";
+  const activeCoverage = searchParams.get("coverage") || "All";
   const sortBy = (searchParams.get("sort") as "rating" | "favorites" | "price-low" | "price-high" | "reviews") || "rating";
 
   const [openPanel, setOpenPanel] = useState<"filters" | "sort" | null>(null);
@@ -165,6 +164,12 @@ export default function Explore() {
       if (rf.min > 0 && s.rating < rf.min) return false;
       if (ef.min > 0 && (s.yearsActive ?? 0) < ef.min) return false;
 
+      // Shooting types supported (from the photographer's registered application)
+      if (activeShooting !== "All" && !(s.shootingTypes ?? []).includes(activeShooting)) return false;
+
+      // Areas covered (exact match on the photographer's registered coverage_area)
+      if (activeCoverage !== "All" && s.coverageArea !== activeCoverage) return false;
+
       // Location Match: does this photographer's declared coverage_area
       // reach the client's event location? See photographerServesLocation.
       if (urlLocation && !photographerServesLocation(s, urlLocation)) {
@@ -183,7 +188,7 @@ export default function Explore() {
       case "reviews": results.sort((a, b) => b.reviews - a.reviews); break;
     }
     return results;
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, sortBy, urlLocation, urlDate, urlName, allPhotographers]);
+  }, [activeService, activeType, activePriceIdx, activeRatingIdx, activeExperienceIdx, activeShooting, activeCoverage, sortBy, urlLocation, urlDate, urlName, allPhotographers]);
 
   const activeFilterCount = [
     activeService !== "All",
@@ -191,6 +196,8 @@ export default function Explore() {
     activePriceIdx !== 0,
     activeRatingIdx !== 0,
     activeExperienceIdx !== 0,
+    activeShooting !== "All",
+    activeCoverage !== "All",
   ].filter(Boolean).length;
 
   const clearAll = () => {
@@ -199,6 +206,9 @@ export default function Explore() {
     params.delete("type");
     params.delete("price");
     params.delete("rating");
+    params.delete("experience");
+    params.delete("shooting");
+    params.delete("coverage");
     params.delete("name");
     params.delete("date");
     params.delete("location");
@@ -211,6 +221,9 @@ export default function Explore() {
     params.delete("type");
     params.delete("price");
     params.delete("rating");
+    params.delete("experience");
+    params.delete("shooting");
+    params.delete("coverage");
     setSearchParams(params, { replace: true });
     setOpenPanel(null);
   };
@@ -329,6 +342,20 @@ export default function Explore() {
               <div className="absolute top-full right-0 sm:right-auto mt-2 w-[320px] sm:w-[420px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
+                  <ChipRow
+                    label="Shooting Types Supported"
+                    options={SHOOTING_FILTER_OPTIONS}
+                    active={activeShooting}
+                    onSelect={(v) => setParam("shooting", v, "All")}
+                    labelOf={(v) => SHOOTING_FILTER_LABELS[v] ?? v}
+                  />
+                  <ChipRow
+                    label="Areas Covered"
+                    options={COVERAGE_FILTER_OPTIONS}
+                    active={activeCoverage}
+                    onSelect={(v) => setParam("coverage", v, "All")}
+                    labelOf={(v) => (v === "All" ? "All" : coverageLabel(v as CoverageArea))}
+                  />
                   <div>
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Budget</p>
                     <div className="space-y-1">
@@ -378,7 +405,7 @@ export default function Explore() {
                     </div>
                   </div>
                 </div>
-                {(activeType !== "All" || activePriceIdx !== 0 || activeExperienceIdx !== 0) && (
+                {(activeType !== "All" || activePriceIdx !== 0 || activeExperienceIdx !== 0 || activeShooting !== "All" || activeCoverage !== "All") && (
                   <button onClick={clearFilters} className="mt-4 text-xs text-primary hover:underline font-medium">
                     Clear filters
                   </button>
@@ -420,6 +447,9 @@ export default function Explore() {
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               {loading ? "Searching…" : `Showing ${filtered.length} of ${allPhotographers.length} results`}
             </p>
+            {urlLocation && !GENERIC_LOCATIONS.includes(urlLocation.toLowerCase()) && placeCoverageHint(urlLocation) && (
+              <p className="text-xs text-muted-foreground mt-0.5">{placeCoverageHint(urlLocation)}</p>
+            )}
           </div>
         </div>
 
@@ -462,6 +492,22 @@ export default function Explore() {
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {experienceFilters[activeExperienceIdx]?.label}
                 <button onClick={() => setParam("experience", "0", "0")} aria-label="Remove experience filter" className="hover:bg-primary/20 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {activeShooting !== "All" && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                {SHOOTING_FILTER_LABELS[activeShooting] ?? activeShooting}
+                <button onClick={() => setParam("shooting", "All", "All")} aria-label="Remove shooting type filter" className="hover:bg-primary/20 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {activeCoverage !== "All" && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                Covers: {coverageLabel(activeCoverage as CoverageArea)}
+                <button onClick={() => setParam("coverage", "All", "All")} aria-label="Remove coverage filter" className="hover:bg-primary/20 rounded-full p-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -548,6 +594,9 @@ export default function Explore() {
                     <MapPin className="w-3 h-3 shrink-0" />
                     <span className="truncate">{s.location}</span>
                   </div>
+                  {s.coverageArea && (
+                    <p className="text-[11px] text-muted-foreground -mt-2 mb-3 truncate">Covers: {coverageLabel(s.coverageArea)}</p>
+                  )}
                   <div className="flex flex-wrap gap-1 mb-3">
                     {s.services.slice(0, 3).map((svc) => (
                       <span key={svc} className="px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground">{svc}</span>

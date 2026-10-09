@@ -13,17 +13,7 @@ import {
   AlertTriangle, Camera, CheckCircle2
 } from "lucide-react";
 
-// Accepts 09XXXXXXXXX or +639XXXXXXXXX (Philippine mobile format).
-// Landlines and other formats are intentionally out of scope — the booking
-// flow relies on SMS-reachable numbers.
-const PH_PHONE_REGEX = /^(?:\+63|0)9\d{9}$/;
 
-const isValidPhPhone = (raw: string) => {
-  const trimmed = raw.trim();
-  if (!trimmed) return true; // empty is allowed; only validate when a value is present
-  const normalized = trimmed.replace(/[\s-]/g, "");
-  return PH_PHONE_REGEX.test(normalized);
-};
 
 export default function Profile() {
   const { user, refreshProfilePhoto } = useRole();
@@ -58,10 +48,6 @@ export default function Profile() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const phoneError = !isValidPhPhone(formData.phone)
-    ? "Enter a valid PH mobile number, e.g. 09171234567 or +639171234567."
-    : "";
 
   const fetchProfile = async () => {
     setIsLoadingProfile(true);
@@ -117,16 +103,11 @@ export default function Profile() {
   };
 
   const handleSaveProfile = async () => {
-    if (phoneError) {
-      toast.error(phoneError);
-      return;
-    }
 
     setIsSaving(true);
     setSaveError(null);
     const formPayload = new FormData();
     formPayload.append("name", formData.name);
-    formPayload.append("phone_number", formData.phone);
     formPayload.append("birthday", formData.birthday);
     formPayload.append("gender", formData.gender);
     formPayload.append("address", formData.address);
@@ -289,16 +270,21 @@ export default function Profile() {
               <div className="space-y-2">
                 <Label>Email Address (Read-Only)</Label>
                 <Input type="email" disabled value={formData.email} className="bg-muted/50 cursor-not-allowed" />
+                <p className="text-[11px] text-muted-foreground">
+                  To update your email address, contact support.
+                </p>
               </div>
               <div className="space-y-2">
-                <Label>Contact Number</Label>
+                <Label>Contact Number (Read-Only)</Label>
                 <Input
+                  disabled
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="09171234567"
-                  className={phoneError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  placeholder="No number on file"
+                  className="bg-muted/50 cursor-not-allowed"
                 />
-                {phoneError && <p className="text-[11px] text-destructive">{phoneError}</p>}
+                <p className="text-[11px] text-muted-foreground">
+                  Your registered number can't be changed here. Contact support if it needs updating.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Birthday</Label>
@@ -369,7 +355,7 @@ export default function Profile() {
                 <Button variant="outline" size="sm" onClick={handleDiscard} disabled={isSaving}>
                   Discard
                 </Button>
-                <Button size="sm" onClick={handleSaveProfile} disabled={isSaving || !!phoneError}>
+                <Button size="sm" onClick={handleSaveProfile} disabled={isSaving}>
                   {isSaving ? "Saving…" : "Save Changes"}
                 </Button>
               </div>

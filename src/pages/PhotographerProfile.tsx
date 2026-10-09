@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { fetchPhotographer } from "@/services/photographerService";
 import { formatPrice, inclusionText, type Photographer } from "@/data/photographers";
-import { useFavorites, useAddFavorite, useRemoveFavorite } from "@/hooks/useFavorites";
+import { coverageLabel } from "@/data/coverage";
+import {
+  useFavorites, useAddFavorite, useRemoveFavorite,
+  useFavoritePackages, useAddFavoritePackage, useRemoveFavoritePackage,
+} from "@/hooks/useFavorites";
 import { useRole } from "@/contexts/RoleContext";
 
 // Determines which package (if any) should show the "Most Popular" badge.
@@ -44,6 +48,27 @@ export default function PhotographerProfile() {
   const removeFavorite = useRemoveFavorite();
   const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
   const { user, role } = useRole();
+
+  const { data: favoritePackages = [] } = useFavoritePackages(!!user && role === "client");
+  const addFavoritePackage = useAddFavoritePackage();
+  const removeFavoritePackage = useRemoveFavoritePackage();
+  const isPackageFavorite = (pkgId: number) => favoritePackages.some((f) => f.packageId === String(pkgId));
+  const toggleFavoritePackage = (pkg: any) => {
+    if (!user) {
+      toast.error("Please log in or create an account to save packages.");
+      return;
+    }
+    if (role !== "client") {
+      toast.error("Only client accounts can save packages.");
+      return;
+    }
+    const id = String(pkg.id);
+    if (isPackageFavorite(pkg.id)) {
+      removeFavoritePackage.mutate(id, { onSuccess: () => toast(`${pkg.name} removed from favorites.`) });
+    } else {
+      addFavoritePackage.mutate(id, { onSuccess: () => toast.success(`${pkg.name} added to favorites!`) });
+    }
+  };
 
   const handleBookClick = (e: React.MouseEvent) => {
     if (!user) {
@@ -196,6 +221,11 @@ export default function PhotographerProfile() {
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {p.location}</span>
                   <span className="flex items-center gap-1"><Camera className="w-3.5 h-3.5" /> {p.specialty}</span>
+                  {p.coverageArea && coverageLabel(p.coverageArea) && (
+                    <span className="flex items-center gap-1" title="Areas covered">
+                      <Globe className="w-3.5 h-3.5" /> Covers: {coverageLabel(p.coverageArea)}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 fill-accent text-accent" />
                     {p.reviews > 0 ? `${p.rating} (${p.reviews} reviews)` : "No reviews yet"}
@@ -245,20 +275,28 @@ export default function PhotographerProfile() {
         </div>
 
         {/* Experience & Shooting Types */}
-        {(p.yearsActive != null || (p.shootingTypes && p.shootingTypes.length > 0)) && (
-          <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {(p.yearsActive != null || coverageLabel(p.coverageArea) || (p.shootingTypes && p.shootingTypes.length > 0)) && (
+          <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
             {p.yearsActive != null && (
               <div>
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5" /> Experience
                 </span>
-                <p className="mt-2 text-sm font-medium">
-                  {p.yearsActive} {p.yearsActive === 1 ? "year" : "years"} of experience
+                <p className="mt-2 text-base font-semibold">
+                  {p.yearsActive} {p.yearsActive === 1 ? "year" : "years"}
                 </p>
               </div>
             )}
-            {p.shootingTypes && p.shootingTypes.length > 0 && (
+            {p.coverageArea && coverageLabel(p.coverageArea) && (
               <div>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" /> Areas Covered
+                </span>
+                <p className="mt-2 text-base font-semibold">{coverageLabel(p.coverageArea)}</p>
+              </div>
+            )}
+            {p.shootingTypes && p.shootingTypes.length > 0 && (
+              <div className="sm:col-span-2 border-t border-border/50 pt-5">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5" /> Shooting Types Supported
                 </span>
@@ -367,6 +405,16 @@ export default function PhotographerProfile() {
                     )}
                     
                     <div className="text-center mb-6">
+                      <button
+                        type="button"
+                        aria-label={isPackageFavorite((pkg as any).id) ? "Remove package from favorites" : "Save package to favorites"}
+                        title={isPackageFavorite((pkg as any).id) ? "Remove from favorites" : "Save to favorites"}
+                        disabled={addFavoritePackage.isPending || removeFavoritePackage.isPending}
+                        onClick={() => toggleFavoritePackage(pkg)}
+                        className="absolute top-3 right-3 w-8 h-8 rounded-full bg-background/90 border border-border/50 flex items-center justify-center shadow-sm hover:scale-110 active:scale-90 transition-all"
+                      >
+                        <Heart className={`w-4 h-4 ${isPackageFavorite((pkg as any).id) ? "fill-red-500 text-red-500" : ""}`} />
+                      </button>
                       <h4 className="font-heading font-semibold text-lg">{pkg.name}</h4>
                       <div className="mt-3 flex items-baseline justify-center gap-1">
                         <span className="text-3xl font-heading font-bold">{formatPrice(pkg.price)}</span>

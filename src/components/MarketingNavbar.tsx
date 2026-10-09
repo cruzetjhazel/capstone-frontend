@@ -10,7 +10,7 @@ import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { cn, getInitials } from "@/lib/utils";
 import { useRole, getRoleDashboardPath } from "@/contexts/RoleContext";
-import { useNotifications } from "@/hooks/useNotifications";
+import { NotificationBell } from "@/components/NotificationBell";
 import toast from "react-hot-toast";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -82,10 +82,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
 
   const isActivePath = (path: string) => location.pathname === path;
 
-  const { data: notifications = [] } = useNotifications(isClient ? user?.email : undefined) || {};
-  const unreadCount = isClient && Array.isArray(notifications)
-    ? notifications.filter((n: any) => !n.read && !n.readAt).length
-    : 0;
+
 
   useEffect(() => {
     if (solid) return;
@@ -135,22 +132,9 @@ export default function MarketingNavbar({ solid = false }: Props) {
 
         <div className="flex items-center gap-3">
           {isClient && (
-            <button
-              type="button"
-              onClick={() => navigate("/notifications")}
-              aria-label="Notifications"
-              className={cn(
-                "relative hidden md:flex w-9 h-9 rounded-full items-center justify-center transition-colors",
-                onDark
-                  ? "text-white/80 hover:text-white hover:bg-white/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              <Bell className="w-[18px] h-[18px]" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full" />
-              )}
-            </button>
+            <div className="hidden md:block">
+              <NotificationBell onDark={onDark} />
+            </div>
           )}
 
           {user ? (
