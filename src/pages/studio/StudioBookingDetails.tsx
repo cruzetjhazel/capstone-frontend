@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
-import { getApiErrorMessage } from "@/services/clientProfileService";
+    import { getApiErrorMessage } from "@/services/clientProfileService";
+    import { BudgetResponsePanel } from "@/components/booking/BudgetResponsePanel";
 import { useRole } from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
 import {
@@ -33,8 +34,6 @@ import {
   useRejectCancellation,
   useApproveReschedule,
   useRejectReschedule,
-  useApproveExtension,
-  useDeclineExtension,
   useApproveModification,
   useRejectModification,
   useCancelBookingAsPhotographer,
@@ -44,6 +43,7 @@ import {
   useRecordOnsitePayment,
   useAccommodationCandidates,
   useAccommodateBooking,
+  usePhotographerBookings,
   useReportClientNoShow,
   useDisputeStudioNonCompletion,
 } from "@/hooks/usePhotographerBookings";
@@ -68,6 +68,30 @@ export default function StudioBookingDetail() {
 
   const { data: booking, isLoading, error, refetch } = usePhotographerBooking(id);
 
+  // Early-warning hint only (primary date/time, no buffer). The backend is the real guard.
+  const { data: allBookings = [] } = usePhotographerBookings();
+  const toMin = (t?: string | null) => {
+    if (!t) return null;
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  const isPaidBooking = (o: StudioBookingRecord) => o.paymentStatus === "partially_paid" || o.paymentStatus === "fully_paid";
+  const overlapsThis = (o: StudioBookingRecord) => {
+    if (!booking || o.date !== booking.date) return false;
+    const aS = toMin(booking.startTime);
+    const bS = toMin(o.startTime);
+    if (aS === null || bS === null) return false;
+    const aE = toMin(booking.endTime) ?? aS + 60;
+    const bE = toMin(o.endTime) ?? bS + 60;
+    return aS < bE && bS < aE;
+  };
+  const rivals = booking ? allBookings.filter((o) => String(o.id) !== String(booking.id) && overlapsThis(o)) : [];
+  const paidHolder = rivals.some((o) => o.status === "confirmed" && isPaidBooking(o));
+  const rivalsAccepted = rivals.filter((o) => o.status === "confirmed" && !isPaidBooking(o));
+  const rivalsPaymentSubmitted = rivals.filter(
+    (o) => (o.status === "confirmed" || o.status === "waitlisted") && o.paymentStatus === "pending_verification"
+  );
+
   // Reload until the backend flips an overdue request to "expired".
   useEffect(() => {
     if (!booking || !isPendingHoldExpired(booking)) return;
@@ -80,8 +104,7 @@ export default function StudioBookingDetail() {
   const rejectCancelMutation = useRejectCancellation();
   const approveRescheduleMutation = useApproveReschedule();
   const rejectRescheduleMutation = useRejectReschedule();
-  const approveExtensionMutation = useApproveExtension();
-  const declineExtensionMutation = useDeclineExtension();
+
   const approveModificationMutation = useApproveModification();
   const rejectModificationMutation = useRejectModification();
   const cancelBookingMutation = useCancelBookingAsPhotographer();
@@ -191,9 +214,13 @@ export default function StudioBookingDetail() {
 
   const handleConfirmAccept = async () => {
     try {
-      await acceptMutation.mutateAsync(booking.id);
+      const accepted = await acceptMutation.mutateAsync(booking.id);
       setActiveModal(null);
-      toast({ title: "Booking accepted", description: "Client has been notified to proceed with payment." });
+      toast(
+        accepted?.status === "waitlisted"
+          ? { title: "Added to waitlist", description: "Another paid booking already holds this schedule, so this request was waitlisted instead of sent to payment." }
+          : { title: "Booking accepted", description: "Client has been notified to proceed with payment." }
+      );
     } catch (error) {
       toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
     }
@@ -281,7 +308,7 @@ export default function StudioBookingDetail() {
       await accommodateMutation.mutateAsync({ id: booking.id, candidateBookingId: selectedCandidateId });
       setActiveModal(null);
       setSelectedCandidateId(null);
-      toast({ title: "Reservation accommodated", description: "The client has been notified to proceed with payment." });
+      toast({ title: "Reservation accommodated", description: "The client has been notified and must accept the offer before they can pay." });
     } catch (error) {
       toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
     }
@@ -394,7 +421,7 @@ export default function StudioBookingDetail() {
               <span className={`font-bold capitalize inline-flex items-center gap-1 ${
                 booking.status === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' :
                 booking.status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' :
-                booking.status === 'pending' ? 'text-amber-600 dark:text-amber-400' :
+                (booking.status === 'pending' || booking.status === 'waitlisted') ? 'text-amber-600 dark:text-amber-400' :
                 (booking.status === 'cancelled' || booking.status === 'no_show') ? 'text-destructive' :
                 booking.status === 'expired' ? 'text-muted-foreground' : 'text-blue-600'
               }`}>
@@ -457,47 +484,6 @@ export default function StudioBookingDetail() {
             </div>
           )}
 
-          {booking.hasPendingExtension && booking.extensions.filter((e) => e.status === "pending").map((ext) => (
-            <div key={ext.id} className="bg-violet-500/10 p-5 rounded-xl border border-violet-500/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <Clock className="w-5 h-5 text-violet-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-violet-800 dark:text-violet-300">
-                    Client Requested Additional Coverage{ext.scheduleLabel ? ` — ${ext.scheduleLabel}` : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    +{ext.requestedHours} hour{ext.requestedHours === 1 ? "" : "s"} at ₱{ext.hourlyRate.toLocaleString()}/hour —
-                    additional charge <strong>₱{ext.additionalCharge.toLocaleString()}</strong>
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {ext.scheduleLabel
-                      ? `This targets the "${ext.scheduleLabel}" schedule specifically, not the booking's other dates.`
-                      : `The client's booked coverage ends at ${booking.endTime}.`} Accepted additional hours will be
-                    charged at your configured hourly rate.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2 shrink-0 self-end sm:self-center">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={declineExtensionMutation.isPending}
-                  onClick={() => declineExtensionMutation.mutateAsync({ id: booking.id, extensionId: ext.id })}
-                >
-                  Decline
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-violet-600 hover:bg-violet-700 text-white"
-                  disabled={approveExtensionMutation.isPending}
-                  onClick={() => approveExtensionMutation.mutateAsync({ id: booking.id, extensionId: ext.id })}
-                >
-                  Approve Extension
-                </Button>
-              </div>
-            </div>
-          ))}
-
           {booking.pendingModification && (
             <div className="bg-amber-500/10 p-5 rounded-xl border border-amber-500/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -525,7 +511,9 @@ export default function StudioBookingDetail() {
             </div>
           )}
 
-          {booking.status === "pending" && !booking.hasActiveCancellationRequest && (
+              {booking.status === "pending" && <BudgetResponsePanel bookingId={booking.id} />}
+
+    {booking.status === "pending" && !booking.hasActiveCancellationRequest && (
             isPendingHoldExpired(booking) ? (
               <div className="bg-muted/50 p-5 rounded-xl border border-border/60 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
@@ -559,11 +547,24 @@ export default function StudioBookingDetail() {
             )
           )}
 
-          {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && booking.paymentStatus === "pending_verification" && (
+          {booking.status === "waitlisted" && (
             <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col sm:flex-row sm:items-center gap-3 justify-between text-amber-800 dark:text-amber-300 text-sm">
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                <span>Client submitted a GCash reference — needs your review before this booking can confirm.</span>
+                <span>Waitlisted — another paid booking holds this schedule. If that booking is cancelled, the slot is offered automatically to the oldest waitlisted client, who must accept the offer before paying. You can still offer it yourself from the cancelled booking's page ("Accommodate Other Reservation").</span>
+              </div>
+              <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0 text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => { setCancelReason(""); setActiveModal("cancel_booking"); }}>
+                <X className="w-3.5 h-3.5 mr-1" /> Remove from Waitlist
+              </Button>
+            </div>
+          )}
+
+          {(booking.status === "confirmed" || booking.status === "waitlisted") && !booking.hasActiveCancellationRequest && booking.paymentStatus === "pending_verification" && (
+            <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col sm:flex-row sm:items-center gap-3 justify-between text-amber-800 dark:text-amber-300 text-sm">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <span>{booking.status === "waitlisted" ? "Client submitted a GCash reference before another booking took this schedule. It is kept on record; it can only be verified if the schedule becomes free." : "Client submitted a GCash reference — needs your review before this booking can confirm."}</span>
               </div>
               <Button size="sm" variant="outline" className="h-8 text-xs bg-background shrink-0" onClick={() => setActiveModal("review_payment")}>
                 Review Payment
@@ -802,7 +803,7 @@ export default function StudioBookingDetail() {
                   )}
                   {candidates.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      {candidates.length} other client{candidates.length > 1 ? "s" : ""} previously requested this same date and time.
+                      {candidates.length} waitlisted client{candidates.length > 1 ? "s are" : " is"} waiting for this date and time. The oldest is offered the slot automatically; clients who declined or let an offer lapse stay listed here so you can still offer it to one of them yourself.
                     </p>
                   )}
 
@@ -863,7 +864,7 @@ export default function StudioBookingDetail() {
                 <Button
                   size="sm"
                   className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 self-end sm:self-center"
-                  onClick={() => setActiveModal("accommodate")}
+                  onClick={() => { setSelectedCandidateId(candidates[0]?.id ?? null); setActiveModal("accommodate"); }}
                 >
                   Accommodate Other Reservation
                 </Button>
@@ -1140,8 +1141,19 @@ export default function StudioBookingDetail() {
             </div>
 
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Accepting this request will notify <strong>{booking.clientName}</strong> to proceed with their deposit payment. The time slot will be reserved.
+              Accepting this request will notify <strong>{booking.clientName}</strong> to proceed with their deposit payment. The time slot is only reserved once you verify their payment.
             </p>
+
+            {paidHolder && (
+              <p className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 rounded-lg p-3">
+                Another client has already paid for this time, so accepting will put this request on the waitlist instead of sending it to payment.
+              </p>
+            )}
+            {!paidHolder && rivalsAccepted.length > 0 && (
+              <p className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 rounded-lg p-3">
+                Another client was already accepted for this time. If both pay, only the first payment you verify keeps the slot. The other booking moves to the waitlist, and you would need to refund them if the slot doesn't open.
+              </p>
+            )}
 
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="outline" onClick={() => setActiveModal(null)} disabled={isMutating}>Cancel</Button>
@@ -1428,6 +1440,11 @@ export default function StudioBookingDetail() {
                 </div>
 
                 <div className="space-y-1.5">
+                  {rivalsPaymentSubmitted.length > 0 && (
+                    <p className="text-[11px] text-red-700 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2">
+                      {rivalsPaymentSubmitted.map((o) => o.clientName).join(", ")} also submitted a payment for this time. Verifying this one moves them to the waitlist. Their payment stays on record, so refund them if the slot doesn't open.
+                    </p>
+                  )}
                   <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md p-2">
                     Only verify if your GCash history shows this exact reference number <strong>and</strong> an amount of ₱{paymentToReview.amount.toLocaleString()}. If you received less, reject it and write how much you actually received in the notes.
                   </p>
@@ -1465,7 +1482,7 @@ export default function StudioBookingDetail() {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg">Accommodate Other Reservation</h3>
-                  <p className="text-xs text-muted-foreground">Choose which client to offer this date/time to.</p>
+                  <p className="text-xs text-muted-foreground">Choose which waitlisted client to offer this date/time to. The oldest request is listed first.</p>
                 </div>
               </div>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setActiveModal(null); setSelectedCandidateId(null); }} disabled={accommodateMutation.isPending}>
@@ -1479,7 +1496,7 @@ export default function StudioBookingDetail() {
               ) : candidates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No previous requests are available for this date and time.</p>
               ) : (
-                candidates.map((c) => (
+                candidates.map((c, idx) => (
                   <label
                     key={c.id}
                     className={cn(
@@ -1495,8 +1512,8 @@ export default function StudioBookingDetail() {
                         onChange={() => setSelectedCandidateId(c.id)}
                       />
                       <div>
-                        <p className="font-semibold">{c.clientName}</p>
-                        <p className="text-xs text-muted-foreground">{c.packageName} • ₱{c.totalPrice.toLocaleString()}</p>
+                        <p className="font-semibold">{c.clientName}{idx === 0 && <span className="ml-2 text-[10px] font-bold uppercase text-primary">Oldest request</span>}</p>
+                        <p className="text-xs text-muted-foreground">{c.packageName} • ₱{c.totalPrice.toLocaleString()}{c.paymentStatus === "pending_verification" ? " • payment reference already submitted" : ""}</p>
                       </div>
                     </div>
                   </label>

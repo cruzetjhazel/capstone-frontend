@@ -55,7 +55,7 @@ function ClientMenuLink({
 export default function MarketingNavbar({ solid = false }: Props) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(solid);
-  const { user, logout } = useRole();
+  const { user, logout, isLoading } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -95,6 +95,14 @@ export default function MarketingNavbar({ solid = false }: Props) {
 
   const settingsPath = user?.role === "studio" ? "/studio/settings"
     : user?.role === "admin" ? "/admin/settings" : "/profile";
+
+  // Photographer whose application isn't approved yet has no dashboard to open.
+  const needsApplication =
+    user?.accountType === "photographer" && user.application?.status !== "approved";
+  const applicationLabel =
+    !user?.application || user.application.status === "draft"
+      ? "Continue application"
+      : "Application status";
 
   return (
     <header
@@ -137,7 +145,19 @@ export default function MarketingNavbar({ solid = false }: Props) {
             </div>
           )}
 
-          {user ? (
+          {isLoading ? (
+            <div
+              role="status"
+              aria-label="Loading account"
+              className={cn(
+                "hidden md:flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full border animate-pulse",
+                onDark ? "border-white/30" : "border-border"
+              )}
+            >
+              <div className={cn("w-7 h-7 rounded-full", onDark ? "bg-white/30" : "bg-muted-foreground/20")} />
+              <div className={cn("w-12 h-3.5 rounded", onDark ? "bg-white/30" : "bg-muted-foreground/20")} />
+            </div>
+          ) : user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -180,15 +200,17 @@ export default function MarketingNavbar({ solid = false }: Props) {
                 ) : (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link to={getRoleDashboardPath(user.role)}>
-                        <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
+                      <Link to={needsApplication ? "/photographer/status" : getRoleDashboardPath(user.role)}>
+                        <LayoutDashboard className="w-4 h-4 mr-2" /> {needsApplication ? applicationLabel : "Dashboard"}
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to={settingsPath}>
-                        <Settings className="w-4 h-4 mr-2" /> Profile Settings
-                      </Link>
-                    </DropdownMenuItem>
+                    {!needsApplication && (
+                      <DropdownMenuItem asChild>
+                        <Link to={settingsPath}>
+                          <Settings className="w-4 h-4 mr-2" /> Profile Settings
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
                   </>
                 )}
 
@@ -243,7 +265,9 @@ export default function MarketingNavbar({ solid = false }: Props) {
               </Link>
             ))}
             <div className="pt-3 flex flex-col gap-2">
-              {user ? (
+              {isLoading ? (
+                <div role="status" aria-label="Loading account" className="h-10 rounded-lg bg-muted animate-pulse" />
+              ) : user ? (
                 <>
                   {isClient ? (
                     <>
@@ -301,12 +325,14 @@ export default function MarketingNavbar({ solid = false }: Props) {
                     </>
                   ) : (
                     <>
-                      <Link to={getRoleDashboardPath(user.role)} onClick={() => setOpen(false)}>
-                        <Button variant="outline" className="w-full"><LayoutDashboard className="w-4 h-4 mr-2" />Dashboard</Button>
+                      <Link to={needsApplication ? "/photographer/status" : getRoleDashboardPath(user.role)} onClick={() => setOpen(false)}>
+                        <Button variant="outline" className="w-full"><LayoutDashboard className="w-4 h-4 mr-2" />{needsApplication ? applicationLabel : "Dashboard"}</Button>
                       </Link>
-                      <Link to={settingsPath} onClick={() => setOpen(false)}>
-                        <Button variant="outline" className="w-full"><Settings className="w-4 h-4 mr-2" />Profile Settings</Button>
-                      </Link>
+                      {!needsApplication && (
+                        <Link to={settingsPath} onClick={() => setOpen(false)}>
+                          <Button variant="outline" className="w-full"><Settings className="w-4 h-4 mr-2" />Profile Settings</Button>
+                        </Link>
+                      )}
                     </>
                   )}
                   <Button

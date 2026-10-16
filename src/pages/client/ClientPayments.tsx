@@ -83,7 +83,7 @@ export default function ClientPayments() {
                     <h3 className="font-semibold text-foreground">{booking.photographerName}</h3>
                     <p className="text-sm text-muted-foreground">Booking ID: {booking.id} &bull; {booking.packageName}</p>
                     <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded">
-                      Payment Required to Confirm
+                      {booking.awaitingOfferAcceptance ? "Accept the Offer to Pay" : "Payment Required to Confirm"}
                     </span>
                   </div>
                   <div className="flex flex-col sm:items-end gap-3 text-left sm:text-right">
@@ -91,9 +91,9 @@ export default function ClientPayments() {
                       <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Amount Due</p>
                       <p className="font-bold text-amber-600 dark:text-amber-400 text-lg">{formatPrice(booking.dueNow)}</p>
                     </div>
-                    <Link to={`/booking/${booking.id}/pay`}>
+                    <Link to={booking.awaitingOfferAcceptance ? `/booking/${booking.id}/details` : `/booking/${booking.id}/pay`}>
                       <Button size="sm" className="gap-2 bg-amber-600 hover:bg-amber-700 text-white w-full sm:w-auto">
-                        Pay Now <ArrowRight className="w-4 h-4" />
+                        {booking.awaitingOfferAcceptance ? "Review Offer" : "Pay Now"} <ArrowRight className="w-4 h-4" />
                       </Button>
                     </Link>
                   </div>

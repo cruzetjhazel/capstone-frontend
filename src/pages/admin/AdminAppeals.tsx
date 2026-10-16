@@ -27,7 +27,7 @@ type Appeal = {
 const FILTERS: { id: string; label: string }[] = [
   { id: "pending", label: "Pending" },
   { id: "approved", label: "Approved" },
-  { id: "denied", label: "Denied" },
+  { id: "denied", label: "Rejected" },
   { id: "", label: "All" },
 ];
 
@@ -39,6 +39,7 @@ export default function AdminAppeals() {
   const [loading, setLoading] = useState(true);
   const [responses, setResponses] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [dialog, setDialog] = useState<{ appeal: Appeal; step: "reject-reason" | "reject-confirm" | "approve" } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -57,13 +58,14 @@ export default function AdminAppeals() {
   const decide = async (a: Appeal, decision: "approve" | "deny") => {
     const response = (responses[a.id] ?? "").trim();
     if (decision === "deny" && !response) {
-      toast.error("Please explain why the appeal is denied.");
+      toast.error("Please explain why the appeal is rejected.");
       return;
     }
     setBusyId(a.id);
     try {
       await api.patch(`/admin/appeals/${a.id}/decide`, { decision, response: response || undefined });
-      toast.success(decision === "approve" ? `${a.user.name}'s account was reactivated.` : "Appeal denied.");
+      setDialog(null);
+      toast.success(decision === "approve" ? `${a.user.name}'s account was reactivated.` : "Appeal rejected.");
       await load();
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Couldn't save the decision."));
@@ -111,7 +113,7 @@ export default function AdminAppeals() {
                     }`}
                   >
                     {a.status === "pending" ? <Clock className="w-3 h-3" /> : a.status === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                    {a.status}
+                    {a.status === "denied" ? "rejected" : a.status}
                   </span>
                 </div>
 
@@ -144,16 +146,11 @@ export default function AdminAppeals() {
 
                 {a.status === "pending" ? (
                   <div className="space-y-2 pt-2 border-t border-border/50">
-                    <Textarea
-                      rows={2}
-                      placeholder="Response to the user (required when denying)"
-                      value={responses[a.id] ?? ""}
-                      onChange={(e) => setResponses((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                    />
+
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="destructive" disabled={busyId === a.id} onClick={() => decide(a, "deny")}>Deny</Button>
-                      <Button size="sm" disabled={busyId === a.id} onClick={() => decide(a, "approve")}>
-                        {busyId === a.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Approve & reactivate"}
+                      <Button size="sm" variant="destructive" disabled={busyId === a.id} onClick={() => setDialog({ appeal: a, step: "reject-reason" })}>Reject</Button>
+                      <Button size="sm" disabled={busyId === a.id} onClick={() => setDialog({ appeal: a, step: "approve" })}>
+                        Approve &amp; reactivate
                       </Button>
                     </div>
                   </div>
@@ -167,6 +164,90 @@ export default function AdminAppeals() {
           </div>
         )}
       </div>
+      {dialog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            {dialog.step === "reject-reason" && (
+              <>
+                <div>
+                  <h3 className="font-heading font-bold text-base">Reject appeal</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Explain to {dialog.appeal.user.name} why the appeal is rejected. They will see this on their account status page.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Textarea
+                    rows={4}
+                    placeholder="Reason for rejecting the appeal (at least 10 characters)"
+                    value={responses[dialog.appeal.id] ?? ""}
+                    onChange={(e) => setResponses((prev) => ({ ...prev, [dialog.appeal.id]: e.target.value }))}
+                  />
+                  <p
+                    className={`text-[11px] ${
+                      (responses[dialog.appeal.id] ?? "").trim().length >= 10 ? "text-emerald-600" : "text-muted-foreground"
+                    }`}
+                  >
+                    {(responses[dialog.appeal.id] ?? "").trim().length} / 10 characters minimum
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setDialog(null)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    disabled={(responses[dialog.appeal.id] ?? "").trim().length < 10}
+                    className="disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if ((responses[dialog.appeal.id] ?? "").trim().length < 10) return;
+                      setDialog({ appeal: dialog.appeal, step: "reject-confirm" });
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {dialog.step === "reject-confirm" && (
+              <>
+                <div>
+                  <h3 className="font-heading font-bold text-base">Are you sure you want to reject this appeal?</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {dialog.appeal.user.name}'s account will stay suspended and they will see your reason:
+                  </p>
+                </div>
+                <p className="text-sm bg-muted/40 rounded-lg p-3 whitespace-pre-wrap break-words">
+                  {(responses[dialog.appeal.id] ?? "").trim()}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" disabled={busyId === dialog.appeal.id} onClick={() => setDialog({ appeal: dialog.appeal, step: "reject-reason" })}>
+                    Go back
+                  </Button>
+                  <Button variant="destructive" size="sm" disabled={busyId === dialog.appeal.id} onClick={() => decide(dialog.appeal, "deny")}>
+                    {busyId === dialog.appeal.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, reject"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {dialog.step === "approve" && (
+              <>
+                <div>
+                  <h3 className="font-heading font-bold text-base">Approve and reactivate?</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {dialog.appeal.user.name}'s account will be reactivated and they will be able to log in again.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" disabled={busyId === dialog.appeal.id} onClick={() => setDialog(null)}>Cancel</Button>
+                  <Button size="sm" disabled={busyId === dialog.appeal.id} onClick={() => decide(dialog.appeal, "approve")}>
+                    {busyId === dialog.appeal.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, approve"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

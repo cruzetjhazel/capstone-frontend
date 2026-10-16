@@ -136,6 +136,12 @@ export default function AdminUsers() {
   const [confirmAction, setConfirmAction] = useState<{ user: UserRecord; type: "suspend" | "reactivate" } | null>(null);
   const [actionReason, setActionReason] = useState("");
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [impact, setImpact] = useState<{ pending_bookings: number; confirmed_bookings: number; pending_payments: number } | null>(null);
+  const [impactAcknowledged, setImpactAcknowledged] = useState(false);
+  const hasOpenActivity =
+    !!impact && (impact.pending_bookings > 0 || impact.confirmed_bookings > 0 || impact.pending_payments > 0);
+  const [phoneEdit, setPhoneEdit] = useState<{ user: UserRecord; value: string } | null>(null);
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -168,6 +174,18 @@ export default function AdminUsers() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, roleFilter, statusFilter, search]);
 
+  // Load the user's open bookings / pending payments when the suspend modal opens.
+  useEffect(() => {
+    setImpact(null);
+    setImpactAcknowledged(false);
+    if (confirmAction?.type !== "suspend") return;
+    let cancelled = false;
+    api.get(`/admin/users/${confirmAction.user.id}/suspension-impact`)
+      .then((res) => { if (!cancelled) setImpact(res.data?.data ?? res.data); })
+      .catch(() => { /* warning is optional; suspending still works */ });
+    return () => { cancelled = true; };
+  }, [confirmAction]);
+
   // Freelancer/studio split and current page slicing happen client-side on
   // the fetched batch — the backend query above already narrowed by
   // account_type/status/search, this just refines the photographer split.
@@ -197,23 +215,55 @@ export default function AdminUsers() {
       toast.error("Please provide a reason.");
       return;
     }
+    if (confirmAction.type === "suspend" && hasOpenActivity && !impactAcknowledged) {
+      toast.error("Please confirm that you understand the impact on open bookings.");
+      return;
+    }
 
     setIsProcessingAction(true);
     try {
       const endpoint = confirmAction.type === "suspend" ? "suspend" : "reactivate";
-      await api.post(`/admin/users/${confirmAction.user.id}/${endpoint}`, { reason: actionReason || undefined });
+      const res = await api.post(`/admin/users/${confirmAction.user.id}/${endpoint}`, { reason: actionReason || undefined });
 
       const newStatus: AccountStatus = confirmAction.type === "suspend" ? "suspended" : "active";
       setUsers((prev) => prev.map((u) => (u.id === confirmAction.user.id ? { ...u, status: newStatus } : u)));
 
       const verb = confirmAction.type === "suspend" ? "suspended" : "reactivated";
-      toast.success(`Account for ${confirmAction.user.name} has been ${verb}.`);
+      toast.success(
+        confirmAction.type === "suspend" && res.data?.message
+          ? `${confirmAction.user.name}: ${res.data.message}`
+          : `Account for ${confirmAction.user.name} has been ${verb}.`
+      );
       setConfirmAction(null);
       setActionReason("");
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Failed to update account status."));
     } finally {
       setIsProcessingAction(false);
+    }
+  };
+
+  // Same PH mobile format the rest of the app uses (09XXXXXXXXX or +639XXXXXXXXX).
+  const PH_MOBILE = /^(?:\+63|0)9\d{9}$/;
+
+  const savePhone = async () => {
+    if (!phoneEdit) return;
+    const cleaned = phoneEdit.value.replace(/[\s-]/g, "");
+    if (!PH_MOBILE.test(cleaned)) {
+      toast.error("Enter a valid PH mobile number, e.g. 09171234567 or +639171234567.");
+      return;
+    }
+
+    setIsSavingPhone(true);
+    try {
+      await api.patch(`/admin/users/${phoneEdit.user.id}/contact-number`, { phone_number: cleaned });
+      setUsers((prev) => prev.map((u) => (u.id === phoneEdit.user.id ? { ...u, phone: cleaned } : u)));
+      toast.success(`Contact number updated for ${phoneEdit.user.name}.`);
+      setPhoneEdit(null);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update contact number."));
+    } finally {
+      setIsSavingPhone(false);
     }
   };
 
@@ -379,6 +429,12 @@ export default function AdminUsers() {
                                 Reactivate Account
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuItem
+                              className="cursor-pointer"
+                              onClick={() => setPhoneEdit({ user: u, value: u.phone === "—" ? "" : u.phone })}
+                            >
+                              Update Contact Number
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
@@ -448,6 +504,32 @@ export default function AdminUsers() {
               {confirmAction.type === "reactivate" && `This will restore full platform and operational access for ${confirmAction.user.name}.`}
             </p>
 
+            {confirmAction.type === "suspend" && impact && (impact.pending_bookings > 0 || impact.confirmed_bookings > 0 || impact.pending_payments > 0) && (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+                <p className="font-semibold mb-1">This user has open activity</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {impact.pending_bookings > 0 && (
+                    <li>{impact.pending_bookings} pending booking{impact.pending_bookings > 1 ? "s" : ""} will be cancelled, and the other party notified</li>
+                  )}
+                  {impact.confirmed_bookings > 0 && (
+                    <li>{impact.confirmed_bookings} confirmed booking{impact.confirmed_bookings > 1 ? "s" : ""} will stay open for your review, and the other party notified</li>
+                  )}
+                  {impact.pending_payments > 0 && (
+                    <li>{impact.pending_payments} payment{impact.pending_payments > 1 ? "s" : ""} waiting for verification</li>
+                  )}
+                </ul>
+                <label className="mt-3 flex items-start gap-2 cursor-pointer font-medium">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-primary"
+                    checked={impactAcknowledged}
+                    onChange={(e) => setImpactAcknowledged(e.target.checked)}
+                  />
+                  <span>I understand these bookings will be cancelled or flagged.</span>
+                </label>
+              </div>
+            )}
+
             {confirmAction.type === "suspend" && (
               <div className="space-y-3 mb-6">
                 <label className="text-sm font-semibold">Reason for Action <span className="text-destructive">*</span></label>
@@ -464,7 +546,12 @@ export default function AdminUsers() {
               <Button variant="outline" onClick={() => { setConfirmAction(null); setActionReason(""); }} className="rounded-xl px-6" disabled={isProcessingAction}>
                 Cancel
               </Button>
-              <Button variant={getActionConfig(confirmAction.type).variant} onClick={executeConfirmAction} className="rounded-xl px-6" disabled={isProcessingAction}>
+              <Button
+                variant={getActionConfig(confirmAction.type).variant}
+                onClick={executeConfirmAction}
+                className="rounded-xl px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isProcessingAction || (confirmAction.type === "suspend" && hasOpenActivity && !impactAcknowledged)}
+              >
                 {isProcessingAction ? "Working…" : getActionConfig(confirmAction.type).btnText}
               </Button>
             </div>
@@ -526,6 +613,39 @@ export default function AdminUsers() {
 
             <div className="mt-6 flex justify-end">
               <Button onClick={() => setViewUser(null)} className="w-full sm:w-auto">Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {phoneEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-card border border-border/50 rounded-2xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200 m-4 relative flex flex-col">
+            <button onClick={() => setPhoneEdit(null)} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors z-10">
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-heading font-bold text-foreground mb-2">Update Contact Number</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              Only apply this after you've verified the request from <strong>{phoneEdit.user.name}</strong> in Reports. The change is recorded in the activity log.
+            </p>
+
+            <div className="space-y-2 mb-6">
+              <label className="text-sm font-semibold">New contact number</label>
+              <Input
+                value={phoneEdit.value}
+                onChange={(e) => setPhoneEdit({ ...phoneEdit, value: e.target.value })}
+                placeholder="09171234567"
+                className="h-11 rounded-xl bg-muted/50 border-border/50"
+              />
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <Button variant="outline" onClick={() => setPhoneEdit(null)} className="rounded-xl px-6" disabled={isSavingPhone}>
+                Cancel
+              </Button>
+              <Button onClick={savePhone} className="rounded-xl px-6" disabled={isSavingPhone}>
+                {isSavingPhone ? "Saving…" : "Save Number"}
+              </Button>
             </div>
           </div>
         </div>

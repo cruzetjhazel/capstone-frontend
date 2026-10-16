@@ -5,7 +5,7 @@
 // the API side) — this used to drift ("approved"/"paid" were never real
 // statuses the API returns), which meant bookingService.ts's `as BookingStatus`
 // cast on live API responses was silently unchecked. Fixed to match.
-export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "expired";
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "waitlisted";
 export type BookingPaymentStatus = "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
 
 // New: track where the creative production is at!
@@ -35,6 +35,8 @@ export interface BookingRecord {
   nonCompletionDisputeReason?: string | null;
   nonCompletionAdminNotes?: string | null;
   isReviewable?: boolean;
+  statusNotice?: string | null;
+  slotOfferedAt?: string | null;
   id: string;
   clientEmail?: string;
   photographerId: string;

@@ -263,7 +263,12 @@ export default function StudioCalendar() {
   const getDayStatus = (dateStr: string): DayStatus => {
     if (blockedByDate[dateStr]) return "blocked";
     const dayBookings = bookingsByDate[dateStr] || [];
-    if (dayBookings.length > 1) return "mixed";
+    if (dayBookings.length > 1) {
+      const anyPaid = dayBookings.some(
+        (b) => b.status === "completed" || (b.status === "confirmed" && (b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid"))
+      );
+      return anyPaid ? "booked" : "pending";
+    }
     if (dayBookings.length === 1) {
       const s = dayBookings[0].status;
       // Matches the booking page: a slot only counts as taken once payment is confirmed.
@@ -416,7 +421,7 @@ export default function StudioCalendar() {
     { key: "blocked", label: "Blocked", icon: Ban, colorClass: "text-red-600 dark:text-red-400" },
     { key: "booked", label: "Booked", icon: Camera, colorClass: "text-blue-500" },
     { key: "pending", label: "Pending", icon: Hourglass, colorClass: "text-amber-500" },
-    { key: "closed", label: "No Hours Set", icon: Clock, colorClass: "text-muted-foreground" },
+    { key: "closed", label: "Day off", icon: Clock, colorClass: "text-muted-foreground" },
     { key: "past", label: "Past", icon: CalendarIcon, colorClass: "text-muted-foreground/60" },
   ];
 
@@ -452,6 +457,12 @@ export default function StudioCalendar() {
             })}
           </div>
         </div>
+
+        {activeFilter === "closed" && (
+          <p className="text-xs text-muted-foreground -mt-3">
+            Highlights your days off: weekdays with no hours in Usual Booking Hours. If every day is faded, you have no days off.
+          </p>
+        )}
 
         {/* Search */}
         <div className="relative max-w-md">
@@ -533,7 +544,7 @@ export default function StudioCalendar() {
                     const overviewText =
                       status === "blocked"
                         ? (blockedByDate[dateStr]?.reason || "Blocked")
-                        : status === "mixed"
+                        : dayBookings.length > 1
                         ? summarizeBookings(dayBookings)
                         : status === "booked" || status === "pending"
                         ? dayBookings[0].eventType

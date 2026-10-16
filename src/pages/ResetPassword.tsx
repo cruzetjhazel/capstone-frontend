@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, ArrowLeft, KeyRound, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,16 @@ export default function ResetPassword() {
 
   // These two come from the link Laravel's Password::sendResetLink() generates —
   // the backend's Password::reset() call requires both to look up and validate the token.
-  const token = searchParams.get("token") || "";
-  const email = searchParams.get("email") || "";
+  // Read the link values once, then remove them from the address bar so the
+  // token doesn't stay in browser history or get sent along in referrer headers.
+  const [token] = useState(() => searchParams.get("token") || "");
+  const [email] = useState(() => searchParams.get("email") || "");
+
+  useEffect(() => {
+    if (window.location.search) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -25,12 +33,33 @@ export default function ResetPassword() {
 
   const missingLinkParams = !token || !email;
 
+  const [linkStatus, setLinkStatus] = useState<"checking" | "valid" | "invalid">("checking");
+
+  useEffect(() => {
+    if (missingLinkParams) return;
+    let cancelled = false;
+    api
+      .post("/auth/reset-password/validate", { token, email })
+      .then(() => { if (!cancelled) setLinkStatus("valid"); })
+      .catch((err) => {
+        if (cancelled) return;
+        // Only a real 422 means invalid; on network/server errors, still let the user try the form.
+        setLinkStatus((err as any)?.response?.status === 422 ? "invalid" : "valid");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (password.length < 8) {
       setError("Password must be at least 8 characters long.");
+      return;
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setError("Password must include at least one letter and one number.");
       return;
     }
     if (password !== passwordConfirmation) {
@@ -49,7 +78,10 @@ export default function ResetPassword() {
       toast.success("Password has been reset. Please sign in with your new password.");
       navigate("/login");
     } catch (err) {
-      const message = getApiErrorMessage(err, "This reset link is invalid or has expired.");
+      const raw = getApiErrorMessage(err, "");
+      const message = /token/i.test(raw)
+        ? "This reset link is invalid or has expired. Please request a new one."
+        : raw || "Something went wrong. Please try again.";
       setError(message);
       toast.error(message);
     } finally {
@@ -96,15 +128,17 @@ export default function ResetPassword() {
             </div>
           </div>
 
-          {missingLinkParams ? (
+          {missingLinkParams || linkStatus === "invalid" ? (
             <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-lg p-3">
               <ShieldX className="w-4 h-4 shrink-0 mt-0.5" />
               <span>
-                This link is missing required information. Please use the link from your password reset email, or
+                This reset link is invalid or has expired. Please
                 {" "}
                 <Link to="/login" className="underline font-medium">request a new one</Link>.
               </span>
             </div>
+          ) : linkStatus === "checking" ? (
+            <p className="text-sm text-muted-foreground">Verifying your reset link…</p>
           ) : (
             <form className="space-y-5" onSubmit={handleSubmit}>
               <div className="space-y-2">

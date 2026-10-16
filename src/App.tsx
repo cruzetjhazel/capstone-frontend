@@ -18,6 +18,8 @@ import AccountStatus from "./pages/AccountStatus";
 import Register from "./pages/Register";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import ResetPassword from "./pages/ResetPassword";
+import EmailVerified from "./pages/EmailVerified";
+import VerifyEmailBanner from "@/components/VerifyEmailBanner";
 import Photographers from "./pages/Photographers";
 import PhotographerProfile from "./pages/PhotographerProfile";
 import About from "./pages/About";
@@ -80,7 +82,7 @@ function RouteThemeEnforcer() {
   const { theme, systemTheme } = useTheme();
 
   const isPublicRoute = 
-    ["/", "/explore", "/login", "/register", "/photographers", "/about", "/account-status"].includes(location.pathname) || 
+    ["/", "/explore", "/login", "/register", "/photographers", "/about", "/account-status", "/email-verified"].includes(location.pathname) || 
     location.pathname.startsWith("/photographers/");
 
   useEffect(() => {
@@ -154,6 +156,7 @@ const App = () => (
         <RouteThemeEnforcer />
         <RoleProvider>
           <FavoritesProvider>
+            <VerifyEmailBanner />
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<Home />} />
@@ -163,6 +166,7 @@ const App = () => (
               <Route path="/register" element={<Register />} />
               <Route path="/terms" element={<TermsAndConditions />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/email-verified" element={<EmailVerified />} />
               <Route path="/photographers" element={<Photographers />} />
               <Route path="/photographers/:id" element={<PhotographerProfile />} />
               <Route path="/about" element={<About />} />

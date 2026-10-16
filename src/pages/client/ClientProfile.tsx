@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ClientLayout } from "@/components/ClientLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRole } from "@/contexts/RoleContext";
+import EmailVerifiedBadge from "@/components/EmailVerifiedBadge";
 import { useBookings } from "@/hooks/useBookings";
 import api, { getApiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
@@ -48,6 +49,14 @@ export default function Profile() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deactivateAvailableOn, setDeactivateAvailableOn] = useState<string | null>(null);
+  const deactivateCooldownActive = !!deactivateAvailableOn && new Date(deactivateAvailableOn) > new Date();
+  const deactivateAvailableLabel = deactivateAvailableOn
+    ? new Date(deactivateAvailableOn).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : "";
+  const deactivateDaysLeft = deactivateAvailableOn
+    ? Math.max(1, Math.ceil((new Date(deactivateAvailableOn).getTime() - Date.now()) / 86400000))
+    : 0;
 
   const fetchProfile = async () => {
     setIsLoadingProfile(true);
@@ -65,6 +74,7 @@ export default function Profile() {
       setInitialData(loaded);
       setFormData(loaded);
       setAvatarUrl(p.profile_photo_url ?? null);
+      setDeactivateAvailableOn(p.deactivate_available_on ?? null);
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Unable to load your profile."));
     } finally {
@@ -268,10 +278,22 @@ export default function Profile() {
                 <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Email Address (Read-Only)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Email Address (Read-Only)</Label>
+                  <EmailVerifiedBadge verified={user?.emailVerified} />
+                </div>
                 <Input type="email" disabled value={formData.email} className="bg-muted/50 cursor-not-allowed" />
+                {user?.emailVerified === false && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Check your inbox (or spam) for the verification link.
+                  </p>
+                )}
                 <p className="text-[11px] text-muted-foreground">
-                  To update your email address, contact support.
+                  To update your email address,{" "}
+                  <Link to="/report-problem?change=email" className="text-primary hover:underline">
+                    contact support
+                  </Link>
+                  .
                 </p>
               </div>
               <div className="space-y-2">
@@ -285,6 +307,11 @@ export default function Profile() {
                 <p className="text-[11px] text-muted-foreground">
                   Your registered number can't be changed here. Contact support if it needs updating.
                 </p>
+                <Link to="/report-problem?change=phone">
+                  <Button type="button" variant="outline" size="sm" className="mt-1">
+                    Request Contact Number Change
+                  </Button>
+                </Link>
               </div>
               <div className="space-y-2">
                 <Label>Birthday</Label>
@@ -445,6 +472,16 @@ export default function Profile() {
             </div>
 
             <div className="space-y-4 px-6 overflow-y-auto">
+              {deactivateCooldownActive && (
+                <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    You recently reactivated your account. You can deactivate it again in{" "}
+                    <strong>{deactivateDaysLeft} day{deactivateDaysLeft === 1 ? "" : "s"}</strong>{" "}
+                    (on {deactivateAvailableLabel}).
+                  </span>
+                </div>
+              )}
               <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
                 <li>Your profile will be hidden.</li>
                 <li>You won't receive new bookings.</li>
@@ -478,7 +515,7 @@ export default function Profile() {
                 variant="destructive"
                 size="sm"
                 onClick={confirmDeactivateAccount}
-                disabled={isDeactivating || deactivateConfirmWord !== "DEACTIVATE"}
+                disabled={isDeactivating || deactivateCooldownActive || deactivateConfirmWord !== "DEACTIVATE"}
               >
                 {isDeactivating ? "Deactivating account..." : "Confirm Deactivation"}
               </Button>

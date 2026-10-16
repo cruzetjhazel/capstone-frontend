@@ -69,6 +69,7 @@ const getStatusBadge = (status: string, date?: string, nonCompletionReason?: str
     return { label: "Not Completed — Client No-Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
   }
   switch (status) {
+    case "waitlisted": return { label: "Waitlisted", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
     case "pending": return { label: "Pending", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
     case "confirmed": return { label: "Confirmed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
     case "completed": return { label: "Completed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
@@ -135,8 +136,17 @@ function PaymentSummary({ booking }: { booking: any }) {
 
 function ClientPaymentAction({ booking, prominent = false }: { booking: any; prominent?: boolean }) {
   const { remaining } = getPaymentSummary(booking);
-  const canPay = booking.status === "confirmed" && remaining > 0 && booking.paymentStatus === "pending";
-  if (!canPay) return null;
+  const canPay = booking.status === "confirmed" && remaining > 0 && booking.paymentStatus === "pending" && !booking.awaitingOfferAcceptance;
+    if (booking.status === "confirmed" && booking.awaitingOfferAcceptance) {
+      return (
+        <Link to={`/booking/${booking.id}/details`}>
+          <Button size="sm" className={cn("gap-1.5 rounded-xl", prominent && "bg-amber-600 hover:bg-amber-700 text-white")}>
+            Review Offer
+          </Button>
+        </Link>
+      );
+    }
+    if (!canPay) return null;
   return (
     <Link to={`/booking/${booking.id}/pay`}>
       <Button size="sm" className={cn("gap-1.5 rounded-xl", prominent && "bg-amber-600 hover:bg-amber-700 text-white")}>
@@ -230,7 +240,7 @@ function ServiceProgressTracker({ booking }: { booking: any }) {
 function CurrentBookingCard({ booking, photographer }: { booking: any; photographer?: any }) {
   const sessionLabel = getSessionLabel(booking);
   const roleLabel = getProviderRoleLabel(photographer);
-  const showTracker = !TERMINAL_STATUSES.filter((s) => s !== "completed").includes(booking.status);
+  const showTracker = !TERMINAL_STATUSES.filter((s) => s !== "completed").includes(booking.status) && booking.status !== "waitlisted";
 
   return (
     <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/[0.04] to-accent/5 border border-primary/10 rounded-2xl p-5 sm:p-6">
@@ -269,8 +279,11 @@ function CurrentBookingCard({ booking, photographer }: { booking: any; photograp
 
       <div className="relative mt-5 pt-4 border-t border-primary/10 space-y-2">
         <PaymentSummary booking={booking} />
-        {booking.paymentStatus === "pending_verification" && (
+        {booking.paymentStatus === "pending_verification" && booking.status !== "waitlisted" && (
           <p className="text-xs text-amber-700">Payment is under review.</p>
+        )}
+        {booking.statusNotice && (
+          <p className="text-xs text-amber-700 bg-amber-500/10 rounded-lg px-3 py-2">{booking.statusNotice}</p>
         )}
       </div>
 

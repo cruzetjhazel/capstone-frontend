@@ -275,7 +275,7 @@ export default function Booking() {
   // Extra sessions on a custom package: sliding-hours only, and only when the
   // photographer turned it on AND chose how the base fee applies.
   const customAllowsMultiple =
-    (rates.hourlyRate != null || isUnitModel) && !!rates.allowsMultipleSessions;
+    !!rates.allowsMultipleSessions;
   const extraSessionMinHours =
     rates.baseFeeMode === "per_schedule" ? (rates.minHours ?? 1) : (rates.sessionMinHours ?? 1);
   const extraSessionMaxHours = rates.maxHours ?? 12;
@@ -639,6 +639,9 @@ export default function Booking() {
   const sessionDurationSource = (s: SessionDraft) => {
     if (packageMode === "custom" && rates.hourlyRate != null) {
       return { packageId: undefined, customMinutes: Math.round((sessionHours(s) ?? extraSessionMinHours) * 60), overrideMinutes: undefined };
+    }
+    if (packageMode === "custom" && durationHoursForEstimate) {
+      return { packageId: undefined, customMinutes: Math.round(durationHoursForEstimate * 60), overrideMinutes: undefined };
     }
     const own = s.durationHours.trim() !== "" ? Math.round(Number(s.durationHours) * 60) : undefined;
     return { packageId: calendarPackageId, customMinutes: undefined, overrideMinutes: own && own > 0 ? own : undefined };
@@ -1244,6 +1247,22 @@ export default function Booking() {
             <h2 className="font-heading font-bold text-xl mb-2">Client accounts only</h2>
             <p className="text-sm text-muted-foreground mb-6">
               You're signed in as a {role === "studio" ? "studio/photographer" : role} account. Only client accounts can submit booking requests — sign in with a client account to book {p.name}.
+            </p>
+            <button onClick={() => navigate(-1)} className="text-xs text-muted-foreground hover:text-foreground">
+              Go back
+            </button>
+          </div>
+        </div>
+      )}
+      {user && role === "client" && user.emailVerified === false && (
+        <div className="fixed inset-0 z-[45] flex items-center justify-center backdrop-blur-md bg-background/60 animate-fade-in pb-24">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl p-8 max-w-sm mx-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+              <Info className="w-6 h-6 text-amber-500" />
+            </div>
+            <h2 className="font-heading font-bold text-xl mb-2">Verify your email first</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Please verify <strong className="text-foreground">{user.email}</strong> before booking {p.name}. Use the Resend button below if you can't find the email. This page unlocks by itself once you've verified.
             </p>
             <button onClick={() => navigate(-1)} className="text-xs text-muted-foreground hover:text-foreground">
               Go back
@@ -2265,7 +2284,7 @@ export default function Booking() {
                   <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2 mt-4">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <p className="text-xs text-primary/90">
-                      <strong>Note:</strong> By confirming, your requested time will be temporarily held for up to 48 hours while the photographer reviews your request. You won't be charged until it is approved.
+                      <strong>Note:</strong> By confirming, the photographer has up to 48 hours to review your request. Your time is only reserved once your request is accepted and your payment is confirmed. You won't be charged until it is approved.
                     </p>
                   </div>
                 </div>
@@ -2361,7 +2380,7 @@ export default function Booking() {
             </button>
             <h2 className="text-xl font-heading font-bold mb-2">Confirm Booking Request</h2>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Are you sure you want to submit this booking request? Your requested time will be temporarily held for up to 48 hours while the photographer reviews it.
+              Are you sure you want to submit this booking request? The photographer has up to 48 hours to review it. The time is only reserved once your payment is confirmed.
             </p>
             <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsConfirmModalOpen(false)} disabled={isSubmitting}>Back</Button>

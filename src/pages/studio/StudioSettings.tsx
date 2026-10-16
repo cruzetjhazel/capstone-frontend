@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useRole } from "@/contexts/RoleContext";
+import EmailVerifiedBadge from "@/components/EmailVerifiedBadge";
 import api, { getApiErrorMessage } from "@/lib/api";
 import {
   photographerProfileService,
@@ -82,7 +83,7 @@ type ProfileSnapshot = {
 type GcashSnapshot = { name: string; number: string };
 
 export default function StudioSettings() {
-  const { user, refreshProfilePhoto } = useRole();
+  const { user, refreshProfilePhoto, logout } = useRole();
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -134,6 +135,15 @@ export default function StudioSettings() {
   // ---- Modals ----
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [deactivateInput, setDeactivateInput] = useState("");
+  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [deactivateAvailableOn, setDeactivateAvailableOn] = useState<string | null>(null);
+  const deactivateCooldownActive = !!deactivateAvailableOn && new Date(deactivateAvailableOn) > new Date();
+  const deactivateAvailableLabel = deactivateAvailableOn
+    ? new Date(deactivateAvailableOn).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : "";
+  const deactivateDaysLeft = deactivateAvailableOn
+    ? Math.max(1, Math.ceil((new Date(deactivateAvailableOn).getTime() - Date.now()) / 86400000))
+    : 0;
   const [docModal, setDocModal] = useState<{ title: string; url: string } | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -213,6 +223,16 @@ export default function StudioSettings() {
     }).catch(() => {
       setInitialGcash({ name: "", number: "" });
     });
+  }, []);
+
+  // Reads the 7-day deactivation wait from the profile response (needs no change to the profile service).
+  useEffect(() => {
+    api.get("/photographer/profile")
+      .then((res) => {
+        const p = res.data?.data ?? res.data;
+        setDeactivateAvailableOn(p?.deactivate_available_on ?? null);
+      })
+      .catch(() => {});
   }, []);
 
   // ---- Dirty tracking (mirrors ClientProfile.tsx's sticky-bar pattern) ----
@@ -499,10 +519,19 @@ export default function StudioSettings() {
     setDocModal(null);
   };
 
-  const handleDeactivate = () => {
-    toast.error("Account deactivation isn't available for photographer accounts yet.");
-    setShowDeactivateConfirm(false);
-    setDeactivateInput("");
+  const handleDeactivate = async () => {
+    setIsDeactivating(true);
+    try {
+      await api.post("/photographer/deactivate", { confirmation: deactivateInput });
+      setShowDeactivateConfirm(false);
+      setDeactivateInput("");
+      toast.success("Your account has been deactivated.");
+      await logout(); // clears the session; the route guard then sends them to /login
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to deactivate account."));
+    } finally {
+      setIsDeactivating(false);
+    }
   };
 
   const handlePasswordConfirm = async () => {
@@ -616,8 +645,16 @@ export default function StudioSettings() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Account Email (Read-Only)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Account Email (Read-Only)</Label>
+                  <EmailVerifiedBadge verified={user?.emailVerified} />
+                </div>
                 <Input value={user?.email ?? ""} disabled className="bg-muted/50 cursor-not-allowed" />
+                {user?.emailVerified === false && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Check your inbox (or spam) for the verification link.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Public Contact Phone (Read-Only)</Label>
@@ -891,8 +928,10 @@ export default function StudioSettings() {
 
             <div>
               <p className="text-xs font-semibold text-destructive">Danger Zone</p>
-              <p className="text-[11px] text-muted-foreground mb-3">Not available yet — no photographer deactivation endpoint exists.</p>
-              <Button variant="destructive" size="sm" disabled onClick={() => setShowDeactivateConfirm(true)}>
+              <p className="text-[11px] text-muted-foreground mb-3">
+                Temporarily disable your account. You can reactivate it by logging in again or contacting support.
+              </p>
+              <Button variant="destructive" size="sm" onClick={() => { setDeactivateInput(""); setShowDeactivateConfirm(true); }}>
                 Deactivate Account
               </Button>
             </div>
@@ -932,11 +971,39 @@ export default function StudioSettings() {
               </div>
               <h3 className="text-base font-heading font-bold">Deactivate Account</h3>
             </div>
-            <Input value={deactivateInput} onChange={(e) => setDeactivateInput(e.target.value)} placeholder="DEACTIVATE"
-              className="border-destructive/40 focus-visible:ring-destructive text-sm" />
+            {deactivateCooldownActive && (
+              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  You recently reactivated your account. You can deactivate it again in{" "}
+                  <strong>{deactivateDaysLeft} day{deactivateDaysLeft === 1 ? "" : "s"}</strong>{" "}
+                  (on {deactivateAvailableLabel}).
+                </span>
+              </div>
+            )}
+            <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
+              <li>Your profile will be hidden.</li>
+              <li>You won't receive new bookings.</li>
+              <li>Your booking history and payments will be preserved.</li>
+              <li>You can reactivate your account by contacting support or logging in again.</li>
+            </ul>
+            <div className="space-y-2">
+              <Label className="text-xs">
+                To proceed, type <strong className="text-foreground">DEACTIVATE</strong> below:
+              </Label>
+              <Input value={deactivateInput} onChange={(e) => setDeactivateInput(e.target.value)} placeholder="DEACTIVATE"
+                className="border-destructive/40 focus-visible:ring-destructive text-sm" />
+            </div>
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" size="sm" onClick={() => { setShowDeactivateConfirm(false); setDeactivateInput(""); }}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={handleDeactivate}>Confirm Deactivation</Button>
+              <Button variant="outline" size="sm" disabled={isDeactivating} onClick={() => { setShowDeactivateConfirm(false); setDeactivateInput(""); }}>Cancel</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeactivate}
+                disabled={isDeactivating || deactivateCooldownActive || deactivateInput !== "DEACTIVATE"}
+              >
+                {isDeactivating ? "Deactivating account..." : "Confirm Deactivation"}
+              </Button>
             </div>
           </div>
         </div>

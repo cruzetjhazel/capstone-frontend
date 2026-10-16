@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type Status = "pending" | "confirmed" | "completed" | "paid" | "cancelled" | "expired" | "no_show";
+type Status = "pending" | "confirmed" | "completed" | "paid" | "cancelled" | "expired" | "no_show" | "waitlisted";
 
 const statusStyles: Record<Status, string> = {
   pending: "bg-warning/10 text-warning",
@@ -15,6 +15,8 @@ const statusStyles: Record<Status, string> = {
   // own muted/neutral treatment rather than the destructive red used for
   // cancelled/rejected.
   expired: "bg-muted text-muted-foreground",
+  // Accepted, but another paid booking holds the schedule (recoverable, not cancelled).
+  waitlisted: "bg-amber-500/10 text-amber-600",
 };
 
 export function StatusBadge({ status, nonCompletionReason }: { status: Status; nonCompletionReason?: string | null }) {

@@ -152,7 +152,7 @@ export default function BookingSent() {
               <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
                 {(booking as any).isDeclined
                   ? `${booking.photographerName} declined this booking request.${(booking as any).rejectionReason ? ` Reason: “${(booking as any).rejectionReason}”` : ""}`
-                  : "This booking request has been cancelled and the temporary schedule hold has been released."}
+                  : "This booking request has been cancelled."}
               </p>
             </>
           )}
@@ -164,7 +164,7 @@ export default function BookingSent() {
               </div>
               <h1 className="text-2xl font-heading font-bold">Payment Window Expired</h1>
               <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                <strong>{booking.photographerName}</strong> accepted your request, but payment wasn't completed in time. The hold on your date has been released.
+                <strong>{booking.photographerName}</strong> accepted your request, but payment wasn't completed in time. This request is now closed.
               </p>
             </>
           )}
@@ -201,7 +201,7 @@ export default function BookingSent() {
           {status === "pending" && (
             <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-center gap-2 max-w-md mx-auto">
               <Clock className="w-4 h-4 shrink-0" />
-              <span>A temporary time hold (max 48 hours) has been placed on your requested date & time.</span>
+              <span>The photographer has up to 48 hours to respond. Your time is only reserved once your payment is verified.</span>
             </div>
           )}
 
@@ -234,13 +234,14 @@ export default function BookingSent() {
             <div className="mt-6 p-4 rounded-xl border border-primary/30 bg-primary/5 text-left flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <Bell className="w-5 h-5 text-primary shrink-0 mt-0.5 sm:mt-0" />
               <div className="flex-1">
-                <p className="font-semibold text-sm">Action Required: Submit Your GCash Payment</p>
+                <p className="font-semibold text-sm">{(booking as any).awaitingOfferAcceptance ? "Action Required: Accept the Offered Schedule" : "Action Required: Submit Your GCash Payment"}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Pay {formatPrice(booking.dueNow)} directly to the photographer via GCash, then submit your reference number for the photographer to verify.
                 </p>
               </div>
-              <Button size="sm" className="gap-1.5 shrink-0 w-full sm:w-auto" onClick={() => navigate(`/booking/${booking.id}/pay`)}>
-                <Wallet className="w-3.5 h-3.5" /> Pay Now
+<Button size="sm" className="gap-1.5 shrink-0 w-full sm:w-auto" onClick={() => navigate(`/booking/${booking.id}/${(booking as any).awaitingOfferAcceptance ? "details" : "pay"}`)}>
+                <Wallet className="w-3.5 h-3.5" /> {(booking as any).awaitingOfferAcceptance ? "Review Offer" : "Pay Now"}
+
               </Button>
             </div>
           )}
@@ -286,7 +287,7 @@ export default function BookingSent() {
             </div>
             
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to cancel this booking request? This will release your temporary hold on {dateList.map(formatScheduleDate).join(", ")}.
+              Are you sure you want to cancel this booking request? This will withdraw your request for {dateList.map(formatScheduleDate).join(", ")}.
             </p>
 
             <div className="space-y-1.5">

@@ -30,6 +30,7 @@ export type User = {
   application: PhotographerApplicationInfo | null;
   profilePhotoUrl: string | null;
   phoneNumber?: string | null;
+  emailVerified?: boolean;
 };
 
 type RoleContextType = {
@@ -41,6 +42,7 @@ type RoleContextType = {
   logout: () => Promise<void>;
   refreshApplication: () => Promise<void>;
   refreshProfilePhoto: (url: string | null) => void;
+  refreshEmailVerification: () => Promise<boolean>;
   // One-shot flag consumed by ProtectedRoute so it can tell "user just clicked
   // Logout" apart from "unauthenticated visitor hit a guarded route" — the two
   // cases were both showing an auth toast on top of the logout success toast.
@@ -112,10 +114,15 @@ async function fetchProfilePhoto(accountType: AccountType): Promise<string | nul
   }
 }
 
-async function buildUser(rawUser: any): Promise<User> {
+async function buildUser(rawUser: any, options: { skipPhoto?: boolean } = {}): Promise<User> {
   const accountType = rawUser.account_type as AccountType;
-  const application = accountType === "photographer" ? await fetchApplication() : null;
-  const profilePhotoUrl = accountType !== "administrator" ? await fetchProfilePhoto(accountType) : null;
+
+  // Run both requests at the same time instead of one after the other.
+  // skipPhoto lets the app start without waiting for the photo (it loads later in the background).
+  const [application, profilePhotoUrl] = await Promise.all([
+    accountType === "photographer" ? fetchApplication() : Promise.resolve(null),
+    accountType !== "administrator" && !options.skipPhoto ? fetchProfilePhoto(accountType) : Promise.resolve(null),
+  ]);
 
   return {
     id: String(rawUser.id),
@@ -127,6 +134,7 @@ async function buildUser(rawUser: any): Promise<User> {
     application,
     profilePhotoUrl,
     phoneNumber: rawUser.phone_number ?? null,
+    emailVerified: Boolean(rawUser.email_verified_at),
   };
 }
 
@@ -152,7 +160,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         try {
           const res = await api.get("/auth/me");
           const rawUser = res.data?.data ?? res.data;
-          const nextUser = await buildUser(rawUser);
+          const nextUser = await buildUser(rawUser, { skipPhoto: true });
           if (nextUser.accountStatus !== "active") {
             // Suspended/deactivated since the last visit: drop the stale token.
             clearAuthToken();
@@ -165,6 +173,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           if (!cancelled) {
             setUser(nextUser);
             setIsLoading(false);
+            // Load the profile photo in the background so it doesn't delay the page.
+            if (nextUser.accountType !== "administrator") {
+              fetchProfilePhoto(nextUser.accountType).then((url) => {
+                if (!cancelled) setUser((prev) => (prev ? { ...prev, profilePhotoUrl: url } : prev));
+              });
+            }
           }
           return;
         } catch (err: any) {
@@ -255,13 +269,27 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Asks the backend whether the email is verified now. Used by the
+  // "verify your email" card so it disappears once the link is clicked.
+  const refreshEmailVerification = async (): Promise<boolean> => {
+    try {
+      const res = await api.get("/auth/me");
+      const raw = res.data?.data ?? res.data;
+      const verified = Boolean(raw?.email_verified_at);
+      setUser((prev) => (prev ? { ...prev, emailVerified: verified } : prev));
+      return verified;
+    } catch {
+      return false;
+    }
+  };
+
   const refreshProfilePhoto = (url: string | null) => {
     setUser((prev) => (prev ? { ...prev, profilePhotoUrl: url } : prev));
   };
 
   return (
     <RoleContext.Provider
-      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication, refreshProfilePhoto, consumeJustLoggedOut }}
+      value={{ user, role: user?.role || null, isLoading, login, setUserFromRegistration, logout, refreshApplication, refreshProfilePhoto, refreshEmailVerification, consumeJustLoggedOut }}
     >
       {children}
     </RoleContext.Provider>

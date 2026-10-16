@@ -18,6 +18,7 @@ const MANUAL_TRACKER_TRANSITIONS: Partial<Record<TrackingStage, TrackingStage>> 
   editing: "delivered",
 };
 import { cn } from "@/lib/utils";
+import EmailVerifiedBadge from "@/components/EmailVerifiedBadge";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import { getApiErrorMessage } from "@/services/clientProfileService";
@@ -34,7 +35,7 @@ import {
 import { usePayments, useVerifyPayment, useRejectPayment,  } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
 
-type FilterTab = "All" | "Pending" | "Confirmed" | "In Progress" | "Completed" | "Not Completed" | "Cancelled" | "Expired";
+type FilterTab = "All" | "Pending" | "Confirmed" | "Waitlisted" | "In Progress" | "Completed" | "Not Completed" | "Cancelled" | "Expired";
 type SortOption = "newest" | "oldest" | "event_soonest" | "event_latest" | "price_low" | "price_high";
 
 // A "pending" booking's 48h review window (set by CreateBookingAction) may
@@ -170,6 +171,7 @@ export default function StudioBookings() {
       case "All": return b.status !== "cancelled";
       case "Pending": return b.status === "pending";
       case "Confirmed": return b.status === "confirmed" && !isServiceInProgress(b);
+      case "Waitlisted": return b.status === "waitlisted";
       case "In Progress": return isServiceInProgress(b);
       case "Completed": return b.status === "completed";
       case "Cancelled": return b.status === "cancelled" && !b.nonCompletionReason;
@@ -221,8 +223,12 @@ export default function StudioBookings() {
   const confirmAccept = async () => {
     if (!pendingAction) return;
     try {
-      await acceptMutation.mutateAsync(pendingAction.booking.id);
-      toast({ title: "Booking accepted", description: "Client notified to proceed with payment." });
+      const accepted = await acceptMutation.mutateAsync(pendingAction.booking.id);
+      toast(
+        accepted?.status === "waitlisted"
+          ? { title: "Added to waitlist", description: "Another paid booking already holds this schedule, so this request was waitlisted instead of sent to payment." }
+          : { title: "Booking accepted", description: "Client notified to proceed with payment." }
+      );
       setPendingAction(null);
     } catch (error) {
       toast({ title: "Something went wrong", description: getApiErrorMessage(error), variant: "destructive" as never });
@@ -311,7 +317,7 @@ export default function StudioBookings() {
 
         {/* Status tabs */}
         <div className="flex gap-1.5 bg-muted/50 p-1 rounded-full border border-border/50 overflow-x-auto w-fit max-w-full">
-          {(["All", "Pending", "Confirmed", "In Progress", "Completed", "Not Completed", "Cancelled", "Expired"] as FilterTab[]).map((f) => (
+          {(["All", "Pending", "Confirmed", "Waitlisted", "In Progress", "Completed", "Not Completed", "Cancelled", "Expired"] as FilterTab[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -481,6 +487,7 @@ export default function StudioBookings() {
                       <p className={cn("font-medium text-sm truncate", b.status === "cancelled" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
                         {b.clientName}
                       </p>
+                      <EmailVerifiedBadge verified={b.clientEmailVerified} className="my-0.5" />
                       <p className="text-xs text-muted-foreground truncate">{b.packageName} · {b.eventType}</p>
                       <p className="text-xs text-muted-foreground truncate">{b.date} · {b.startTime}</p>
                     </div>
@@ -543,9 +550,16 @@ export default function StudioBookings() {
                   </div>
                 )}
 
-                {b.status === "confirmed" && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
+                {b.status === "waitlisted" && b.paymentStatus !== "pending_verification" && (
+                  <div className="flex items-center gap-2 p-2.5 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <p className="text-xs text-amber-900 dark:text-amber-400">Waitlisted — another paid booking holds this schedule. If that booking is cancelled, the slot is offered automatically to the oldest waitlisted client. You can also offer it manually.</p>
+                  </div>
+                )}
+
+                {(b.status === "confirmed" || b.status === "waitlisted") && !b.hasActiveCancellationRequest && b.paymentStatus === "pending_verification" && (
                   <div className="flex items-center justify-between gap-3 p-2.5 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <p className="text-xs text-amber-900 dark:text-amber-400">Client submitted a GCash reference — needs review.</p>
+                    <p className="text-xs text-amber-900 dark:text-amber-400">{b.status === "waitlisted" ? "Waitlisted — the client submitted a GCash reference before another booking took this schedule. It is kept on record." : "Client submitted a GCash reference — needs review."}</p>
                     <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setReviewingPaymentFor(b)}>
                       Review Payment
                     </Button>

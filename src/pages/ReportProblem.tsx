@@ -23,6 +23,10 @@ export default function ReportProblem() {
   // refund request so the client doesn't have to hunt through the generic
   // report form during what's already a stressful situation.
   const isNoShowShortcut = searchParams.get("noShow") === "1";
+  // Profile links here with ?change=phone or ?change=email to request an account-detail change.
+  const changeField = searchParams.get("change");
+  const isChangeRequest = changeField === "phone" || changeField === "email";
+  const changeLabel = changeField === "email" ? "Email address" : "Contact number";
 
   // Form State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,12 +34,18 @@ export default function ReportProblem() {
   const [referenceNumber, setReferenceNumber] = useState("");
   
   // Field State
-  const [target, setTarget] = useState(prefilledBooking ? "booking" : "");
-  const [reason, setReason] = useState(isNoShowShortcut ? "Photographer no-show (didn't appear)" : "");
-  const [otherReason, setOtherReason] = useState("");
+  const [target, setTarget] = useState(prefilledBooking ? "booking" : isChangeRequest ? "other" : "");
+  const [reason, setReason] = useState(
+    isNoShowShortcut ? "Photographer no-show (didn't appear)" : isChangeRequest ? "Other" : ""
+  );
+  const [otherReason, setOtherReason] = useState(isChangeRequest ? `${changeLabel} change request` : "");
   const [referenceId, setReferenceId] = useState(prefilledBooking || "");
-  const [details, setDetails] = useState("");
-  const [resolution, setResolution] = useState(isNoShowShortcut ? "refund" : "");
+  const [details, setDetails] = useState(
+    isChangeRequest
+      ? `I would like to change my registered ${changeLabel.toLowerCase()}.\n\nNew ${changeLabel.toLowerCase()}: \nReason for the change: `
+      : ""
+  );
+  const [resolution, setResolution] = useState(isNoShowShortcut ? "refund" : isChangeRequest ? "other" : "");
   const [files, setFiles] = useState<File[]>([]);
 
   // System Requirement: Dynamic Target Options based on Role (Studio/Freelancer vs Client)
@@ -108,12 +118,12 @@ export default function ReportProblem() {
 
   // Reset dependent fields when target changes
   useEffect(() => {
-    if (!prefilledBooking && !isNoShowShortcut) {
+    if (!prefilledBooking && !isNoShowShortcut && !isChangeRequest) {
       setReason("");
       setOtherReason("");
       setReferenceId("");
     }
-  }, [target, prefilledBooking, isNoShowShortcut]);
+  }, [target, prefilledBooking, isNoShowShortcut, isChangeRequest]);
 
   // Hide + clear the custom "Please specify" value whenever Reason moves off "Other"
   useEffect(() => {

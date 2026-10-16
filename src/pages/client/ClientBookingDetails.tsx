@@ -14,7 +14,9 @@ import {
   Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
   CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
 } from "lucide-react";
-import { useState, useMemo } from "react";
+   import { useState, useMemo } from "react";
+   import { SlotOfferCard } from "@/components/booking/SlotOfferCard";
+   import { BudgetRequestPanel } from "@/components/booking/BudgetRequestPanel";
 
 type RequestType = "reschedule" | "cancel" | "modify" | null;
 
@@ -380,12 +382,22 @@ export default function BookingDetails() {
               </span>
             ) : (
               <>
+                {booking.status === "waitlisted" && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Waitlisted — Schedule Held by Another Booking
+                  </span>
+                )}
                 {booking.status === "pending" && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
                     <Clock className="w-3.5 h-3.5" /> Waiting for Approval
                   </span>
                 )}
-                {booking.status === "confirmed" && booking.paymentStatus === "pending" && (
+                   {booking.status === "confirmed" && booking.awaitingOfferAcceptance && (
+     <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
+       <Clock className="w-3.5 h-3.5" /> Offer Available — Accept to Pay
+     </span>
+   )}
+   {booking.status === "confirmed" && booking.paymentStatus === "pending" && !booking.awaitingOfferAcceptance && (
                   <Link to={`/booking/${booking.id}/pay`}>
                     <Button size="sm" className="text-xs rounded-full bg-primary">Pay Now</Button>
                   </Link>
@@ -436,6 +448,15 @@ export default function BookingDetails() {
             {(booking.isDeclined ? booking.rejectionReason : booking.cancellationReason) && (
               <p className="text-xs text-muted-foreground">Reason: “{booking.isDeclined ? booking.rejectionReason : booking.cancellationReason}”</p>
             )}
+          </div>
+        )}
+
+   <SlotOfferCard booking={booking} />
+   <BudgetRequestPanel booking={booking} />
+
+   {booking.statusNotice && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            {booking.statusNotice}
           </div>
         )}
 

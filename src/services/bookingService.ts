@@ -1,7 +1,8 @@
 import type { BookingRecord, BookingStatus } from "@/data/mockBookings";
-import { getAuthToken } from "@/lib/tokenStorage";
+   import { getAuthToken } from "@/lib/tokenStorage";
+   import type { BudgetRequestInfo, BudgetActions } from "@/services/negotiationService";
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api";
 
 type SnapshotComponent = {
   type: string;
@@ -38,7 +39,7 @@ type RawBooking = {
   guest_count: number | null;
   subtotal: string;
   total_price: string;
-  status: "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show" | "waitlisted";
   payment_status: "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
   cancellation_requested_at: string | null;
   cancellation_decision: "approved" | "rejected" | null;
@@ -46,6 +47,14 @@ type RawBooking = {
   rejection_reason: string | null;
   cancelled_by: "client" | "photographer" | "admin" | null;
   is_declined: boolean;
+  status_notice?: string | null;
+     slot_offered_at?: string | null;
+   slot_offer_accepted_at?: string | null;
+   awaiting_offer_acceptance?: boolean;
+   slot_offer_deadline?: string | null;
+   payment_actions?: { can_accept_slot_offer?: boolean; can_decline_slot_offer?: boolean } & Record<string, unknown>;
+   budget_request?: BudgetRequestInfo | null;
+   budget_actions?: BudgetActions | null;
   buffer_minutes: number;
   reschedule_request: {
     requested_event_date: string | null;
@@ -270,6 +279,15 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     rejectionReason: raw.rejection_reason,
     cancelledBy: raw.cancelled_by,
     isDeclined: raw.is_declined,
+    statusNotice: raw.status_notice ?? null,
+       slotOfferedAt: raw.slot_offered_at ?? null,
+   slotOfferAcceptedAt: raw.slot_offer_accepted_at ?? null,
+   awaitingOfferAcceptance: raw.awaiting_offer_acceptance ?? false,
+   slotOfferDeadline: raw.slot_offer_deadline ?? null,
+   canAcceptSlotOffer: raw.payment_actions?.can_accept_slot_offer ?? false,
+   canDeclineSlotOffer: raw.payment_actions?.can_decline_slot_offer ?? false,
+   budgetRequest: raw.budget_request ?? null,
+   budgetActions: raw.budget_actions ?? null,
     bufferMinutes: raw.buffer_minutes,
     rescheduleInfo: raw.reschedule_request
       ? {
@@ -514,6 +532,16 @@ export const bookingService = {
     // via POST /api/photographer/bookings/{id}/accept. Nothing should
     // call this from client-facing code (see BookingSent.tsx fix).
     throw new Error("approve() is a photographer action, not available to clients.");
+  },
+
+     acceptOffer: async (bookingId: string): Promise<BookingRecord> => {
+     const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/accept-offer`, "POST");
+     return toBookingRecord(raw);
+   },
+
+   declineOffer: async (bookingId: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/decline-offer`, "POST");
+    return toBookingRecord(raw);
   },
 
   requestCancellation: async (bookingId: string, reason: string): Promise<BookingRecord> => {

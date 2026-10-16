@@ -4,6 +4,7 @@ import {
   Plus, Archive, Sparkles, Wand2, Package, Save, Copy,
   FileBox, Eye, EyeOff, AlertTriangle, X, Info, RotateCcw, Trash2, Loader2,
   Pencil, CheckCircle2, XCircle, ListChecks, PackageX,
+  Tag, Clock, CalendarDays, CalendarPlus, Users, MapPin,
 } from "lucide-react";
 import hotToast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
@@ -39,11 +40,11 @@ const DEFAULT_DURATION_MINUTES = 60;
 
 // One pricing method per photographer. Price never decides the schedule:
 // per-day / per-person use "agreed coverage hours" for scheduling only.
-const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string }[] = [
-  { id: "fixed", label: "Fixed price", help: "One base fee for the service." },
-  { id: "hourly", label: "Hourly rate", help: "Rate × the coverage hours the client picks." },
-  { id: "per_day", label: "Per day", help: "A set price for each booked event day." },
-  { id: "per_person", label: "Per person", help: "Rate × the number of people covered." },
+const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string; example: string; icon: typeof Tag }[] = [
+  { id: "fixed", label: "Fixed price", help: "One flat price per booking.", example: "e.g. ₱5,000", icon: Tag },
+  { id: "hourly", label: "By the hour", help: "Rate × hours the client picks.", example: "e.g. ₱1,000 × 3 hrs", icon: Clock },
+  { id: "per_day", label: "By the day", help: "Rate × number of event days.", example: "e.g. ₱8,000 × 2 days", icon: CalendarDays },
+  { id: "per_person", label: "By the person", help: "Rate × number of people.", example: "e.g. ₱500 × 10 people", icon: Users },
 ];
 
 // ---------- toast notifications ----------
@@ -1019,7 +1020,7 @@ function CustomPackageDrawer({
   const [maxPeople, setMaxPeople] = useState<number | "">(customConfig?.maxPeople ?? "");
   useEffect(() => setMaxPeople(customConfig?.maxPeople ?? ""), [customConfig?.maxPeople]);
 
-  // Multiple sessions under one custom booking (not available with fixed pricing).
+  // Multiple sessions under one custom booking (available with every pricing method).
   const [multiEnabled, setMultiEnabled] = useState<boolean>(customConfig?.allowsMultipleSessions ?? false);
   useEffect(() => setMultiEnabled(customConfig?.allowsMultipleSessions ?? false), [customConfig?.allowsMultipleSessions]);
   const [maxSessions, setMaxSessions] = useState<number | "">(customConfig?.maxSessions ?? "");
@@ -1040,19 +1041,19 @@ function CustomPackageDrawer({
       Number(unitRate) !== Number(customConfig?.unitRate ?? 0)
       || coverageHours !== (customConfig?.coverageHours ?? "")
       || (pricingModel === "per_person" && maxPeople !== (customConfig?.maxPeople ?? ""))))
-    || (pricingModel !== "fixed" && multiEnabled !== (customConfig?.allowsMultipleSessions ?? false))
-    || (pricingModel !== "fixed" && multiEnabled && maxSessions !== (customConfig?.maxSessions ?? ""));
+    || multiEnabled !== (customConfig?.allowsMultipleSessions ?? false)
+    || (multiEnabled && maxSessions !== (customConfig?.maxSessions ?? ""));
 
   const pricingError = (() => {
     if (!customConfig?.enabled) return "";
     if (pricingModel === "fixed" && (!Number(baseFee) || Number(baseFee) <= 0)) return "Base session fee is required while fixed pricing is on.";
     if (pricingModel === "hourly") {
       if (!Number(hourlyRate) || Number(hourlyRate) <= 0) return "Rate per hour is required and must be greater than 0.";
-      if (!Number(minHours) || Number(minHours) <= 0) return "Minimum coverage hours must be greater than 0.";
-      if (Number(maxHours) < Number(minHours)) return "Maximum coverage hours can't be less than minimum coverage hours.";
+      if (!Number(minHours) || Number(minHours) <= 0) return "Min. hours must be greater than 0.";
+      if (Number(maxHours) < Number(minHours)) return "Max. hours can't be less than min. hours.";
     }
     if (isUnitModel && (!Number(unitRate) || Number(unitRate) <= 0)) return `Rate per ${pricingModel === "per_day" ? "day" : "person"} is required and must be greater than 0.`;
-    if (pricingModel !== "fixed" && multiEnabled && maxSessions !== "" && Number(maxSessions) < 2) return "Maximum sessions must be at least 2, or leave it blank for no limit.";
+    if (multiEnabled && maxSessions !== "" && Number(maxSessions) < 2) return "Maximum sessions must be at least 2, or leave it blank for no limit.";
     return "";
   })();
 
@@ -1104,8 +1105,8 @@ function CustomPackageDrawer({
         unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
         coverage_hours: isUnitModel && coverageHours !== "" ? Number(coverageHours) : null,
         max_people: pricingModel === "per_person" && maxPeople !== "" ? Number(maxPeople) : null,
-        allows_multiple_sessions: pricingModel !== "fixed" && multiEnabled,
-        max_sessions: pricingModel !== "fixed" && multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
+        allows_multiple_sessions: multiEnabled,
+        max_sessions: multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
         base_fee_mode: null,
       });
       toast({ title: "Pricing updated." });
@@ -1251,7 +1252,7 @@ function CustomPackageDrawer({
         <div>
           <p className="text-sm font-semibold">How do you charge for custom packages?</p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Pick one method. Clients only see the option you choose. Price never sets your schedule; how long you are booked is a separate setting.
+            Pick one. The client's total is calculated automatically.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -1265,8 +1266,12 @@ function CustomPackageDrawer({
                 pricingModel === m.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"
               )}
             >
-              <p className="text-sm font-semibold">{m.label}</p>
+              <div className="flex items-center gap-2">
+                <m.icon className={cn("w-4 h-4", pricingModel === m.id ? "text-primary" : "text-muted-foreground")} />
+                <p className="text-sm font-semibold">{m.label}</p>
+              </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">{m.help}</p>
+              <p className="text-[11px] text-primary font-medium mt-1.5">{m.example}</p>
             </button>
           ))}
         </div>
@@ -1277,22 +1282,22 @@ function CustomPackageDrawer({
               Base Session Fee (₱) {customConfig?.enabled && <span className="text-destructive">*</span>}
             </Label>
             <Input type="number" min={0} className="h-9 text-sm" value={baseFee === 0 ? "" : baseFee} onChange={(e) => setBaseFee(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
-            <p className="text-[11px] text-muted-foreground">One agreed price, whatever the hours. Add coverage-duration options below to set how long you are booked.</p>
+            <p className="text-[11px] text-muted-foreground">One price per booking. Set how long you're booked using Rate Tiers below.</p>
           </div>
         )}
 
         {pricingModel === "hourly" && (
           <div className="grid grid-cols-3 gap-2">
             <div className="space-y-1">
-              <Label className="text-[11px]">Rate per hour (₱) <span className="text-destructive">*</span></Label>
+              <Label className="text-[11px]"><Clock className="inline w-3 h-3 mr-1 -mt-0.5" />Studio rate / hr (₱) <span className="text-destructive">*</span></Label>
               <Input type="number" min={0} className="h-9 text-sm" value={hourlyRate === 0 ? "" : hourlyRate} onChange={(e) => setHourlyRate(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Minimum Coverage Hours <span className="text-destructive">*</span></Label>
+              <Label className="text-[11px]">Min. hours <span className="text-destructive">*</span></Label>
               <Input type="number" min={1} max={24} className="h-9 text-sm" value={minHours} onChange={(e) => setMinHours(Number(e.target.value) || 1)} />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Maximum Coverage Hours <span className="text-destructive">*</span></Label>
+              <Label className="text-[11px]">Max. hours <span className="text-destructive">*</span></Label>
               <Input type="number" min={1} max={24} className="h-9 text-sm" value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value) || 1)} />
             </div>
           </div>
@@ -1300,13 +1305,13 @@ function CustomPackageDrawer({
 
         {pricingModel === "hourly" && (
           <div className="space-y-1">
-            <Label className="text-[11px]">Outdoor / on-location rate per hour (₱) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Label className="text-[11px]"><MapPin className="inline w-3 h-3 mr-1 -mt-0.5" />On-location rate / hr (₱) <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input
-              type="number" min={0} className="h-9 text-sm" placeholder="Same as the rate above"
+              type="number" min={0} className="h-9 text-sm" placeholder="Same as studio rate"
               value={outdoorHourlyRate}
               onChange={(e) => setOutdoorHourlyRate(e.target.value === "" ? "" : Math.max(0, Number(e.target.value)))}
             />
-            <p className="text-[11px] text-muted-foreground">Used instead of the rate above when the client books anywhere other than your studio (outdoor, client location, outside Bicol, other).</p>
+            <p className="text-[11px] text-muted-foreground">Charged when the shoot is not at your studio. Blank = same rate everywhere.</p>
           </div>
         )}
 
@@ -1317,7 +1322,7 @@ function CustomPackageDrawer({
               <Input type="number" min={0} className="h-9 text-sm" value={unitRate === 0 ? "" : unitRate} onChange={(e) => setUnitRate(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Coverage hours per session (optional)</Label>
+              <Label className="text-[11px]">Hours per session (optional)</Label>
               <Input type="number" min={1} max={24} className="h-9 text-sm" value={coverageHours} onChange={(e) => setCoverageHours(e.target.value === "" ? "" : Math.min(24, Math.max(1, Number(e.target.value))))} />
             </div>
             {pricingModel === "per_person" && (
@@ -1328,27 +1333,31 @@ function CustomPackageDrawer({
             )}
             <p className="col-span-full text-[11px] text-muted-foreground">
               {pricingModel === "per_day"
-                ? "Billed per distinct event date: two sessions on the same date count as one day."
-                : "Price = rate × number of people. Extra sessions never change the price."}
-              {" "}Coverage hours only set how long you are reserved per session. Leave blank if you confirm the duration for each booking.
+                ? "Billed per event date. Two sessions on one date = 1 day."
+                : "Price = rate × people. Extra sessions don't change it."}
+              {" "}Hours per session only sets how long you're reserved. Leave blank to confirm per booking.
             </p>
           </div>
         )}
 
-        {pricingModel !== "fixed" && (
+        {(
           <div className="space-y-2 pt-2 border-t border-border/50">
             <div className="flex items-center justify-between">
               <div className="pr-2">
-                <p className="text-sm font-semibold">Allow multiple photography sessions</p>
+                <p className="text-sm font-semibold flex items-center gap-1.5"><CalendarPlus className="w-4 h-4 text-primary" />Allow extra days / sessions</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Lets a client add extra sessions (separate dates and times) under ONE custom booking. Each session is a separate schedule, and days in between are never blocked.
+                  Client can add more dates to one booking.
+{pricingModel === "fixed" && " The fixed price covers all sessions."}
+{pricingModel === "per_day" && " Different dates count as extra days."}
+{pricingModel === "per_person" && " The price stays the same."}
+{pricingModel === "hourly" && " Each session is charged by its own hours."}
                 </p>
               </div>
               <Switch checked={multiEnabled} onCheckedChange={setMultiEnabled} />
             </div>
             {multiEnabled && (
               <div className="space-y-1">
-                <Label className="text-[11px]">Max sessions per booking (optional)</Label>
+                <Label className="text-[11px]">Max sessions (optional)</Label>
                 <Input
                   type="number" min={2} max={15} className="h-9 text-sm" value={maxSessions}
                   onChange={(e) => setMaxSessions(e.target.value === "" ? "" : Math.min(15, Number(e.target.value)))}
@@ -1375,7 +1384,7 @@ function CustomPackageDrawer({
       <div className="space-y-1.5">
         <Label className="text-xs">Buffer Time After Each Session (minutes)</Label>
         <p className="text-[11px] text-muted-foreground -mt-0.5">
-          Extra time held after the photography coverage ends — for packing up, travel, or unexpected delays. Applied to every custom-package booking.
+          Extra time held after each session for packing up and travel.
         </p>
         <div className="flex items-center gap-2">
           <Input type="number" min={0} className="h-9 text-sm flex-1" value={bufferMinutes === 0 ? "" : bufferMinutes} onChange={(e) => setBufferMinutes(e.target.value === "" ? 0 : Number(e.target.value))} />

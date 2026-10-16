@@ -1,7 +1,7 @@
 import api from "@/lib/api";
 
 export type PhotographerBookingStatus =
-  | "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show";
+  | "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show" | "waitlisted";
 export type PhotographerPaymentStatus =
   | "pending" | "pending_verification" | "partially_paid" | "fully_paid" | "failed" | "cancelled";
 
@@ -13,7 +13,7 @@ interface SnapshotComponent {
 
 type RawStudioBooking = {
   id: number;
-  client: { id: number; name: string };
+  client: { id: number; name: string; email_verified?: boolean };
   photographer: { id: number; name: string };
   is_custom_package: boolean;
   package_snapshot: { name?: string; description?: string; price?: number | string } | null;
@@ -167,6 +167,7 @@ export interface StudioBookingRecord {
   id: string;
   clientId: string;
   clientName: string;
+  clientEmailVerified?: boolean;
   isCustomPackage: boolean;
   packageName: string;
   eventType: string;
@@ -231,6 +232,7 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
     id: String(raw.id),
     clientId: String(raw.client.id),
     clientName: raw.client.name,
+    clientEmailVerified: raw.client.email_verified,
     isCustomPackage: raw.is_custom_package,
     packageName: raw.is_custom_package ? "Custom Package" : (raw.package_snapshot?.name ?? "Package"),
     eventType: raw.custom_event_type || raw.event_type,

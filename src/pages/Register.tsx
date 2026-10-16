@@ -50,7 +50,7 @@ type ClientDraft = {
   manualProvince?: string; manualCity?: string; manualBarangay?: string;
 };
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api";
 
 // Only Region V (Bicol) has PSGC dropdown data in our location tables.
 const BICOL_REGION = "Region V (Bicol Region)";
@@ -185,7 +185,13 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
-  const [isResuming, setIsResuming] = useState(false);
+  const [isResuming, setIsResuming] = useState(
+    () =>
+      !!getAuthToken() &&
+      (searchParams.get("continue") === "true" ||
+        searchParams.get("edit") === "true" ||
+        searchParams.get("retry") === "true")
+  );
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [existingDocs, setExistingDocs] = useState({
     governmentId: false,
@@ -241,7 +247,7 @@ export default function Register() {
           headers: authHeaders(),
         });
         const mePayload = await parseApiResponse(meResponse);
-        const me = mePayload.data;
+        const me = mePayload.data ?? mePayload;
         setName(me.name ?? "");
         setEmail(me.email ?? "");
         setPhone(me.phone_number ?? "");
@@ -251,7 +257,7 @@ export default function Register() {
           headers: authHeaders(),
         });
         const appPayload = await parseApiResponse(appResponse);
-        const application = appPayload.data;
+        const application = appPayload.data ?? appPayload;
 
         if (application.status === "pending_review" || application.status === "approved" || application.status === "rejected") {
           navigate("/photographer/status");
@@ -322,7 +328,7 @@ export default function Register() {
           });
           if (profileResponse.ok) {
             const profilePayload = await profileResponse.json();
-            const profile = profilePayload.data;
+            const profile = profilePayload.data ?? profilePayload;
             setBio(profile.bio ?? "");
             setPhotographyStyles(profile.style ?? []);
             setFacebook(profile.facebook ?? "");
@@ -543,6 +549,7 @@ export default function Register() {
       searchParams.get("edit") === "true" ||
       searchParams.get("retry") === "true";
     if (wantsResume) return;
+    if (getAuthToken()) return; // logged in: a client draft doesn't apply
     try {
       const raw = localStorage.getItem(CLIENT_DRAFT_KEY);
       if (raw) setDraftPrompt(JSON.parse(raw));
@@ -986,6 +993,19 @@ export default function Register() {
     }
   };
 
+  if (isResuming) {
+    return <div className="flex h-screen items-center justify-center">Loading your application…</div>;
+  }
+
+  if (resumeError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-sm text-destructive max-w-sm">{resumeError}</p>
+        <Button onClick={() => window.location.reload()}>Try again</Button>
+      </div>
+    );
+  }
+
   if (clientCreated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-6 relative">
@@ -996,7 +1016,8 @@ export default function Register() {
           </div>
           <h1 className="text-2xl font-heading font-bold mb-2">Successfully created an account!</h1>
           <p className="text-muted-foreground text-sm leading-relaxed mb-8">
-            Let's personalize your experience.
+            We sent a verification link to <span className="font-medium text-foreground">{email}</span>.
+            Open it to verify your email. You can keep exploring in the meantime.
           </p>
           <Button className="w-full" size="lg" onClick={() => navigate("/explore")}>
             Explore Photographers <ArrowRight className="w-4 h-4 ml-2" />
@@ -1018,7 +1039,8 @@ export default function Register() {
           <p className="text-muted-foreground text-sm leading-relaxed mb-6">
             Thanks for signing up, <span className="font-medium text-foreground">{name}</span>!
             Your {accountType === "studio" ? "studio" : "photographer"} account is now under review.
-            You'll receive an email at <span className="font-medium text-foreground">{email}</span> once verified.
+            We'll email <span className="font-medium text-foreground">{email}</span> once your application is approved.
+            We also sent a link to that address to verify your email, so please open it too.
           </p>
           <div className="grid gap-3 mb-6 text-left">
             {[
@@ -1236,7 +1258,12 @@ export default function Register() {
                     ) : emailStatus === "invalid" ? (
                       <p className="text-xs text-destructive">Enter a valid email address.</p>
                     ) : emailStatus === "taken" ? (
-                      <p className="text-xs text-destructive">This email is already registered.</p>
+                      <p className="text-xs text-destructive">
+                        This email is already registered.{" "}
+                        <Link to="/login" className="font-medium underline">
+                          Sign in to continue your application
+                        </Link>
+                      </p>
                     ) : emailStatus === "error" ? (
                       <p className="text-xs text-destructive">Couldn't verify this email. Please try again.</p>
                     ) : emailStatus === "available" ? (

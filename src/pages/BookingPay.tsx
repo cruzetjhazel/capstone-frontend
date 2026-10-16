@@ -112,11 +112,15 @@ export default function BookingPay() {
   // A payment can only be submitted once the photographer has accepted the
   // booking and no payment is already in progress or settled (mirrors
   // SubmitPaymentAction's own checks — this is a UX gate, not the real guard).
-  const canPay = paymentInfo.booking_status === "confirmed" && paymentInfo.payment_status === "pending";
+  const canPay = paymentInfo.booking_status === "confirmed" && paymentInfo.payment_status === "pending" && !(b as any).awaitingOfferAcceptance;
 
   if (!canPay) {
     const reason =
-      paymentInfo.payment_status === "pending_verification"
+          (b as any).awaitingOfferAcceptance
+      ? "Please accept the offered schedule on your booking details page first. Payment opens after you accept."
+      : paymentInfo.booking_status === "waitlisted"
+        ? "Another booking currently holds this schedule, so payment is not available right now. Your reservation may be considered if the slot becomes available."
+        : paymentInfo.payment_status === "pending_verification"
         ? "Your payment was submitted and is awaiting the photographer's review."
         : paymentInfo.payment_status === "partially_paid" || paymentInfo.payment_status === "fully_paid"
         ? "A payment has already been recorded for this booking."
@@ -415,7 +419,7 @@ export default function BookingPay() {
             <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card p-3.5">
               <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation.
+                By submitting this form, you confirm that the GCash payment reference information provided is accurate. False submissions may result in booking cancellation. Your time slot is reserved only after the photographer verifies your payment. If another client's payment is verified first, your booking moves to the waitlist and any refund is handled directly with the photographer.
               </p>
             </div>
 

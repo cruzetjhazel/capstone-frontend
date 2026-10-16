@@ -210,7 +210,7 @@ export default function AccountStatus() {
               <div className="rounded-xl bg-destructive/5 border border-destructive/20 p-4 text-sm flex gap-2">
                 <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-destructive" />
                 <div className="min-w-0">
-                  <p className="font-semibold text-destructive">Your last appeal was denied</p>
+                  <p className="font-semibold text-destructive">Your last appeal was rejected</p>
                   {appeal.adminResponse && <p className="text-xs text-muted-foreground mt-0.5 break-words">{appeal.adminResponse}</p>}
                   <p className="text-xs text-muted-foreground mt-1">You can submit a new appeal with more information.</p>
                 </div>
@@ -223,7 +223,7 @@ export default function AccountStatus() {
               </div>
             )}
 
-            {!showForm && (
+            {(
               <div className="rounded-xl bg-muted/50 p-4 text-sm space-y-2">
                 <p className="font-semibold flex items-center gap-1.5">
                   <Info className="w-4 h-4" /> What this means
@@ -235,7 +235,28 @@ export default function AccountStatus() {
               </div>
             )}
 
-            {showForm ? (
+            <div className="flex flex-col gap-3">
+              {canAppeal && appeal?.status !== "approved" && (
+                <Button className="w-full" size="lg" onClick={() => setShowForm(true)}>
+                  <Send className="w-4 h-4 mr-2" /> {appeal?.status === "denied" ? "Submit a new appeal" : "Appeal this suspension"}
+                </Button>
+              )}
+              <Button asChild variant="outline" className="w-full" size="lg">
+                <Link to="/login">Back to login</Link>
+              </Button>
+            </div>
+
+            {showForm && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+                <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
+                  <div>
+                    <h3 className="font-heading font-bold text-base">
+                      {appeal?.status === "denied" ? "Submit a new appeal" : "Appeal this suspension"}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      An administrator will review your appeal. You'll see the result on this page when you log in.
+                    </p>
+                  </div>
               <form onSubmit={submitAppeal} className="flex flex-col gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="appeal-message">Why should this suspension be lifted?</Label>
@@ -306,7 +327,7 @@ export default function AccountStatus() {
                     <Input
                       id="appeal-password"
                       type={showPassword ? "text" : "password"}
-                      className="pr-10"
+                      className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
                       placeholder="••••••••"
                       value={appealPassword}
                       onChange={(e) => { setAppealPassword(e.target.value); setAppealError(""); }}
@@ -336,16 +357,7 @@ export default function AccountStatus() {
                   </Button>
                 </div>
               </form>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {canAppeal && appeal?.status !== "approved" && (
-                  <Button className="w-full" size="lg" onClick={() => setShowForm(true)}>
-                    <Send className="w-4 h-4 mr-2" /> {appeal?.status === "denied" ? "Submit a new appeal" : "Appeal this suspension"}
-                  </Button>
-                )}
-                <Button asChild variant="outline" className="w-full" size="lg">
-                  <Link to="/login">Back to login</Link>
-                </Button>
+                </div>
               </div>
             )}
           </>
@@ -367,7 +379,7 @@ export default function AccountStatus() {
                     id="reactivate-password"
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
-                    className="pr-10"
+                    className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(""); }}
                     autoComplete="current-password"
