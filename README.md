@@ -2,6 +2,8 @@
 
 **A Web-based Centralized Photography Booking System for Photographers of Bulan, Sorsogon with Dynamic Package Customization and Rating System**
 
+> **Live demo status:** Only the frontend is deployed (Vercel). The Laravel backend API has not been deployed yet, so pages that need data, such as login, packages, and bookings, won't work on the live site yet. Automated test results are below.
+
 ![E2E tests](https://img.shields.io/badge/e2e%20tests-60%20passed-brightgreen)
 ![Backend tests](https://img.shields.io/badge/backend%20tests-508%20passed-brightgreen)
 
