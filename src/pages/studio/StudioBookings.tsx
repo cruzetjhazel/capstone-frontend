@@ -498,7 +498,9 @@ export default function StudioBookings() {
                       ₱{b.totalPrice.toLocaleString()}
                     </p>
                     {b.status === "no_show" || (b.status === "cancelled" && b.nonCompletionReason) ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">No Show</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
+                        {b.nonCompletionReason === "photographer_no_show" ? "Not Completed — You Did Not Attend" : b.nonCompletionReason === "client_no_show" ? "Not Completed — Client No-Show" : "Not Completed"}
+                      </span>
                     ) : (
                       <StatusBadge status={b.status as any} nonCompletionReason={b.nonCompletionReason} />
                     )}
@@ -516,9 +518,9 @@ export default function StudioBookings() {
                         </Button>
                       </div>
                     ) : (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => navigate(`/studio/bookings/${b.id}`)}>
-                        View <ArrowRight className="w-3 h-3" />
-                      </Button>
+                      <Button asChild variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
+                    {/* <Link to="/studio/bookings">View all</Link> */}
+                    </Button>
                     )}
                   </div>
                 </div>

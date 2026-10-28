@@ -395,6 +395,8 @@ export interface CreateBookingPayload {
   custom_hours?: number;
   // Head-count for per-person custom pricing.
   custom_people?: number;
+budget_amount?: number;  // optional: offer your own price with the booking request
+budget_note?: string;
   add_on_ids?: number[];      // fixed-package bookings only
 }
 

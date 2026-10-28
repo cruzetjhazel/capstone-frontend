@@ -8,7 +8,7 @@ import { Toaster as HotToast } from "react-hot-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RoleProvider, useRole } from "@/contexts/RoleContext";
 import toast from "react-hot-toast";
-import { FavoritesProvider } from "@/contexts/FavoritesContext";
+
 
 // --- PUBLIC PAGES IMPORTS ---
 import Home from "./pages/Home";
@@ -29,6 +29,7 @@ import NotFound from "./pages/NotFound";
 import ReportProblem from "./pages/ReportProblem";
 import MyReports from "./pages/MyReports"; 
 import Notifications from "./pages/Notifications";
+import ClientActivityLogs from "./pages/client/ClientActivityLogs"
 
 // --- CLIENT PAGES IMPORTS ---
 import MyBookings from "./pages/client/ClientMyBookings";
@@ -155,7 +156,7 @@ const App = () => (
       <BrowserRouter>
         <RouteThemeEnforcer />
         <RoleProvider>
-          <FavoritesProvider>
+          <>
             <VerifyEmailBanner />
             <Routes>
               {/* Public routes */}
@@ -181,6 +182,7 @@ const App = () => (
               <Route path="/report-problem" element={<ProtectedRoute allowedRole="client"><ReportProblem /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute allowedRole="client"><MyReports /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute allowedRole="client"><Notifications /></ProtectedRoute>} />
+              <Route path="/activity" element={<ProtectedRoute allowedRole="client"><ClientActivityLogs /></ProtectedRoute>} />
               
               <Route path="/booking/:id" element={<ProtectedRoute allowedRole="client"><Booking /></ProtectedRoute>} />
               <Route path="/booking-sent/:id" element={<ProtectedRoute allowedRole="client"><BookingSent /></ProtectedRoute>} />
@@ -226,7 +228,7 @@ const App = () => (
               <Route path="/admin/appeals" element={<ProtectedRoute allowedRole="admin"><AdminAppeals /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </FavoritesProvider>
+          </>
         </RoleProvider>
       </BrowserRouter>
     </TooltipProvider>

@@ -537,7 +537,7 @@ export default function BookingDetails() {
                 <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={isSubmitting}>Back</Button>
                   <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
-                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
+                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : budgetInput.trim() ? "Confirm & Send Offer" : "Confirm Submit"}
                   </Button>
                 </div>
               </div>

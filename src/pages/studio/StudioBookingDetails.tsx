@@ -23,7 +23,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
     import { getApiErrorMessage } from "@/services/clientProfileService";
-    import { BudgetResponsePanel } from "@/components/booking/BudgetResponsePanel";
+       import { BudgetResponsePanel } from "@/components/booking/BudgetResponsePanel";
+   import { usePhotographerBudgetView } from "@/hooks/useBookingNegotiation";
 import { useRole } from "@/contexts/RoleContext";
 import { cn } from "@/lib/utils";
 import {
@@ -66,7 +67,10 @@ export default function StudioBookingDetail() {
   const { user, role, isLoading: roleLoading } = useRole();
   const { toast } = useToast();
 
-  const { data: booking, isLoading, error, refetch } = usePhotographerBooking(id);
+     const { data: booking, isLoading, error, refetch } = usePhotographerBooking(id);
+   const budgetView = usePhotographerBudgetView(booking?.status === "pending" ? booking.id : undefined);
+   // Terms were sent to the client: a plain "Accept request" would be refused, so don't offer it.
+   const termsAwaitingClient = budgetView.data?.budget_request?.status === "proposed";
 
   // Early-warning hint only (primary date/time, no buffer). The backend is the real guard.
   const { data: allBookings = [] } = usePhotographerBookings();
@@ -425,7 +429,7 @@ export default function StudioBookingDetail() {
                 (booking.status === 'cancelled' || booking.status === 'no_show') ? 'text-destructive' :
                 booking.status === 'expired' ? 'text-muted-foreground' : 'text-blue-600'
               }`}>
-                ● {booking.status === "no_show" ? "no show" : booking.status === "cancelled" && booking.nonCompletionReason ? "not completed" : booking.status === "cancelled" && booking.isDeclined ? "declined" : booking.status}
+                ● {booking.status === "no_show" ? "not completed" : booking.status === "cancelled" && booking.nonCompletionReason ? "not completed" : booking.status === "cancelled" && booking.isDeclined ? "declined" : booking.status}
               </span>
             </div>
 
@@ -511,9 +515,9 @@ export default function StudioBookingDetail() {
             </div>
           )}
 
-              {booking.status === "pending" && <BudgetResponsePanel bookingId={booking.id} />}
+                 {booking.status === "pending" && <BudgetResponsePanel bookingId={booking.id} onChanged={() => refetch()} />}
 
-    {booking.status === "pending" && !booking.hasActiveCancellationRequest && (
+       {booking.status === "pending" && !booking.hasActiveCancellationRequest && !termsAwaitingClient && (
             isPendingHoldExpired(booking) ? (
               <div className="bg-muted/50 p-5 rounded-xl border border-border/60 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />

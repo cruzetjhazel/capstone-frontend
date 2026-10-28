@@ -23,7 +23,8 @@ import { useMonthAvailability, useAvailableStartTimes, availableStartTimesQuery 
 import { useClientProfile } from "@/hooks/useClientProfile";
 import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
-import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
+   import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
+   import { BudgetOfferField, NegotiationBanner } from "@/components/booking/BudgetOfferField";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { allowedLocationTypes, provinceAllowed, cityAllowed, coverageNote } from "@/data/coverage";
 import {
@@ -38,13 +39,6 @@ const ALL_STEPS = [
   { id: 3, label: "Add-ons" },
   { id: 4, label: "Review" },
 ];
-
-// Flat platform fee added to every booking on top of the package/add-on
-// subtotal — mirrors config/platform.php's PLATFORM_FEE on the backend
-// (CreateBookingAction sets the authoritative amount; this is just for
-// showing an accurate preview before the booking is actually created).
-// This is NOT an insurance product — see the disclaimer next to it below.
-const PLATFORM_FEE = 30;
 
 // Strictly mapped to SRS Section 7.11
 const systemEventTypes = [
@@ -126,6 +120,9 @@ type SessionDraft = {
   // genuinely different session (e.g. a graduation's second batch),
   // which keeps its own description and can have its own location.
   sameEvent: boolean;
+  // Only used when sameEvent is false: what THIS session covers (e.g. Prenup).
+  eventType: string;
+  customEventType: string;
 };
 
 const toYmd = (d: Date) =>
@@ -283,7 +280,9 @@ export default function Booking() {
   const initialPkgParam = searchParams.get("package");
   const initialPkg = initialPkgParam !== null ? parseInt(initialPkgParam) : -1;
 
-  const [step, setStep] = useState(0);
+     const [step, setStep] = useState(0);
+   const [budgetInput, setBudgetInput] = useState("");
+   const [budgetNote, setBudgetNote] = useState("");
   const [packageMode, setPackageMode] = useState<"fixed" | "custom">("fixed");
   const [selectedPkg, setSelectedPkg] = useState<number>(initialPkg);
   const [customBuild, setCustomBuild] = useState<CustomBuild>(makeDefaultBuild());
@@ -339,6 +338,7 @@ export default function Booking() {
         key: `sched-${Date.now()}-${prev.length}`,
         label: "", date: "", startTime: "", durationHours: "",
         ownLocation: false, location: emptySessionLocation(),
+        eventType: "", customEventType: "",
         sameEvent,
       },
     ]);
@@ -436,6 +436,15 @@ export default function Booking() {
   // Only offer extra sessions when at least one package of this photographer
   // allows them.
   const multiSessionPackages = (p?.packages ?? []).filter((pk) => pk.allowsMultipleSessions);
+  // Most sessions any package/custom option allows in one booking (Infinity = no cap).
+  const maxSessionsAllowed = (() => {
+    const caps = [
+      ...multiSessionPackages.map((pk) => pk.maxSessions ?? Infinity),
+      ...(customAllowsMultiple ? [rates.maxSessions ?? Infinity] : []),
+    ];
+    return caps.length ? Math.max(...caps) : 1;
+  })();
+  const canAddMoreSessions = additionalSchedules.length + 1 < maxSessionsAllowed;
 
   const dateStr = date
     ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
@@ -684,7 +693,10 @@ export default function Booking() {
     const primary = { key: "primary", label: primaryLabel, dateStr, startTime, endTime: estimatedEndTime, locationText: "" };
     const extras = additionalSchedulesWithEndTime.map((s) => ({
       key: s.key,
-      label: s.label || "Photography session",
+      // Same-event sessions inherit Session 1's event; different ones use their own pick.
+      label: s.sameEvent
+        ? primaryLabel
+        : ((s.eventType === "Other" ? s.customEventType.trim() : s.eventType) || "Photography session"),
       dateStr: s.date,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -903,7 +915,7 @@ export default function Booking() {
   const validateAdditionalSessions = (): StepValidation => {
     for (let i = 0; i < additionalSchedules.length; i++) {
       const sch = additionalSchedules[i];
-      const name = sch.sameEvent ? `Day ${i + 2}` : `Session ${i + 2}`;
+      const name = `Session ${i + 2}`;
       if (sessionSlots[sch.key]?.loading) {
         return { ok: false, reason: `Still checking availability for ${name} — one moment.` };
       }
@@ -933,14 +945,17 @@ export default function Booking() {
           if (!sch.date || !sch.startTime) {
             return { ok: false, reason: "Please give every additional day a date and start time — or remove the incomplete one." };
           }
-          if (!sch.sameEvent && !sch.label.trim()) {
-            return { ok: false, reason: "Please describe the different session, or switch it back to \"same event\" — or remove it." };
+          if (!sch.sameEvent && !sch.eventType) {
+            return { ok: false, reason: "Please choose what the different session covers (e.g. Prenup, Wedding) — or remove it." };
+          }
+          if (!sch.sameEvent && sch.eventType === "Other" && !sch.customEventType.trim()) {
+            return { ok: false, reason: "Please specify the event for the different session — or remove it." };
           }
           if (sch.durationHours.trim() !== "" && !(Number(sch.durationHours) > 0)) {
             return { ok: false, reason: "A session's duration must be a positive number of hours — or leave it blank." };
           }
           if (sch.ownLocation && !isSessionLocationComplete(sch.location)) {
-            return { ok: false, reason: `Please complete the location for "${sch.label.trim()}", or untick the different-location option.` };
+            return { ok: false, reason: `Please complete the location for this session, or untick the different-location option.` };
           }
         }
         // Every extra day/session must be on an open date AND an open time slot.
@@ -1108,7 +1123,15 @@ export default function Booking() {
         return;
       }
     }
-    setIsConfirmModalOpen(true);
+   if (budgetInput.trim()) {
+     const offered = Number(budgetInput);
+     if (!Number.isFinite(offered) || offered <= 0 || offered >= subtotal) {
+       toast.error("Your budget must be more than 0 and lower than the subtotal. Clear it to book at the listed price.");
+       setStep(4);
+       return;
+     }
+   }
+   setIsConfirmModalOpen(true);
   };
 
   // Converts UI labels ("Corporate Event", "Client Location") into the
@@ -1139,7 +1162,10 @@ export default function Booking() {
           event_address: eventAddress.trim(),
         } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
-        ...(notes.trim() ? { special_requests: notes.trim() } : {}),
+           ...(notes.trim() ? { special_requests: notes.trim() } : {}),
+   ...(budgetInput.trim()
+     ? { budget_amount: Number(budgetInput), ...(budgetNote.trim() ? { budget_note: budgetNote.trim() } : {}) }
+     : {}),
         // Additional sessions of THIS booking's single package. A blank
         // duration is simply omitted so the backend applies the package's
         // duration (or leaves it to be confirmed); a session with no own
@@ -1147,9 +1173,7 @@ export default function Booking() {
         ...(additionalSchedules.length
           ? {
               additional_schedules: additionalSchedules.map((s, idx) => ({
-                label: s.sameEvent
-                  ? `${eventType === "Other" && specificEventType ? specificEventType : (eventType || "Event")} — Day ${idx + 2}`
-                  : s.label.trim(),
+                label: `Session ${idx + 2} — ${allScheduleEntries[idx + 1]?.label ?? "Photography session"}`,
                 event_date: s.date,
                 start_time: s.startTime,
                 ...(packageMode === "custom" && rates.hourlyRate != null
@@ -1246,7 +1270,7 @@ export default function Booking() {
             </div>
             <h2 className="font-heading font-bold text-xl mb-2">Client accounts only</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              You're signed in as a {role === "studio" ? "studio/photographer" : role} account. Only client accounts can submit booking requests — sign in with a client account to book {p.name}.
+              You're signed in as a {role === "studio" ? "studio/photographer" : role} account. Only client accounts can    {budgetInput.trim() ? "Submit Booking Request with Offer" : "Submit Booking Request"}s — sign in with a client account to book {p.name}.
             </p>
             <button onClick={() => navigate(-1)} className="text-xs text-muted-foreground hover:text-foreground">
               Go back
@@ -1315,7 +1339,8 @@ export default function Booking() {
           <div className="lg:col-span-2 space-y-6">
 
             {/* ===== Step 0: Date ===== */}
-            {step === 0 && (
+               {step === 0 && <NegotiationBanner />}
+   {step === 0 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Choose Your Start Time</h3>
                 <p className="text-sm text-muted-foreground mb-5">
@@ -1515,13 +1540,28 @@ export default function Booking() {
                 {(multiSessionPackages.length > 0 || customAllowsMultiple) && (
                   <div className="mt-6 pt-5 border-t border-border/50">
                     {!showMultiSchedule && additionalSchedules.length === 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => { setShowMultiSchedule(true); addAdditionalSchedule(true); }}
-                        className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
-                      >
-                        <CalendarPlus className="w-4 h-4" /> Need more than one day or session? Add it here
-                      </button>
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Need more than one day or session?</p>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setShowMultiSchedule(true); addAdditionalSchedule(true); }}
+                            className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <CalendarPlus className="w-4 h-4" /> Add another day (same event)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setShowMultiSchedule(true); addAdditionalSchedule(false); }}
+                            className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <CalendarPlus className="w-4 h-4" /> Add a different session
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Same event: another date for the same event and venue. Different session: its own event (e.g. Prenup), and optionally its own location or the same date.
+                        </p>
+                      </div>
                     ) : (
                       <div className="space-y-4">
                         <div>
@@ -1542,7 +1582,7 @@ export default function Booking() {
                           <div key={s.key} className="p-4 rounded-xl border border-border space-y-3">
                             <div className="flex items-center justify-between">
                               <p className="text-xs font-semibold text-muted-foreground">
-                                {s.sameEvent ? `Day ${idx + 2} (same event)` : `Session ${idx + 2} (different)`}
+                                {`Session ${idx + 2}`} — {s.sameEvent ? "same event as Session 1" : "different session"}
                               </p>
                               <button
                                 type="button"
@@ -1557,13 +1597,28 @@ export default function Booking() {
                                 Same event and same venue as your main booking — just pick the date and time.
                               </p>
                             ) : (
-                              <input
-                                type="text"
-                                placeholder="Session description (e.g. Graduation shoot — Batch 2)"
-                                value={s.label}
-                                onChange={(e) => updateAdditionalSchedule(s.key, { label: e.target.value })}
-                                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
-                              />
+                              <div className="space-y-2">
+                                <select
+                                  value={s.eventType}
+                                  onChange={(e) => updateAdditionalSchedule(s.key, {
+                                    eventType: e.target.value,
+                                    ...(e.target.value !== "Other" ? { customEventType: "" } : {}),
+                                  })}
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                  <option value="">What does this session cover? (e.g. Prenup, Wedding)</option>
+                                  {systemEventTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                                {s.eventType === "Other" && (
+                                  <input
+                                    type="text"
+                                    placeholder="Please specify the event"
+                                    value={s.customEventType}
+                                    onChange={(e) => updateAdditionalSchedule(s.key, { customEventType: e.target.value })}
+                                    className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                                  />
+                                )}
+                              </div>
                             )}
                             {(() => {
                               const src = sessionDurationSource(s);
@@ -1621,10 +1676,10 @@ export default function Booking() {
                         ))}
 
                         <div className="flex items-center gap-3 flex-wrap">
-                          <Button type="button" variant="outline" size="sm" onClick={() => addAdditionalSchedule(true)} className="gap-1.5" title="Same event, same place. Just pick the date and time.">
+                          <Button type="button" variant="outline" size="sm" onClick={() => addAdditionalSchedule(true)} disabled={!canAddMoreSessions} className="gap-1.5" title="Same event, same place. Just pick the date and time.">
                             <CalendarPlus className="w-3.5 h-3.5" /> Add another day (same event)
                           </Button>
-                          <Button type="button" variant="outline" size="sm" onClick={() => addAdditionalSchedule(false)} className="gap-1.5" title="Its own description, and optionally its own location.">
+                          <Button type="button" variant="outline" size="sm" onClick={() => addAdditionalSchedule(false)} disabled={!canAddMoreSessions} className="gap-1.5" title="Its own description, and optionally its own location.">
                             <CalendarPlus className="w-3.5 h-3.5" /> Add a different session
                           </Button>
                           <button
@@ -1653,7 +1708,7 @@ export default function Booking() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="eventType">Event Type *</Label>
+                  <Label htmlFor="eventType">Event Type{additionalSchedules.length > 0 ? " (Session 1)" : ""} *</Label>
                   <select
                     id="eventType"
                     value={eventType}
@@ -1823,17 +1878,18 @@ export default function Booking() {
                   <div className="space-y-3">
                     {p.packages.map((pk, i) => {
                       const blockedBySessions = additionalSchedules.length > 0 && !pk.allowsMultipleSessions;
+                      const exceedsMax = !!pk.allowsMultipleSessions && !!pk.maxSessions && additionalSchedules.length + 1 > pk.maxSessions;
                       const doesNotFit = !packageFits(i);
                       return (
                         <button
                           key={pk.name}
                           type="button"
-                          disabled={blockedBySessions || doesNotFit}
+                          disabled={blockedBySessions || exceedsMax || doesNotFit}
                           onClick={() => setSelectedPkg(i)}
                           className={cn(
                             "w-full text-left p-5 rounded-xl border-2 transition-all duration-200",
                             selectedPkg === i ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
-                            (blockedBySessions || doesNotFit) && "opacity-50 cursor-not-allowed hover:border-border"
+                            (blockedBySessions || exceedsMax || doesNotFit) && "opacity-50 cursor-not-allowed hover:border-border"
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
@@ -1859,7 +1915,12 @@ export default function Booking() {
                                   Single session only — remove your extra sessions (Date & Time step) to choose this package.
                                 </p>
                               )}
-                              {!blockedBySessions && doesNotFit && (
+                              {exceedsMax && (
+                                <p className="text-[11px] text-destructive mt-1.5">
+                                  This package covers up to {pk.maxSessions} session{pk.maxSessions === 1 ? "" : "s"} — you have {additionalSchedules.length + 1}. Remove a session (Date & Time step) to choose it.
+                                </p>
+                              )}
+                              {!blockedBySessions && !exceedsMax && doesNotFit && (
                                 <p className="text-[11px] text-destructive mt-1.5">
                                   Doesn't fit at {prettyTime(startTime)} — an existing booking or the photographer's buffer is in the way. Choose another start time to use this package.
                                 </p>
@@ -2177,7 +2238,17 @@ export default function Booking() {
             {step === 4 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Review Your Booking</h3>
-                <p className="text-sm text-muted-foreground mb-5">Double-check everything before sending the request.</p>
+                   <p className="text-sm text-muted-foreground mb-5">Double-check everything before sending the request.</p>
+   <div className="mb-5">
+     <BudgetOfferField
+          subtotal={subtotal}
+   platformFee={0}
+       budget={budgetInput}
+       note={budgetNote}
+       onBudgetChange={setBudgetInput}
+       onNoteChange={setBudgetNote}
+     />
+   </div>
                 <div className="space-y-4 text-sm">
                   <div className="p-4 rounded-xl bg-muted/50 flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-heading font-bold">{p.avatar}</div>
@@ -2187,7 +2258,7 @@ export default function Booking() {
                     </div>
                   </div>
                   <div className="p-4 rounded-xl border border-border space-y-1">
-                    <p><span className="text-muted-foreground">Event:</span> {eventType === "Other" ? specificEventType : eventType}</p>
+                    <p><span className="text-muted-foreground">Event:</span> {Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}</p>
                     {allScheduleEntries.length > 1 && (
                       <p className="text-[11px] text-muted-foreground pt-1">
                         All sessions below belong to this one booking and package. This is a request, not a confirmed reservation — the photographer will review the requested sessions and confirm whether they can accommodate them. Each session is a separate schedule; the dates in between are not reserved.
@@ -2315,7 +2386,7 @@ export default function Booking() {
                     )}
                   </div>
                 ))}
-                {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium">{eventType === "Other" && specificEventType ? specificEventType : eventType}</span></div>}
+                {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium text-right">{Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}</span></div>}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{packageMode === "fixed" ? (pkg ? `${pkg.name} Package` : "No package selected") : "Custom Package"}</span>
                   <span className="font-medium">{formatPrice(packagePrice)}</span>
@@ -2332,9 +2403,9 @@ export default function Booking() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatPrice(subtotal)}</span>
                 </div>
-                <div className="flex justify-between items-center pt-1">
+   <div className="flex justify-between items-center pt-1">
                   <span className="font-heading font-semibold">Total</span>
-                  <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal)}</span>
+                     <span className="text-xl font-heading font-bold text-primary">{formatPrice(subtotal)}</span>
                 </div>
               </div>
 
@@ -2347,7 +2418,7 @@ export default function Booking() {
                   </Button>
                 ) : (
                   <Button className="w-full" size="lg" onClick={handleOpenConfirm}>
-                    Submit Booking Request
+                       {budgetInput.trim() ? "Submit Booking Request with Offer" : "Submit Booking Request"}
                   </Button>
                 )}
                 {stepPos > 0 && (
@@ -2360,7 +2431,7 @@ export default function Booking() {
                 <p className="text-xs text-destructive text-center mt-3">{currentValidation.reason}</p>
               )}
               <p className="text-xs text-muted-foreground text-center mt-3">
-                No payment is required right now.
+                No payment is required right now. Over your budget? You can offer your own price on the last step.
               </p>
             </div>
           </div>
@@ -2379,13 +2450,23 @@ export default function Booking() {
               <X className="w-5 h-5" />
             </button>
             <h2 className="text-xl font-heading font-bold mb-2">Confirm Booking Request</h2>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Are you sure you want to submit this booking request? The photographer has up to 48 hours to review it. The time is only reserved once your payment is confirmed.
+<p className="text-sm text-muted-foreground mb-6 leading-relaxed space-y-3">
+                 <span className="block text-foreground font-medium">Send this request to {p.name}?</span>
+<span className="block rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+  The photographer has <strong>up to 48 hours</strong> to review it. Your time is <strong>only reserved once your payment is confirmed</strong>, and you won't be charged until the request is approved.
+</span>
+   {budgetInput.trim() && (
+  <span className="block rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-foreground">
+    <strong className="text-primary text-sm">Your offer: {formatPrice(Number(budgetInput))}</strong>{" "}
+    sent with this request.
+    <span className="block mt-1 text-muted-foreground">The listed price stays the same unless you accept the photographer's terms.</span>
+  </span>
+)}
             </p>
             <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsConfirmModalOpen(false)} disabled={isSubmitting}>Back</Button>
               <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
-                {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
+                {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : budgetInput.trim() ? "Confirm & Send Offer" : "Confirm Submit"}
               </Button>
             </div>
           </div>

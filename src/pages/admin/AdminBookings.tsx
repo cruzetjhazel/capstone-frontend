@@ -119,6 +119,10 @@ function unwrapList(payload: any): any[] {
 
 const ITEMS_PER_PAGE = 10;
 
+// "photographer_no_show" -> "Photographer No Show". Works for any future reason value too.
+const reasonLabel = (reason: string) =>
+  reason.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
 // --- Configs ---
 const bookingStatusConfig: Record<string, string> = {
   "Pending": "bg-amber-500/10 text-amber-600",
@@ -262,7 +266,7 @@ export default function AdminBookings() {
     setIsResolving(true);
     try {
       await api.post(`/admin/bookings/${viewBooking.rawId}/non-completion/resolve`, { decision, notes: noShowNotes.trim() || undefined });
-      toast.success(decision === "upheld" ? "No-show confirmed. The booking is now marked as No Show." : "Report dismissed. The booking continues.");
+      toast.success(decision === "upheld" ? "No-show confirmed. The booking is now marked as Not Completed." : "Report dismissed. The booking continues.");
       setNoShowNotes("");
       setViewBooking(null);
       fetchBookings();
@@ -331,8 +335,7 @@ export default function AdminBookings() {
                 <SelectItem value="Declined">Declined</SelectItem>
                 <SelectItem value="Cancelled">Cancelled</SelectItem>
                 <SelectItem value="Completed">Completed</SelectItem>
-                                <SelectItem value="Not Completed">Not Completed</SelectItem>
-                <SelectItem value="No Show">No Show</SelectItem>
+                <SelectItem value="Not Completed">Not Completed</SelectItem>
                 <SelectItem value="No-Show Review">No-Show Review</SelectItem>
               </SelectContent>
             </Select>
@@ -442,6 +445,9 @@ export default function AdminBookings() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[b.status] ?? "bg-muted text-muted-foreground"}`}>
                         {b.status}
                       </span>
+                      {b.status === "Not Completed" && b.noShow?.reason && (
+                        <p className="mt-1 text-xs text-muted-foreground">{reasonLabel(b.noShow.reason)}</p>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 align-middle">
                       <div className="flex items-center justify-center gap-2">

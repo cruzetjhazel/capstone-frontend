@@ -62,8 +62,8 @@ function toActivityLog(raw: RawActivityLog): ActivityLogEntry {
 }
 
 export const activityLogService = {
-  list: async (): Promise<ActivityLogEntry[]> => {
-    const res = await api.get("/photographer/activity-logs");
+  list: async (scope: "photographer" | "client" = "photographer"): Promise<ActivityLogEntry[]> => {
+    const res = await api.get(`/${scope}/activity-logs`);
     // Real endpoint paginates (per_page, default 20) — .data.data holds the
     // page of results, matching the paginator shape Laravel returns wrapped
     // inside this project's ApiResponses trait.

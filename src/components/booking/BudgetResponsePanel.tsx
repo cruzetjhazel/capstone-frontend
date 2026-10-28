@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Loader2, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ const formatWhen = (iso?: string | null) =>
  * Reads the booking itself (GET /photographer/bookings/{id}) so it does not depend on the
  * list/detail mapping used elsewhere.
  */
-export function BudgetResponsePanel({ bookingId }: { bookingId: string | number }) {
+export function BudgetResponsePanel({ bookingId, onChanged }: { bookingId: string | number; onChanged?: () => void }) {
   const { data: view } = usePhotographerBudgetView(bookingId);
   const respond = useRespondToBudgetRequest();
 
@@ -39,6 +39,16 @@ export function BudgetResponsePanel({ bookingId }: { bookingId: string | number 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
+  // When the request changes state (our own answer, or the client accepting / rejecting the
+  // terms), tell the page so it refreshes the booking instead of showing stale buttons.
+  const lastStatus = useRef<string | null>(null);
+  useEffect(() => {
+    const status = request?.status ?? null;
+    if (lastStatus.current !== null && status !== lastStatus.current) onChanged?.();
+    lastStatus.current = status;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.status]);
+
   if (!request) return null;
 
   const fail = (error: unknown) =>
@@ -49,6 +59,7 @@ export function BudgetResponsePanel({ bookingId }: { bookingId: string | number 
       await respond.mutateAsync({ bookingId, payload });
       toast.success(success);
       setMode(null);
+      onChanged?.();
     } catch (error) {
       fail(error);
     }

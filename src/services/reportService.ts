@@ -1,6 +1,6 @@
 import api, { getApiErrorMessage } from "@/lib/api";
 
-export type ReportStatus = "pending" | "reviewing" | "resolved" | "closed";
+export type ReportStatus = "submitted" | "under_review" | "resolved" | "closed";
 export type ReportTarget = "client" | "studio" | "booking" | "payment" | "bug" | "other";
 export type ReportSeverity = "low" | "medium" | "high" | "urgent";
 export type ReportRequestedAction = "investigate" | "refund" | "cancel" | "warn" | "remove_review" | "other";

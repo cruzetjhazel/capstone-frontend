@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { activityLogService } from "@/services/activityLogService";
 
-export function useActivityLogs() {
+export function useActivityLogs(scope: "photographer" | "client" = "photographer") {
   return useQuery({
-    queryKey: ["activityLogs"],
-    queryFn: () => activityLogService.list(),
+    queryKey: ["activityLogs", scope],
+    queryFn: () => activityLogService.list(scope),
     staleTime: 30_000,
   });
 }

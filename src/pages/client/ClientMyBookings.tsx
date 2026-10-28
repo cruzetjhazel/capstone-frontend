@@ -74,7 +74,7 @@ const getStatusBadge = (status: string, date?: string, nonCompletionReason?: str
     case "confirmed": return { label: "Confirmed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
     case "completed": return { label: "Completed", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
     case "cancelled": return { label: "Cancelled", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
-    case "no_show": return { label: "No Show", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
+    case "no_show": return { label: "Not Completed", className: "bg-rose-500/10 text-rose-600", icon: XCircle };
     case "expired": return { label: "Expired", className: "bg-slate-500/10 text-slate-500", icon: Clock3 };
     default: return { label: status, className: "bg-muted text-muted-foreground", icon: Clock3 };
   }

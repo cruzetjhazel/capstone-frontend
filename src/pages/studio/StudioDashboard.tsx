@@ -23,7 +23,7 @@ import { photographerProfileService, type ProfileCompleteness } from "@/services
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
-// A "pending" booking's 48h review window (set by CreateBookingAction) may
+// A "pending" booking's 24h review window (set by CreateBookingAction) may
 // have lapsed server-side before ExpireStaleBookingHoldsAction next runs and
 // flips its status to "expired". AcceptBookingAction rejects these with a
 // validation error, so we detect it client-side first and disable the
@@ -65,22 +65,34 @@ export default function StudioDashboard() {
   // still visible on the full Bookings page, which already shows it with
   // the "Response window expired" note.
   const actionablePendingBookings = pendingBookings.filter((b) => !isPendingHoldExpired(b));
+  // The dashboard is an overview: show the 3 requests closest to expiring.
+  // The rest live on the Bookings page.
+  const DASHBOARD_LIST_LIMIT = 3;
+  const visiblePendingBookings = [...actionablePendingBookings]
+    .sort((a, b) => (a.holdExpiresAt ?? "9999").localeCompare(b.holdExpiresAt ?? "9999"))
+    .slice(0, DASHBOARD_LIST_LIMIT);
   const confirmedBookings = bookings.filter(
     (b): b is StudioBookingRecord & { status: "confirmed" } => b.status === "confirmed"
   );
   const completedBookings = bookings.filter((b) => b.status === "completed");
 
   // Primary "what's coming up" list — confirmed, scheduled bookings only.
-  const upcomingBookings = confirmedBookings.slice(0, 5);
+  // Only confirmed bookings whose event date hasn't passed, soonest first.
+  const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local time
+  const futureConfirmedBookings = confirmedBookings
+    .filter((b) => b.date >= todayStr)
+    .sort((a, b) => (a.date + (a.startTime ?? "")).localeCompare(b.date + (b.startTime ?? "")));
+  const upcomingBookings = futureConfirmedBookings.slice(0, DASHBOARD_LIST_LIMIT);
 
   // Lightweight activity feed — most recent relevant bookings, one line each.
   const recentActivity = bookings
-    .filter((b) => b.status !== "rejected" && b.status !== "cancelled")
+    .filter((b) => b.status === "pending" || b.status === "confirmed" || b.status === "completed")
     .slice(0, 4);
 
   const now = new Date();
   const monthRevenue = payments
     .filter((p) => {
+      if (!p.verifiedAt) return false; // only verified payments count as revenue
       const d = new Date(p.paymentDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     })
@@ -88,7 +100,7 @@ export default function StudioDashboard() {
 
   const stats = [
         { label: "Pending Requests", value: String(actionablePendingBookings.length), icon: Clock, highlight: actionablePendingBookings.length > 0 },
-    { label: "Upcoming Bookings", value: String(confirmedBookings.length), icon: CalendarDays, highlight: false },
+    { label: "Upcoming Bookings", value: String(futureConfirmedBookings.length), icon: CalendarDays, highlight: false },
     { label: "Completed", value: String(completedBookings.length), icon: CheckCircle, highlight: false },
     { label: "Revenue This Month", value: `₱${monthRevenue.toLocaleString()}`, icon: DollarSign, highlight: false },
   ];
@@ -243,7 +255,7 @@ export default function StudioDashboard() {
               </h3>
             </div>
             <div className="divide-y divide-border">
-              {actionablePendingBookings.map((b) => (
+              {visiblePendingBookings.map((b) => (
                 <div key={b.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -286,6 +298,14 @@ export default function StudioDashboard() {
                 </div>
               ))}
             </div>
+            {actionablePendingBookings.length > DASHBOARD_LIST_LIMIT && (
+              <Link
+                to="/studio/bookings"
+                className="block px-5 py-3 text-center text-xs font-semibold text-primary border-t border-primary/20 bg-primary/5 hover:bg-primary/10"
+              >
+                View all {actionablePendingBookings.length} pending requests →
+              </Link>
+            )}
           </div>
         ) : (
           <div className="bg-card rounded-xl card-shadow border border-border/50 px-5 py-4 flex items-center gap-2 text-sm text-muted-foreground">
@@ -297,10 +317,10 @@ export default function StudioDashboard() {
         <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border flex items-center justify-between bg-muted/20">
             <h3 className="font-heading font-semibold text-sm flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-primary" /> Upcoming Bookings · {confirmedBookings.length}
+              <CalendarDays className="w-4 h-4 text-primary" /> Upcoming Bookings · {futureConfirmedBookings.length}
             </h3>
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
-              View all
+            <Button asChild variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
+              <Link to="/studio/bookings">View all</Link>
             </Button>
           </div>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DollarSign, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2, Eye } from "lucide-react";
+import { DollarSign, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2, Eye, Package as PackageIcon, Heart } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import toast from "react-hot-toast";
@@ -33,7 +33,14 @@ interface Kpis {
   profileViewsChangePct: number | null;
 }
 
+interface PackageRank {
+  name: string;
+  count: number;
+}
+
 interface AnalyticsData {
+  mostBookedPackages: PackageRank[];
+  mostFavoritedPackages: PackageRank[];
   kpis: Kpis;
   monthly: MonthlyPoint[];
   serviceMix: ServiceSlice[];
@@ -66,6 +73,8 @@ function mapAnalytics(raw: any): AnalyticsData {
     monthly: raw.monthly.map((m: any) => ({ month: m.month, revenue: m.revenue, bookings: m.bookings, views: m.views })),
     serviceMix: raw.service_mix.map((s: any) => ({ name: s.name, value: s.value })),
     topClients: raw.top_clients.map((c: any) => ({ name: c.name, bookings: c.bookings, spent: c.spent })),
+    mostBookedPackages: (raw.most_booked_packages ?? []).map((p: any) => ({ name: p.name, count: p.count })),
+    mostFavoritedPackages: (raw.most_favorited_packages ?? []).map((p: any) => ({ name: p.name, count: p.count })),
   };
 }
 
@@ -332,6 +341,35 @@ export default function StudioAnalytics() {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {[
+                { title: "Most Booked Packages", unit: "bookings", icon: PackageIcon, items: data.mostBookedPackages, empty: "No confirmed or completed bookings yet." },
+                { title: "Most Favorited Packages", unit: "favorites", icon: Heart, items: data.mostFavoritedPackages, empty: "No clients have favorited your packages yet." },
+              ].map((card) => (
+                <div key={card.title} className="bg-card rounded-xl card-shadow border border-border/50">
+                  <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                    <h3 className="font-heading font-semibold">{card.title}</h3>
+                    <card.icon className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  {card.items.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">{card.empty}</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {card.items.map((p, i) => (
+                        <div key={`${p.name}-${i}`} className="px-6 py-4 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">{i + 1}</span>
+                            <p className="text-sm font-medium">{p.name}</p>
+                          </div>
+                          <p className="text-sm font-semibold whitespace-nowrap shrink-0 pl-3">{p.count} {card.unit}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </>
         )}

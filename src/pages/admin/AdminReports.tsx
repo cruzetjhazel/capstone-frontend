@@ -138,7 +138,7 @@ function NoShowResolvePanel({ report, onResolved }: { report: AdminReport; onRes
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {pending === "upheld"
-                  ? `Booking #${report.referenceId} will be cancelled and marked as Not Completed. If the client reported it, they can then leave a review.`
+                  ? `Booking #${report.referenceId} will be marked as Not Completed.`
                   : `The no-show report on booking #${report.referenceId} will be dismissed and the booking goes back to Confirmed.`}
               </p>
               <div className="flex justify-end gap-2">

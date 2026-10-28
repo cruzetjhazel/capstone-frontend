@@ -155,7 +155,14 @@ function PackageFormModal({
     : !isOpen && !(form.durationMinutes > 0) ? "Enter a duration, or switch this package to open-ended."
     : "";
   const bufferError = form.bufferMinutes < 0 ? "Buffer can't be negative." : "";
-  const canSubmit = !!form.name.trim() && !durationError && !bufferError;
+  const priceError = !(Number(form.price) > 0) ? "Price must be greater than ₱0." : "";
+  const sessionsError =
+    form.allowsMultipleSessions && form.maxSessions !== "" && Number(form.maxSessions) > 15
+      ? "Maximum sessions can't be more than 15."
+      : "";
+  const outdoorPriceError =
+    form.outdoorPrice !== "" && !(Number(form.outdoorPrice) > 0) ? "Outdoor price must be greater than ₱0, or leave it blank." : "";
+  const canSubmit = !!form.name.trim() && !priceError && !outdoorPriceError && !durationError && !bufferError && !sessionsError;
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -189,6 +196,7 @@ function PackageFormModal({
       <div className="space-y-1">
         <Label className="text-xs">Price (₱)</Label>
         <Input type="number" min={0} className="h-9 text-sm font-semibold" value={form.price === 0 ? "" : form.price} onChange={(e) => set({ price: e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)) })} />
+        {priceError && <p className="text-[11px] text-destructive">{priceError}</p>}
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Outdoor / On-location Price (₱) <span className="text-muted-foreground font-normal">(optional)</span></Label>
@@ -197,6 +205,7 @@ function PackageFormModal({
           value={form.outdoorPrice}
           onChange={(e) => set({ outdoorPrice: e.target.value === "" ? "" : Math.max(0, Number(e.target.value)) })}
         />
+        {outdoorPriceError && <p className="text-[11px] text-destructive">{outdoorPriceError}</p>}
         <p className="text-[11px] text-muted-foreground">
           Charged instead of the price above when the client books anywhere other than your studio. Leave blank to charge the same price everywhere.
         </p>
@@ -255,10 +264,11 @@ function PackageFormModal({
           <div className="space-y-1">
             <Label className="text-xs">Maximum sessions per booking <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input
-              type="number" min={2} max={20} className="h-9 text-sm" placeholder="No limit"
+              type="number" min={2} max={15} className="h-9 text-sm" placeholder="No limit"
               value={form.maxSessions}
               onChange={(e) => set({ maxSessions: e.target.value === "" ? "" : Math.max(2, Number(e.target.value)) })}
             />
+            {sessionsError && <p className="text-[11px] text-destructive">{sessionsError}</p>}
           </div>
         )}
       </div>

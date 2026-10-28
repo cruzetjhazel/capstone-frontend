@@ -65,7 +65,10 @@ export function usePhotographerBudgetView(bookingId: string | number | undefined
     queryKey: ["photographer-booking-budget", String(bookingId)],
     queryFn: () => negotiationService.getPhotographerBooking(bookingId as string | number),
     enabled: bookingId != null,
-    staleTime: 15_000,
+    staleTime: 5_000,
+    // While a request is open, keep checking so the page reacts when the client answers
+    // (accepts or rejects the terms) without the photographer having to reload.
+    refetchInterval: (query) => (query.state.data?.budget_request?.is_open ? 10_000 : false),
   });
 }
 

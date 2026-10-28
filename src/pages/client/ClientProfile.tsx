@@ -239,7 +239,12 @@ export default function Profile() {
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-24 relative">
 
         <div className="bg-card p-6 rounded-xl border border-border/50 card-shadow">
-          <h1 className="text-2xl font-heading font-bold">Account Settings</h1>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-heading font-bold">Account Settings</h1>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/activity">My Activity</Link>
+            </Button>
+          </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Manage your profile, preferences, and security.
           </p>

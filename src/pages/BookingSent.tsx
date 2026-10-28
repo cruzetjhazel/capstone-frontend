@@ -201,11 +201,37 @@ export default function BookingSent() {
           {status === "pending" && (
             <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-center gap-2 max-w-md mx-auto">
               <Clock className="w-4 h-4 shrink-0" />
-              <span>The photographer has up to 48 hours to respond. Your time is only reserved once your payment is verified.</span>
+              <span>
+  The photographer has up to 48 hours to respond. Your time is only reserved once your payment is verified.
+  {(booking as any).budgetRequest?.status === "requested" &&
+    ` Your budget of ${formatPrice((booking as any).budgetRequest.budget_amount)} was sent with this request. The photographer can accept it, counter, or decline.`}
+</span>
             </div>
           )}
 
-          {/* Booking Info Grid */}
+          {(booking as any).budgetRequest && ["requested", "proposed"].includes((booking as any).budgetRequest.status) && (
+  <div className="mt-4 p-3 rounded-xl border border-border bg-muted/40 text-left text-xs space-y-1 max-w-md mx-auto">
+    <p className="font-semibold text-foreground">Your budget offer</p>
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">Listed price (package + add-ons)</span>
+      <span>{formatPrice((booking as any).subtotal)}</span>
+    </div>
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">Your offer (before platform fee)</span>
+      <span className="font-medium">{formatPrice((booking as any).budgetRequest.budget_amount)}</span>
+    </div>
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">Status</span>
+      <span className="font-medium">
+        {(booking as any).budgetRequest.status === "proposed"
+          ? "The photographer replied — review the terms"
+          : "Waiting for the photographer"}
+      </span>
+    </div>
+  </div>
+)}
+
+{/* Booking Info Grid */}
           <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3 text-left text-sm">
             <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Booking ID</p>

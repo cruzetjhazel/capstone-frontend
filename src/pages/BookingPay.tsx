@@ -14,6 +14,9 @@ import { bookingService, type BookingPaymentInfo } from "@/services/bookingServi
 import { useBooking } from "@/hooks/useBookings";
 
 type PayState = "form" | "verifying" | "verified" | "mismatch";
+
+// GCash Ref No. length. Keep in sync with SubmitPaymentRequest::GCASH_REFERENCE_DIGITS.
+const GCASH_REF_DIGITS = 13;
 type Plan = "half" | "full";
 
 // Keeps the form across accidental navigation/refresh (per-tab, cleared on submit).
@@ -44,6 +47,7 @@ export default function BookingPay() {
   const [paidAt, setPaidAt] = useState(() => readDraft(id).paidAt ?? new Date().toISOString().split("T")[0]);
   const [amountInput, setAmountInput] = useState("");
   const [state, setState] = useState<PayState>("form");
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   useEffect(() => {
@@ -143,7 +147,7 @@ export default function BookingPay() {
   const remainingBalance = paymentInfo.amounts.total_price - expectedAmount;
 
   const cleanRef = refCode.replace(/[\s-]/g, "");
-  const isRefValid = /^\d{13}$/.test(cleanRef); // GCash reference numbers are 13 digits
+  const isRefValid = new RegExp(`^\\d{${GCASH_REF_DIGITS}}$`).test(cleanRef);
   const paidAmount = Number(amountInput);
   const isAmountValid = Number.isFinite(paidAmount) && Math.abs(paidAmount - expectedAmount) < 0.005;
   const extraAmount = paidAmount - expectedAmount;
@@ -160,6 +164,7 @@ export default function BookingPay() {
 
   const submitReceipt = async () => {
     setIsConfirmModalOpen(false);
+    setSubmitError(null);
     setState("verifying");
 
     try {
@@ -183,8 +188,11 @@ export default function BookingPay() {
       });
       navigate(`/booking/${b.id}/details`, { replace: true });
     } catch (err) {
+      const message = (err instanceof Error ? err.message : "Failed to submit payment. Please double-check details.")
+        .replace(/^reference_number:\s*/, "");
+      setSubmitError(message);
       setState("mismatch");
-      toast.error(err instanceof Error ? err.message : "Failed to submit payment. Please double-check details.");
+      toast.error(message);
     }
   };
 
@@ -330,7 +338,7 @@ export default function BookingPay() {
                   />
                   {refCode !== "" && !isRefValid && (
                     <p className="text-[11px] text-destructive">
-                      Enter the 13-digit reference number shown on your GCash receipt.
+                      Enter the {GCASH_REF_DIGITS}-digit reference number shown on your GCash receipt.
                     </p>
                   )}
                 </div>
@@ -380,7 +388,7 @@ export default function BookingPay() {
                 {state === "mismatch" && (
                   <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 flex gap-2 text-xs text-destructive animate-in fade-in">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>Submission failed. Please check your reference details and try again.</span>
+                    <span>{submitError ?? "Submission failed. Please check your reference details and try again."}</span>
                   </div>
                 )}
                 {state === "verified" && (
