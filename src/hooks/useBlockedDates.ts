@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { blockedDateService, type BlockedDatePayload } from "@/services/blockedDateService";
+import { blockedDateService, type BlockedDatePayload } from "@/services/blockeddateService";
 
 export function useBlockedDates() {
   return useQuery({
