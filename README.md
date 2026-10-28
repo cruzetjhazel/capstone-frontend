@@ -2,12 +2,16 @@
 
 **A Web-based Centralized Photography Booking System for Photographers of Bulan, Sorsogon with Dynamic Package Customization and Rating System**
 
-> **Live demo status:** Only the frontend is deployed (Vercel). The Laravel backend API has not been deployed yet, so pages that need data, such as login, packages, and bookings, won't work on the live site yet. Automated test results are below.
-
 ![E2E tests](https://img.shields.io/badge/e2e%20tests-60%20passed-brightgreen)
 ![Backend tests](https://img.shields.io/badge/backend%20tests-508%20passed-brightgreen)
 
-React + TypeScript client for the photography booking platform. The Laravel API lives in the companion repo **`casptone-backend`**.
+> **Live demo status:** Only the frontend is deployed (Vercel). The Laravel backend API has not been deployed yet, so pages that need data, such as login, packages, and bookings, won't work on the live site yet. Automated test results are below.
+
+React + TypeScript for the photography booking platform. The Laravel API lives in the companion repo **`casptone-backend`**.
+
+**Live UI demo:** https://capstone-frontend-theta-navy.vercel.app 
+
+**Figma Protoype:** https://www.figma.com/design/dfkIq6mPQKxBwh1v7btuAC/photography-system?node-id=664-3982&t=uXbtEAANV3oeG4uo-1
 
 ## Key Features
 
