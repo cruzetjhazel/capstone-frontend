@@ -10,6 +10,7 @@ import MarketingNavbar from "@/components/MarketingNavbar";
 import SearchBar from "@/components/SearchBar";
 import Logo from "@/components/Logo";
 import FeaturedStudiosSection from "@/components/FeaturedStudiosSection";
+import Reveal from "@/components/Reveal";
 
 
 /* ------------------------------------------------------------------ */
@@ -252,7 +253,7 @@ function BrowseCategoriesSection() {
 
   return (
     <section className="bg-black py-14 px-8">
-      <div className="max-w-7xl mx-auto">
+      <Reveal className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-heading font-bold text-white">Browse by Category</h2>
           <div className="flex items-center gap-2">
@@ -288,7 +289,7 @@ function BrowseCategoriesSection() {
             </Link>
           ))}
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
@@ -309,8 +310,10 @@ export default function Home() {
       {/* How It Works */}
       <section id="how-it-works" className="py-20 px-8 scroll-mt-20">
         <div className="max-w-5xl mx-auto text-center">
-          <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-2">How It Works</h2>
-          <p className="text-muted-foreground mb-12">Find, customize, and book with confidence.</p>
+          <Reveal>
+            <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-2">How It Works</h2>
+            <p className="text-muted-foreground mb-12">Find, customize, and book with confidence.</p>
+          </Reveal>
           <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-10 sm:gap-16">
             {/* Connecting line — links the three steps into one journey */}
             <div className="hidden sm:block absolute top-8 left-[16.6%] right-[16.6%] h-px bg-border z-0" />
@@ -319,7 +322,7 @@ export default function Home() {
               { icon: Package, title: "Customize Your Booking", desc: "Choose the services and package options you need, select your preferred date, and tailor the booking to your event." },
               { icon: ClipboardCheck, title: "Book & Track", desc: "Submit your booking request, receive booking updates, and track your session through completion." },
             ].map((step, i) => (
-              <div key={step.title} className="relative z-10 flex flex-col items-center">
+              <Reveal key={step.title} delay={i * 80} className="relative z-10 flex flex-col items-center">
                 <div className="relative w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-6">
                   <step.icon className="w-7 h-7 text-muted-foreground" />
                   <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary/75 border border-primary/20 text-white text-[10px] font-semibold flex items-center justify-center">
@@ -328,7 +331,7 @@ export default function Home() {
                 </div>
                 <h3 className="font-heading font-semibold text-sm mb-2">{step.title}</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed max-w-[250px]">{step.desc}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -339,7 +342,7 @@ export default function Home() {
 
       {/* CTA */}
       <section className="mx-8 mb-16 mt-8">
-        <div className="max-w-7xl mx-auto rounded-3xl px-8 sm:px-16 py-12 flex flex-col sm:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#3a2418] via-[#4a2e1e] to-[#5a3826] shadow-xl">
+        <Reveal className="max-w-7xl mx-auto rounded-3xl px-8 sm:px-16 py-12 flex flex-col sm:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#3a2418] via-[#4a2e1e] to-[#5a3826] shadow-xl">
           <div>
             <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white mb-2">Are you a Photographer in Bulan?</h2>
             <p className="text-white/75 text-sm">Join our platform and manage bookings, showcase your work, and grow your business</p>
@@ -349,7 +352,7 @@ export default function Home() {
               Get Started
             </Button>
           </Link>
-        </div>
+        </Reveal>
       </section>
 
       {/* Footer */}
@@ -381,7 +384,7 @@ export default function Home() {
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About Bulan Photography System</Link></li>
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About Kislap</Link></li>
               <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms and Conditions</Link></li>
             </ul>
           </div>
@@ -394,7 +397,7 @@ export default function Home() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-10 pt-6 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground">© 2026 Bulan Photography Booking. All rights reserved.</p>
+          <p className="text-xs text-muted-foreground">© 2026 Kislap. All rights reserved.</p>
 
         </div>
       </footer>

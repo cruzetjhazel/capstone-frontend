@@ -10,7 +10,7 @@ import type { Photographer } from "@/data/photographers";
 import { servesPlace, placeCoverageHint, coverageLabel, type CoverageArea } from "@/data/coverage";
 import {
   typeFilters,
-  priceFilters,
+
   ratingFilters,
   experienceFilters,
   formatPrice,
@@ -93,9 +93,13 @@ export default function Explore() {
   const urlLocation = searchParams.get("location") || "";
   const urlName = searchParams.get("name") || "";
   const activeType = searchParams.get("type") || "All";
-  const activePriceIdx = Number(searchParams.get("price") || 0);
+
   const activeRatingIdx = Number(searchParams.get("rating") || 0);
-  const activeExperienceIdx = Number(searchParams.get("experience") || 0);
+  const rawExperienceIdx = Number(searchParams.get("experience") || 0);
+  const activeExperienceIdx =
+    Number.isInteger(rawExperienceIdx) && rawExperienceIdx >= 0 && rawExperienceIdx < experienceFilters.length
+      ? rawExperienceIdx
+      : 0;
   const activeShooting = searchParams.get("shooting") || "All";
   const activeCoverage = searchParams.get("coverage") || "All";
   const sortBy = (searchParams.get("sort") as "rating" | "favorites" | "price-low" | "price-high" | "reviews") || "rating";
@@ -134,7 +138,7 @@ export default function Explore() {
 
   // 3. SMART FILTERING: Handles fuzzy matching so the SearchBar never breaks
   const filtered = useMemo(() => {
-    const pf = priceFilters[activePriceIdx];
+
     const rf = ratingFilters[activeRatingIdx];
     const ef = experienceFilters[activeExperienceIdx] ?? experienceFilters[0];
     
@@ -155,12 +159,8 @@ export default function Explore() {
 
       // Exact Type Match
       if (activeType !== "All" && s.type !== activeType) return false;
-      
-      // Budget: overlap match — include this photographer if any part of
-      // their price range (priceMin–priceMax) intersects the selected bucket
-      if (pf.min > 0 || pf.max < Infinity) {
-        if (s.priceMax < pf.min || s.priceMin > pf.max) return false;
-      }
+    
+
       if (rf.min > 0 && s.rating < rf.min) return false;
       if (ef.min > 0 && (s.yearsActive ?? 0) < ef.min) return false;
 
@@ -188,12 +188,12 @@ export default function Explore() {
       case "reviews": results.sort((a, b) => b.reviews - a.reviews); break;
     }
     return results;
-  }, [activeService, activeType, activePriceIdx, activeRatingIdx, activeExperienceIdx, activeShooting, activeCoverage, sortBy, urlLocation, urlDate, urlName, allPhotographers]);
+  }, [activeService, activeType, activeRatingIdx, activeExperienceIdx, activeShooting, activeCoverage, sortBy, urlLocation, urlDate, urlName, allPhotographers]);
 
   const activeFilterCount = [
     activeService !== "All",
     activeType !== "All",
-    activePriceIdx !== 0,
+
     activeRatingIdx !== 0,
     activeExperienceIdx !== 0,
     activeShooting !== "All",
@@ -339,73 +339,49 @@ export default function Explore() {
 
             {/* Filters popover */}
             {openPanel === "filters" && (
-              <div className="absolute top-full right-0 sm:right-auto mt-2 w-[320px] sm:w-[420px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
-                  <ChipRow
-                    label="Shooting Types Supported"
-                    options={SHOOTING_FILTER_OPTIONS}
-                    active={activeShooting}
-                    onSelect={(v) => setParam("shooting", v, "All")}
-                    labelOf={(v) => SHOOTING_FILTER_LABELS[v] ?? v}
-                  />
-                  <ChipRow
-                    label="Areas Covered"
-                    options={COVERAGE_FILTER_OPTIONS}
-                    active={activeCoverage}
-                    onSelect={(v) => setParam("coverage", v, "All")}
-                    labelOf={(v) => (v === "All" ? "All" : coverageLabel(v as CoverageArea))}
-                  />
-                  <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Budget</p>
-                    <div className="space-y-1">
-                      {priceFilters.map((_, i) => {
-                        const budgetLabels = ["Any budget", "Starts under ₱3,000", "Starts ₱3,000–₱5,000", "Starts ₱5,000–₱10,000", "Starts ₱10,000+"];
-                        const selected = activePriceIdx === i;
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => setParam("price", String(i), "0")}
-                            className="w-full flex items-center gap-2 text-left px-1 py-1 rounded-md hover:bg-muted transition-colors"
-                          >
-                            <span
-                              className={cn(
-                                "w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center",
-                                selected ? "border-primary" : "border-border"
-                              )}
-                            >
-                              {selected && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                            </span>
-                            <span className={cn("text-xs", selected ? "text-foreground font-medium" : "text-muted-foreground")}>
-                              {budgetLabels[i] ?? priceFilters[i].label}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+              <div className="absolute top-full right-0 sm:right-auto mt-2 w-[320px] sm:w-[520px] text-left bg-card border border-border rounded-2xl p-4 animate-fade-in shadow-xl z-50">
+                <div className="flex flex-col sm:flex-row gap-5 sm:gap-6">
+                  <div className="flex-1 min-w-0 flex flex-col gap-5">
+                    <ChipRow label="Provider Type" options={typeFilters} active={activeType} onSelect={(v) => setParam("type", v, "All")} />
+                    <ChipRow
+                      label="Areas Covered"
+                      options={COVERAGE_FILTER_OPTIONS}
+                      active={activeCoverage}
+                      onSelect={(v) => setParam("coverage", v, "All")}
+                      labelOf={(v) => (v === "All" ? "All" : coverageLabel(v as CoverageArea))}
+                    />
                   </div>
-                  <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Years of Experience</p>
-                    <div className="space-y-1">
-                      {experienceFilters.map((ef, i) => {
-                        const selected = activeExperienceIdx === i;
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => setParam("experience", String(i), "0")}
-                            className="w-full flex items-center gap-2 text-left px-1 py-1 rounded-md hover:bg-muted transition-colors"
-                          >
-                            <span className={cn("w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center", selected ? "border-primary" : "border-border")}>
-                              {selected && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                            </span>
-                            <span className={cn("text-xs", selected ? "text-foreground font-medium" : "text-muted-foreground")}>{ef.label}</span>
-                          </button>
-                        );
-                      })}
+                  <div className="flex-1 min-w-0 flex flex-col gap-5">
+                    <ChipRow
+                      label="Shooting Types Supported"
+                      options={SHOOTING_FILTER_OPTIONS}
+                      active={activeShooting}
+                      onSelect={(v) => setParam("shooting", v, "All")}
+                      labelOf={(v) => SHOOTING_FILTER_LABELS[v] ?? v}
+                    />
+                    <div>
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Years of Experience</p>
+                      <div className="space-y-1">
+                        {experienceFilters.map((ef, i) => {
+                          const selected = activeExperienceIdx === i;
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setParam("experience", String(i), "0")}
+                              className="w-full flex items-center gap-2 text-left px-1 py-1 rounded-md hover:bg-muted transition-colors"
+                            >
+                              <span className={cn("w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center", selected ? "border-primary" : "border-border")}>
+                                {selected && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                              </span>
+                              <span className={cn("text-xs", selected ? "text-foreground font-medium" : "text-muted-foreground")}>{ef.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
-                {(activeType !== "All" || activePriceIdx !== 0 || activeExperienceIdx !== 0 || activeShooting !== "All" || activeCoverage !== "All") && (
+                {(activeType !== "All" || activeExperienceIdx !== 0 || activeShooting !== "All" || activeCoverage !== "All") && (
                   <button onClick={clearFilters} className="mt-4 text-xs text-primary hover:underline font-medium">
                     Clear filters
                   </button>
@@ -480,14 +456,6 @@ export default function Explore() {
                 </button>
               </span>
             )}
-            {activePriceIdx !== 0 && (
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
-                {priceFilters[activePriceIdx].label}
-                <button onClick={() => setParam("price", "0", "0")} aria-label="Remove price filter" className="hover:bg-primary/20 rounded-full p-0.5">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
                         {activeExperienceIdx !== 0 && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 {experienceFilters[activeExperienceIdx]?.label}
@@ -549,7 +517,7 @@ export default function Explore() {
           <div className="text-center py-20 bg-card rounded-2xl border border-border/50">
             <Camera className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
             <h3 className="font-heading font-semibold mb-1 text-lg">No photographers match your current search</h3>
-            <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">Try adjusting your date, budget, or provider type.</p>
+            <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">Try adjusting your date, experience level, or provider type.</p>
             {allPhotographers.length > 0 && (activeFilterCount > 0 || urlName) && (
               <p className="text-xs text-muted-foreground mb-6">
                 {allPhotographers.length} photographer{allPhotographers.length === 1 ? "" : "s"} found without these filters

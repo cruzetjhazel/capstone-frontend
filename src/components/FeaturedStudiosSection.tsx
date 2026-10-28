@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { MapPin, Star, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFeaturedPhotographers } from "@/hooks/usePhotographers";
+import Reveal from "@/components/Reveal";
 
 /** Homepage featured studios ranked by client popularity. */
 export default function FeaturedStudiosSection() {
@@ -16,13 +17,13 @@ export default function FeaturedStudiosSection() {
       />
       <div className="absolute inset-0 bg-gradient-to-b from-[hsl(25,30%,6%)]/70 via-[hsl(25,30%,6%)]/55 to-[hsl(25,30%,6%)]/80" />
       <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black via-black/70 to-transparent pointer-events-none" />
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-black pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent to-black pointer-events-none" />
       <div className="relative max-w-7xl mx-auto">
-        <div className="text-center mb-12">
+        <Reveal className="text-center mb-12">
           <p className="text-xs uppercase tracking-[0.2em] text-white/60 mb-2">Bulan • Sorsogon</p>
           <h2 className="text-3xl sm:text-4xl font-heading font-bold text-white">Featured Photography Studios</h2>
           <p className="text-white/70 mt-2 text-sm">Verified studios ranked by client rating</p>
-        </div>
+        </Reveal>
 
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
@@ -37,48 +38,46 @@ export default function FeaturedStudiosSection() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
             {studios.map((studio, i) => (
-              <div
-                key={studio.id}
-                className="bg-white/10 rounded-2xl overflow-hidden border border-white/15 hover:border-white/30 hover:bg-white/15 transition-all duration-300 animate-fade-in"
-                style={{ animationDelay: `${i * 80}ms` }}
-              >
-                <div className="h-40 bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center overflow-hidden">
-                  {studio.avatarUrl ? (
-                    <img src={studio.avatarUrl} alt={studio.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-4xl font-heading font-bold text-white/40">{studio.avatar}</span>
-                  )}
-                </div>
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-heading font-semibold text-sm text-white">{studio.name}</h3>
-                    <div className="flex items-center gap-1 bg-white/10 text-white px-2 py-0.5 rounded-full">
-                      <Star className="w-3 h-3 fill-current" />
-                      <span className="text-xs font-semibold">{studio.rating}</span>
+              <Reveal key={studio.id} delay={i * 80} className="h-full">
+                <div className="h-full bg-white/10 rounded-2xl overflow-hidden border border-white/15 hover:border-white/30 hover:bg-white/15 transition-colors duration-300">
+                  <div className="h-40 bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center overflow-hidden">
+                    {studio.avatarUrl ? (
+                      <img src={studio.avatarUrl} alt={studio.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-4xl font-heading font-bold text-white/40">{studio.avatar}</span>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-heading font-semibold text-sm text-white">{studio.name}</h3>
+                      <div className="flex items-center gap-1 bg-white/10 text-white px-2 py-0.5 rounded-full">
+                        <Star className="w-3 h-3 fill-current" />
+                        <span className="text-xs font-semibold">{studio.rating}</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-white/60 mb-2">{studio.specialty}</p>
+                    <div className="flex items-center gap-1 text-xs text-white/50 mb-4">
+                      <MapPin className="w-3 h-3" />{studio.location}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link to={`/booking/${studio.id}`}>
+                        <Button size="sm" className="text-xs px-4 font-medium">Book</Button>
+                      </Link>
+                      <Link to={`/photographers/${studio.id}`} className="text-xs text-white/60 hover:text-white transition-colors">
+                        View Details
+                      </Link>
                     </div>
                   </div>
-                  <p className="text-[11px] text-white/60 mb-2">{studio.specialty}</p>
-                  <div className="flex items-center gap-1 text-xs text-white/50 mb-4">
-                    <MapPin className="w-3 h-3" />{studio.location}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Link to={`/booking/${studio.id}`}>
-                      <Button size="sm" className="text-xs px-4 font-medium">Book</Button>
-                    </Link>
-                    <Link to={`/photographers/${studio.id}`} className="text-xs text-white/60 hover:text-white transition-colors">
-                      View Details
-                    </Link>
-                  </div>
                 </div>
-              </div>
+              </Reveal>
             ))}
           </div>
         )}
-        <div className="text-center mt-10">
+        <Reveal className="text-center mt-10">
           <Link to="/explore" className="text-white/70 hover:text-white text-sm font-medium inline-flex items-center gap-1 transition-colors">
             See more Studios <ArrowRight className="w-3.5 h-3.5" />
           </Link>
-        </div>
+        </Reveal>
       </div>
     </section>
   );
