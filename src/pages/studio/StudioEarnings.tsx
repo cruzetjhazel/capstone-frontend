@@ -16,6 +16,9 @@ import { paymentService, type PhotographerPayment } from "@/services/paymentServ
 import { photographerBookingService, type StudioBookingRecord } from "@/services/photographerBookingService";
 import { paymentReferenceService, type PaymentReference } from "@/services/paymentReferenceService";
 
+// GCash Ref No. length. Keep in sync with SubmitPaymentRequest::GCASH_REFERENCE_DIGITS.
+const GCASH_REF_DIGITS = 13;
+
 type DisplayStatus = "confirmed" | "needs_review" | "rejected" | "processing";
 
 function getDisplayStatus(p: PhotographerPayment): DisplayStatus {
@@ -75,6 +78,8 @@ export default function StudioEarnings() {
 
   const [isRefModalOpen, setIsRefModalOpen] = useState(false);
   const [references, setReferences] = useState<PaymentReference[]>([]);
+  // Used/matched references live on the booking and payment details, so the modal lists only open ones.
+  const openReferences = references.filter((r) => r.status !== "used" && r.status !== "matched");
   const [isLoadingRefs, setIsLoadingRefs] = useState(false);
   const [refNumber, setRefNumber] = useState("");
   const [refAmount, setRefAmount] = useState("");
@@ -94,14 +99,14 @@ export default function StudioEarnings() {
   };
 
   const handleRegisterReference = async () => {
-    if (!refNumber.trim() || !refAmount) {
-      toast.error("Enter the reference number and amount received.");
+    if (!new RegExp(`^\\d{${GCASH_REF_DIGITS}}$`).test(refNumber) || !refAmount) {
+      toast.error(`Enter the ${GCASH_REF_DIGITS}-digit reference number and the amount received.`);
       return;
     }
     setIsSubmittingRef(true);
     try {
       await paymentReferenceService.register({
-        reference_number: refNumber.trim(),
+        reference_number: refNumber,
         amount_received: Number(refAmount),
         payment_date: refDate,
       });
@@ -445,7 +450,8 @@ export default function StudioEarnings() {
                       <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Date</th>
                       <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Amount & Type</th>
                       <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
+                      <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">GCash Ref</th>
+<th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -482,7 +488,8 @@ export default function StudioEarnings() {
                             <td className="px-6 py-4">
                               <StatusPill status={status} />
                             </td>
-                            <td className="px-6 py-4 text-right">
+                            <td className="px-6 py-4 text-xs font-mono text-muted-foreground">{p.referenceNumber ?? "—"}</td>
+<td className="px-6 py-4 text-right">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -497,7 +504,7 @@ export default function StudioEarnings() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center">
+                        <td colSpan={8} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center justify-center text-muted-foreground space-y-2">
                             <Search className="w-8 h-8 opacity-20" />
                             <p className="text-sm font-medium">No payments found.</p>
@@ -727,7 +734,7 @@ export default function StudioEarnings() {
               <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">GCash Reference Number</label>
-                  <Input value={refNumber} onChange={(e) => setRefNumber(e.target.value)} placeholder="e.g. 1234567890123" />
+                  <Input inputMode="numeric" maxLength={GCASH_REF_DIGITS} value={refNumber} onChange={(e) => setRefNumber(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 1234567890123" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -752,10 +759,10 @@ export default function StudioEarnings() {
                     <Loader2 className="w-4 h-4 animate-spin" /> Loading…
                   </div>
                 )}
-                {!isLoadingRefs && references.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">No references recorded yet.</p>
+                {!isLoadingRefs && openReferences.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">No open references. Used ones appear in the booking and payment details.</p>
                 )}
-                {!isLoadingRefs && references.map((ref) => (
+                {!isLoadingRefs && openReferences.map((ref) => (
                   <div key={ref.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{ref.referenceNumber}</p>

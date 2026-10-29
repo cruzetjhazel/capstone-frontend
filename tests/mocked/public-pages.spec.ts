@@ -23,7 +23,7 @@ test.describe('Public discovery and informational pages', () => {
 
   test('PUB-004 about and terms pages are reachable', async ({ page }) => {
     await page.goto('/about');
-    await expect(page.locator('h1').filter({ hasText: 'About Kislap' })).toBeVisible();
+    await expect(page.locator('h1').filter({ hasText: 'About LensBook' })).toBeVisible();
     await page.goto('/terms');
     await expect(page.locator('h1').filter({ hasText: 'Terms & Conditions' })).toBeVisible();
   });

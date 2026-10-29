@@ -146,7 +146,7 @@ export default function BookingPay() {
   const expectedAmount = plan === "full" ? paymentInfo.amounts.full_payment_amount : paymentInfo.amounts.half_payment_amount;
   const remainingBalance = paymentInfo.amounts.total_price - expectedAmount;
 
-  const cleanRef = refCode.replace(/[\s-]/g, "");
+  const cleanRef = refCode;
   const isRefValid = new RegExp(`^\\d{${GCASH_REF_DIGITS}}$`).test(cleanRef);
   const paidAmount = Number(amountInput);
   const isAmountValid = Number.isFinite(paidAmount) && Math.abs(paidAmount - expectedAmount) < 0.005;
@@ -329,10 +329,10 @@ export default function BookingPay() {
                   <Input
                     id="ref"
                     inputMode="numeric"
-                    maxLength={17}
-                    placeholder="e.g. 1234 567 890123"
+                    maxLength={GCASH_REF_DIGITS}
+                    placeholder="e.g. 1234567890123"
                     value={refCode}
-                    onChange={(e) => setRefCode(e.target.value.replace(/[^\d\s]/g, ""))}
+                    onChange={(e) => setRefCode(e.target.value.replace(/\D/g, ""))}
                     aria-invalid={refCode !== "" && !isRefValid}
                     className={`font-mono text-sm ${refCode !== "" && !isRefValid ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   />

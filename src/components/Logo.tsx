@@ -22,7 +22,7 @@ export default function Logo({
       <div className={cn(box, "rounded-lg overflow-hidden flex-shrink-0 bg-[#1a1410]")}>
     <img
       src="/images/bulan-logo.png"
-      alt="Kislap Photography Booking"
+      alt="LensBook"
       className="w-full h-full object-cover"
     />
       </div>
@@ -34,7 +34,7 @@ export default function Logo({
             onDark ? "text-white" : "text-foreground"
           )}
         >
-          Kislap
+          LensBook
         </p>
 
         <p

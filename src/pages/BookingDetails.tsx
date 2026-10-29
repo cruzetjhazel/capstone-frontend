@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
+import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import toast from "react-hot-toast"; 
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export default function BookingDetails() {
   const { user } = useRole();
   const { data: bookings = [] } = useBookings(user?.email);
   const { data: allPhotographers = [] } = usePhotographers();
+const { data: bookingPayments = [] } = usePaymentsForBooking(id);
 
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [requestFormType, setRequestFormType] = useState<RequestType>(null);
@@ -476,7 +478,24 @@ export default function BookingDetails() {
                     <span className="font-medium text-foreground">{formatPrice(booking.dueNow)}</span>
                   </div>
                 )}
-                <div className="flex justify-between items-center text-xs pt-2 border-t border-border/50">
+                {bookingPayments.length > 0 && (
+  <div className="space-y-2 pt-2 border-t border-border/50">
+    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">GCash Reference</p>
+    {bookingPayments.map((p) => (
+      <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
+        <div>
+          <p className="font-mono font-semibold text-foreground">{p.referenceNumber ?? "Onsite payment (cash)"}</p>
+          <p className="text-muted-foreground">{p.paymentDate}</p>
+        </div>
+        <div className="text-right">
+          <p className="font-semibold">{formatPrice(p.amount)}</p>
+          <p className="text-[10px] uppercase text-muted-foreground">{String(p.matchingStatus).replace(/_/g, " ")}</p>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+<div className="flex justify-between items-center text-xs pt-2 border-t border-border/50">
                   <span className="font-semibold text-foreground">Remaining Balance (Onsite)</span>
                   <span className="font-bold text-primary">{formatPrice(remainingBalance)}</span>
                 </div>
@@ -537,7 +556,7 @@ export default function BookingDetails() {
                 <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsConfirming(false)} disabled={isSubmitting}>Back</Button>
                   <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
-                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : budgetInput.trim() ? "Confirm & Send Offer" : "Confirm Submit"}
+                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : "Confirm Submit"}
                   </Button>
                 </div>
               </div>

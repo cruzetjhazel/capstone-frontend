@@ -384,7 +384,7 @@ export default function Home() {
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About Kislap</Link></li>
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About LensBook</Link></li>
               <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms and Conditions</Link></li>
             </ul>
           </div>
@@ -397,7 +397,7 @@ export default function Home() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-10 pt-6 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground">© 2026 Kislap. All rights reserved.</p>
+          <p className="text-xs text-muted-foreground">© 2026 LensBook. All rights reserved.</p>
 
         </div>
       </footer>

@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown, Search } from "lucide-react";
+import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown, Search, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import MarketingNavbar from "@/components/MarketingNavbar";
+import Reveal from "@/components/Reveal";
 import SearchBar from "@/components/SearchBar";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import type { Photographer } from "@/data/photographers";
@@ -263,7 +264,7 @@ export default function Explore() {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen flex flex-col bg-background">
       <MarketingNavbar solid />
 
       {/* Search + filters header */}
@@ -410,7 +411,7 @@ export default function Explore() {
         </div>
       </section>
 
-      <main className="max-w-[1400px] mx-auto p-4 sm:p-6">
+      <main className="flex-1 w-full max-w-[1400px] mx-auto p-4 sm:p-6">
         {/* Results Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -583,6 +584,27 @@ export default function Explore() {
           </div>
         )}
       </main>
+
+            {/* Photographer CTA footer */}
+      <footer className="relative mt-8 overflow-hidden bg-gradient-to-br from-[#3a2418] via-[#2b1a12] to-[#1f130d] text-white">
+        <div className="max-w-7xl mx-auto px-6 sm:px-8 pt-6 pb-4 text-center">
+          <Reveal>
+            <h2 className="text-lg sm:text-xl font-heading font-bold mb-1.5">
+              Are you a Photographer in Bulan?
+            </h2>
+            <Link
+              to="/register"
+              className="group inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-[#e9d9bf] underline underline-offset-4 decoration-[#e9d9bf]/40 hover:text-white hover:decoration-white transition-colors"
+            >
+              Register as a photographer
+              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+            </Link>
+          </Reveal>
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <p className="text-[11px] text-white/45">© 2026 LensBook. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

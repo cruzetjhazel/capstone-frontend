@@ -1290,9 +1290,10 @@ export default function Register() {
                 </Field>
 
                 <Field label="Password" required>
-                  <PasswordInput value={password} onChange={setPassword} show={showPassword} setShow={setShowPassword} placeholder="Min. 8 characters" />
-                  <ValidationHint text="At least 8 characters" valid={password.length >= 8} />
-                </Field>
+                <PasswordInput value={password} onChange={setPassword} show={showPassword} setShow={setShowPassword} placeholder="Min. 8 characters" />
+                <ValidationHint text="At least 8 characters" valid={password.length >= 8} />
+                <ValidationHint text="Contains at least one number" valid={/\d/.test(password)} />
+              </Field>
                 <Field label="Confirm password" required>
                   <PasswordInput value={confirmPassword} onChange={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} placeholder="Re-enter password" />
                   {confirmPassword && (

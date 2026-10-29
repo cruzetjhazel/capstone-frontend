@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Mail, Phone, MapPin, Search, Plus, User, UserCheck, X, AlertCircle, Info, Edit2, Archive, AlertTriangle, UserPlus, Loader2 } from "lucide-react";
+import { Mail, Phone, MapPin, Search, Plus, User, UserCheck, X, AlertCircle, Info, Edit2, Archive, AlertTriangle, UserPlus, Loader2, CalendarPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import ManualBookingDialog, { type NewClientDraft } from "@/components/photographer/ManualBookingDialog";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
 import {
@@ -29,6 +30,11 @@ export default function StudioClients() {
   const archiveWalkIn = useArchiveWalkInClient();
 
   const [search, setSearch] = useState("");
+
+  // Booking taken outside the system
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualDraft, setManualDraft] = useState<NewClientDraft | null>(null);
+  const [recordBooking, setRecordBooking] = useState(false); // false = inquiry only, true = also record their booking
 
   // Add / Edit Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -62,6 +68,7 @@ export default function StudioClients() {
     setNewLocation("");
     setNewSource("walk_in");
     setEditingClientId(null);
+    setRecordBooking(false);
   };
 
   const handleOpenAdd = () => {
@@ -83,6 +90,13 @@ export default function StudioClients() {
     e.preventDefault();
     if (!newName.trim() || !newPhone.trim()) {
       toast({ title: "Please fill in all required fields.", variant: "destructive" });
+      return;
+    }
+    if (!editingClientId && recordBooking) {
+      // They already booked outside the system: carry the contact details over to the booking form.
+      setManualDraft({ name: newName.trim(), phone: newPhone.trim(), email: newEmail.trim(), location: newLocation.trim(), source: newSource });
+      setIsModalOpen(false);
+      setManualOpen(true);
       return;
     }
     setIsConfirming(true);
@@ -164,6 +178,15 @@ export default function StudioClients() {
               className="h-10 px-4 font-medium flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" /> Add Walk-in Client
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setManualDraft(null); setManualOpen(true); }}
+              className="h-10 px-4 font-medium flex items-center justify-center gap-2"
+            >
+              <CalendarPlus className="w-4 h-4" /> Manual Booking
             </Button>
           </div>
         </div>
@@ -327,6 +350,28 @@ export default function StudioClients() {
               <form onSubmit={handleFormSubmit} className="p-5 space-y-4">
 
                 {!editingClientId && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {[
+                      { value: false, title: "Inquiry only", desc: "Just save their contact details." },
+                      { value: true, title: "Booked outside the system", desc: "Save the client and record their booking." },
+                    ].map((opt) => (
+                      <button
+                        key={opt.title}
+                        type="button"
+                        onClick={() => setRecordBooking(opt.value)}
+                        className={cn(
+                          "text-left rounded-lg border p-3 transition-colors",
+                          recordBooking === opt.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
+                        )}
+                      >
+                        <p className="text-xs font-semibold">{opt.title}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!editingClientId && (
                   <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 p-3 rounded-lg flex gap-2">
                     <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                     <p className="text-[11px] text-blue-800 dark:text-blue-300">
@@ -418,7 +463,7 @@ export default function StudioClients() {
                     disabled={!newName.trim() || !newPhone.trim()}
                     className="h-9 text-xs font-semibold px-4"
                   >
-                    {editingClientId ? "Update Profile" : "Save Profile Record"}
+                    {editingClientId ? "Update Profile" : recordBooking ? "Continue to Booking Details" : "Save Profile Record"}
                   </Button>
                 </div>
               </form>
@@ -480,6 +525,11 @@ export default function StudioClients() {
         )}
 
       </div>
+  <ManualBookingDialog
+        open={manualOpen}
+        initialClient={manualDraft}
+        onClose={() => { setManualOpen(false); setManualDraft(null); resetForm(); }}
+      />
     </DashboardLayout>
   );
 }

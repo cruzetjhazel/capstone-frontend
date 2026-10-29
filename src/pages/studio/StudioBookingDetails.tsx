@@ -21,7 +21,6 @@ import {
   CreditCard, X, DollarSign, AlertCircle, PackageCheck, Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import toast from "react-hot-toast";
     import { getApiErrorMessage } from "@/services/clientProfileService";
        import { BudgetResponsePanel } from "@/components/booking/BudgetResponsePanel";
    import { usePhotographerBudgetView } from "@/hooks/useBookingNegotiation";
@@ -119,6 +118,7 @@ export default function StudioBookingDetail() {
   const disputeMutation = useDisputeStudioNonCompletion();
   const [disputeText, setDisputeText] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  const [showNoShowConfirm, setShowNoShowConfirm] = useState(false);
   const onsitePaymentMutation = useRecordOnsitePayment();
   const accommodateMutation = useAccommodateBooking();
 
@@ -155,6 +155,10 @@ export default function StudioBookingDetail() {
           p.matchingStatus !== "rejected"
       )
     : undefined;
+
+  const bookingPayments = booking
+    ? (paymentsQuery.data ?? []).filter((p) => p.bookingId === booking.id)
+    : [];
 
   const handleConfirmVerifyPayment = async () => {
     if (!paymentToReview) return;
@@ -661,7 +665,7 @@ export default function StudioBookingDetail() {
                 </div>
               )}
 
-              {booking.serviceStatus !== "delivered" &&
+              {!booking.isManual && booking.serviceStatus !== "delivered" &&
                 !booking.nonCompletionReason && booking.nonCompletionState !== "overturned" &&
                 new Date(`${booking.date}T${booking.startTime}`) < new Date() && (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
@@ -673,15 +677,7 @@ export default function StudioBookingDetail() {
                     variant="destructive"
                     className="h-8 text-xs shrink-0"
                     disabled={reportNoShowMutation.isPending}
-                    onClick={() =>
-                      reportNoShowMutation.mutate(
-                        { id: booking.id },
-                        {
-                          onSuccess: () => toast({ title: "No-show reported", description: "An admin will review the report. The client can still send their side." }),
-                          onError: (e) => toast({ title: "Something went wrong", description: getApiErrorMessage(e), variant: "destructive" as never }),
-                        }
-                      )
-                    }
+                    onClick={() => setShowNoShowConfirm(true)}
                   >
                     {reportNoShowMutation.isPending ? "Reporting…" : "Report client no-show"}
                   </Button>
@@ -959,7 +955,13 @@ export default function StudioBookingDetail() {
                     a separate client-lookup endpoint (Photographer\ClientController). */}
                 <div className="flex items-start gap-2 text-xs text-muted-foreground bg-background/60 p-2 rounded border border-border/30">
                   <Phone className="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-50" />
-                  <span>Phone and email aren't available through the booking API yet.</span>
+                  <span className="flex flex-col gap-1">
+  <span className="font-medium text-foreground">{booking.clientPhone ?? (booking.status === "pending" ? "Shown once you accept this request" : "No phone number on file")}</span>
+  <span className="flex items-center gap-1.5 break-all">
+    <Mail className="w-3.5 h-3.5 shrink-0 opacity-50" />
+    {booking.clientEmail ?? (booking.status === "pending" ? "Shown once you accept this request" : "No email on file")}
+  </span>
+</span>
                 </div>
                 <div className="pt-2 border-t border-border/30 mt-2">
                   <span className="text-muted-foreground block text-xs mb-1">Special Instructions:</span>
@@ -1101,6 +1103,27 @@ export default function StudioBookingDetail() {
                 </span>
               </div>
 
+              {bookingPayments.length > 0 && (
+                <div className="border-t border-primary/10 pt-4 space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payment History</span>                  {bookingPayments.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between gap-3 bg-background/80 p-3 rounded-lg border border-border/40 text-xs">
+                      <div>
+                        <p className="font-mono font-semibold text-sm text-foreground">{p.referenceNumber ?? "Onsite payment (cash)"}</p>
+                        <p className="text-muted-foreground">{p.paymentDate}{p.payerName ? ` · ${p.payerName}` : ""}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-primary">₱{p.amount.toLocaleString()}</p>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+  {p.type === "onsite"
+    ? "Onsite"
+    : `Online · ${String(p.matchingStatus).replace(/_/g, " ")}`}
+</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs border-t border-primary/10 pt-4">
                 <div className="bg-background/80 p-3 rounded-lg border border-border/40">
                   <span className="text-muted-foreground block mb-1">Total Booking Amount</span>
@@ -1124,6 +1147,51 @@ export default function StudioBookingDetail() {
 
         </div>
       </div>
+
+      {/* MODAL: Confirm client no-show report */}
+      {showNoShowConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-card border border-border/60 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+              </div>
+              <h3 className="font-bold text-lg">Report client no-show?</h3>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              This sends a no-show report for <strong>{booking.clientName}</strong> to an admin for review.
+              The booking will <strong>not</strong> be cancelled, and the service can't move forward until the admin decides.
+              Only report this if the client really did not attend.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setShowNoShowConfirm(false)} disabled={reportNoShowMutation.isPending}>
+                Back
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={reportNoShowMutation.isPending}
+                onClick={() =>
+                  reportNoShowMutation.mutate(
+                    { id: booking.id },
+                    {
+                      onSuccess: () => {
+                        setShowNoShowConfirm(false);
+                        toast({ title: "No-show reported", description: "An admin will review the report. The client can still send their side." });
+                      },
+                      onError: (e) => {
+                        setShowNoShowConfirm(false);
+                        toast({ title: "Something went wrong", description: getApiErrorMessage(e), variant: "destructive" as never });
+                      },
+                    }
+                  )
+                }
+              >
+                {reportNoShowMutation.isPending ? "Reporting…" : "Yes, report no-show"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Accept */}
       {activeModal === "accept" && (

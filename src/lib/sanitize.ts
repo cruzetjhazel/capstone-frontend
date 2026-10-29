@@ -34,4 +34,4 @@ export function sanitizeUrl(input: string): string {
 }
 
 export const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-export const isStrongPassword = (v: string) => v.length >= 8;
+export const isStrongPassword = (v: string) => v.length >= 8 && /\d/.test(v);

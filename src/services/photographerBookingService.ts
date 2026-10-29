@@ -1,4 +1,25 @@
 import api from "@/lib/api";
+import type { WalkInSource } from "@/services/photographerClientService";
+
+/** A booking the photographer took outside the platform, for one of their walk-in clients. */
+export interface ManualBookingInput {
+  /** An existing walk-in client ("W-12" or "12"). Send this OR newClient, never both. */
+  walkInClientId?: string;
+  newClient?: { name: string; phone: string; email?: string | null; location?: string | null; source: WalkInSource };
+  eventType: string;
+  customEventType?: string | null;
+  packageName?: string | null;
+  eventDate: string; // YYYY-MM-DD (past dates allowed)
+  startTime: string; // HH:mm
+  endTime?: string | null; // HH:mm, empty = open-ended
+  locationType: string;
+  eventAddress?: string | null;
+  guestCount?: number | null;
+  notes?: string | null;
+  totalPrice: number;
+  amountPaid?: number;
+  markCompleted?: boolean;
+}
 
 export type PhotographerBookingStatus =
   | "pending" | "confirmed" | "completed" | "cancelled" | "expired" | "no_show" | "waitlisted";
@@ -13,10 +34,11 @@ interface SnapshotComponent {
 
 type RawStudioBooking = {
   id: number;
-  client: { id: number; name: string; email_verified?: boolean };
+  client: { id: number | null; name: string; email?: string | null; email_verified?: boolean; is_walk_in?: boolean; phone?: string | null };
   photographer: { id: number; name: string };
   is_custom_package: boolean;
   package_snapshot: { name?: string; description?: string; price?: number | string } | null;
+  is_manual?: boolean;
   custom_package_snapshot: {
     base_fee?: number | string;
     hourly_rate?: number | string;
@@ -168,6 +190,11 @@ export interface StudioBookingRecord {
   clientId: string;
   clientName: string;
   clientEmailVerified?: boolean;
+  /** Recorded by the photographer for a walk-in client (no platform account). */
+  isManual: boolean;
+  isWalkInClient: boolean;
+  clientPhone: string | null;
+  clientEmail?: string | null;
   isCustomPackage: boolean;
   packageName: string;
   eventType: string;
@@ -230,9 +257,13 @@ function toStudioBooking(raw: RawStudioBooking): StudioBookingRecord {
 
   return {
     id: String(raw.id),
-    clientId: String(raw.client.id),
+    clientId: raw.client.id === null ? "" : String(raw.client.id),
     clientName: raw.client.name,
     clientEmailVerified: raw.client.email_verified,
+    isManual: raw.is_manual ?? false,
+    isWalkInClient: raw.client.is_walk_in ?? false,
+    clientPhone: raw.client.phone ?? null,
+    clientEmail: raw.client.email ?? null,
     isCustomPackage: raw.is_custom_package,
     packageName: raw.is_custom_package ? "Custom Package" : (raw.package_snapshot?.name ?? "Package"),
     eventType: raw.custom_event_type || raw.event_type,
@@ -305,6 +336,27 @@ export const photographerBookingService = {
   list: async (): Promise<StudioBookingRecord[]> => {
     const res = await api.get("/photographer/bookings");
     return (res.data.data as RawStudioBooking[]).map(toStudioBooking);
+  },
+
+  createManual: async (input: ManualBookingInput): Promise<StudioBookingRecord> => {
+    const res = await api.post("/photographer/bookings/manual", {
+      walk_in_client_id: input.walkInClientId ? Number(input.walkInClientId.replace(/^W-/, "")) : undefined,
+      new_client: input.newClient,
+      event_type: input.eventType,
+      custom_event_type: input.customEventType ?? null,
+      package_name: input.packageName ?? null,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      end_time: input.endTime || null,
+      location_type: input.locationType,
+      event_address: input.eventAddress ?? null,
+      guest_count: input.guestCount ?? null,
+      notes: input.notes ?? null,
+      total_price: input.totalPrice,
+      amount_paid: input.amountPaid ?? 0,
+      mark_completed: input.markCompleted ?? false,
+    });
+    return toStudioBooking(res.data.data);
   },
 
   getById: async (id: string): Promise<StudioBookingRecord> => {

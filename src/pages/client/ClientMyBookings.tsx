@@ -6,11 +6,12 @@ import { useRole } from "@/contexts/RoleContext";
 import { useBookings } from "@/hooks/useBookings";
 import { usePhotographers } from "@/hooks/usePhotographers";
 import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
+import { useClientPayments } from "@/hooks/useClientPayments";
 import { useToast } from "@/hooks/use-toast";
 import {
   Calendar as CalendarIcon, Clock, MapPin, ChevronRight, CalendarX, History as HistoryIcon,
   Check, Camera, Wand2, PackageCheck, CheckCircle2, XCircle, Clock3, type LucideIcon,
-  CreditCard, Star,
+  CreditCard, Star, Search,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 
@@ -367,6 +368,22 @@ export default function MyBookings() {
   const submitReviewMutation = useSubmitReview();
   const { toast } = useToast();
   const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [search, setSearch] = useState("");
+  const { data: clientPayments = [] } = useClientPayments();
+
+  const matchesSearch = (b: any) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    const compact = q.replace(/[\s-]/g, "");
+    const refs = clientPayments
+      .filter((p) => String(p.bookingId) === String(b.id) && p.referenceNumber)
+      .map((p) => p.referenceNumber as string);
+    return (
+      String(b.photographerName ?? "").toLowerCase().includes(q) ||
+      getSessionLabel(b).toLowerCase().includes(q) ||
+      (compact.length > 0 && refs.some((r) => r.replace(/[\s-]/g, "").toLowerCase().includes(compact)))
+    );
+  };
   const [reviewFor, setReviewFor] = useState<any>(null);
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewComment, setReviewComment] = useState("");
@@ -399,13 +416,13 @@ export default function MyBookings() {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   // Every pending / confirmed / in-progress booking is "current".
-  const currentBookings = activeBookings;
+  const currentBookings = activeBookings.filter(matchesSearch);
 
   // History = finished bookings only.
   const historyPool = safeBookings
     .filter((b) => TERMINAL_STATUSES.includes(b.status))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const filteredHistory = historyPool.filter((b) => matchesFilter(b, filter));
+  const filteredHistory = historyPool.filter((b) => matchesFilter(b, filter) && matchesSearch(b));
 
   const photographerFor = (b: any) => allPhotographers.find((p) => String(p.id) === String(b.photographerId));
 
@@ -423,6 +440,16 @@ export default function MyBookings() {
               Keep track of your photography sessions and booking history.
             </p>
           </div>
+        </div>
+
+        <div className="relative">
+          <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search photographer, session, or reference no...."
+            className="w-full h-10 rounded-xl border border-input bg-card pl-9 pr-3 text-sm focus:ring-1 focus:ring-ring"
+          />
         </div>
 
         {isLoading ? (

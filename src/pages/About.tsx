@@ -82,7 +82,7 @@ export default function About() {
                   <span className="text-xs uppercase tracking-[0.2em]">About</span>
                 </div>
                 <h1 className="text-3xl sm:text-4xl font-heading font-bold tracking-tight leading-tight text-white">
-                  About Kislap
+                  About LensBook
                   </h1>
               </Reveal>
 
@@ -91,7 +91,7 @@ export default function About() {
                   A simpler way to discover, compare, and book local photographers.
                 </p>
                 <p className="text-sm sm:text-base text-white/70 leading-relaxed max-w-xl">
-                  Kislap is a web-based platform designed to connect clients with
+                  LensBook is a web-based platform designed to connect clients with
                   photographers and photography studios in Bulan, Sorsogon through a centralized
                   booking experience.
                 </p>
@@ -136,14 +136,14 @@ export default function About() {
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
             <Reveal className="lg:col-span-7">
               <Eyebrow className="text-white/60">Our purpose</Eyebrow>
-              <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-6 text-white">Why Kislap?</h2>
+              <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-6 text-white">Why SnapBulan?</h2>
               <p className="text-sm sm:text-base text-white/70 leading-relaxed mb-4 max-w-xl">
                 Finding and booking a photographer usually means checking social media pages,
                 sending multiple messages, waiting for replies, and manually comparing services
                 and schedules across different studios.
               </p>
               <p className="text-sm sm:text-base text-white/70 leading-relaxed max-w-xl">
-                Kislap brings photographer discovery, service comparison,
+                LensBook brings photographer discovery, service comparison,
                 booking customization, availability, and booking management into one platform —
                 so clients and photographers in Bulan don't have to piece it together themselves.
               </p>
@@ -307,19 +307,19 @@ export default function About() {
 </section>
 
 
-      {/* Footer */}
-      <footer className="bg-[#FDFBF7] border-t border-[#e6dccb] pt-12 pb-14 px-6 sm:px-8">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+            {/* Footer */}
+      <footer className="bg-background border-t border-border py-16 px-8">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
           <div>
             <Logo linkTo={null} className="mb-3" />
-            <p className="text-xs text-[#2b211b] leading-relaxed max-w-[240px]">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Connect with photographers and studios in Bulan, Sorsogon.
             </p>
           </div>
 
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">Explore</h4>
-            <ul className="space-y-2 text-xs text-[#2b211b]">
+            <ul className="space-y-2 text-xs text-muted-foreground">
               <li><Link to="/explore" className="hover:text-foreground transition-colors">Explore</Link></li>
               <li><Link to="/#how-it-works" className="hover:text-foreground transition-colors">How It Works</Link></li>
             </ul>
@@ -327,21 +327,21 @@ export default function About() {
 
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
-            <ul className="space-y-2 text-xs text-[#2b211b]">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About Kislap</Link></li>
+            <ul className="space-y-2 text-xs text-muted-foreground">
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About LensBook</Link></li>
               <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms and Conditions</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">For Photographers</h4>
-            <ul className="space-y-2 text-xs text-[#2b211b]">
+            <ul className="space-y-2 text-xs text-muted-foreground">
               <li><Link to="/register" className="hover:text-foreground transition-colors">Join as Photographer</Link></li>
             </ul>
           </div>
         </div>
-        <div className="max-w-6xl mx-auto mt-10 pt-6 border-t border-[#e6dccb] text-center">
-          <p className="text-xs text-[#2b211b]">© 2026 Kislap. All rights reserved.</p>
+        <div className="max-w-7xl mx-auto mt-10 pt-6 border-t border-border text-center">
+          <p className="text-xs text-muted-foreground">© 2026 LensBook. All rights reserved.</p>
         </div>
       </footer>
     </div>

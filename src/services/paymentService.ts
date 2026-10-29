@@ -19,7 +19,7 @@ export interface PhotographerPayment {
   eventType: string;
   type: string; // "online" | "onsite"
   method: string;
-  plan: PaymentPlan;
+  plan: PaymentPlan | null;
   amount: number;
   referenceNumber: string | null;
   payerName: string | null;
@@ -36,11 +36,11 @@ type RawPayment = {
   id: number;
   booking_id: number;
   booking: { id: number; status: string; payment_status: string };
-  client: { id: number; name: string };
+  client: { id: number | null; name: string | null };
   event_type: string;
   type: string;
   method: string;
-  plan: PaymentPlan;
+  plan: PaymentPlan | null;
   amount: number | string;
   reference_number: string | null;
   payer_name: string | null;
@@ -59,8 +59,8 @@ function toPayment(raw: RawPayment): PhotographerPayment {
     bookingId: String(raw.booking_id),
     bookingStatus: raw.booking.status,
     bookingPaymentStatus: raw.booking.payment_status,
-    clientId: String(raw.client.id),
-    clientName: raw.client.name,
+    clientId: raw.client.id != null ? String(raw.client.id) : "",
+    clientName: raw.client.name ?? "Walk-in client",
     eventType: raw.event_type,
     type: raw.type,
     method: raw.method,

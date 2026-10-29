@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
+import ManualBookingDialog from "@/components/photographer/ManualBookingDialog";
 import { BookingTracker } from "@/components/BookingTracker";
 import {
   Check, DollarSign, AlertCircle, ArrowRight,
-  Search, SlidersHorizontal, ArrowUpDown, Receipt, X, PackageCheck,
+  Search, SlidersHorizontal, ArrowUpDown, Receipt, X, PackageCheck, CalendarPlus,
 } from "lucide-react";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
 
@@ -77,6 +78,7 @@ function sortBookings(list: StudioBookingRecord[], sort: SortOption): StudioBook
 
 export default function StudioBookings() {
   const navigate = useNavigate();
+  const [manualOpen, setManualOpen] = useState(false);
   const { toast } = useToast();
   const { data: bookings = [], isLoading, error, refetch } = usePhotographerBookings();
 
@@ -113,6 +115,15 @@ export default function StudioBookings() {
   const [pendingTrackerChange, setPendingTrackerChange] = useState<{ booking: StudioBookingRecord; stage: TrackingStage } | null>(null);
   
   const paymentsQuery = usePayments();
+  const refsByBooking = useMemo(() => {
+  const map = new Map<string, string[]>();
+  for (const p of paymentsQuery.data ?? []) {
+    if (!p.referenceNumber) continue;
+    const key = String(p.bookingId);
+    map.set(key, [...(map.get(key) ?? []), p.referenceNumber]);
+  }
+  return map;
+}, [paymentsQuery.data]);
   const verifyPaymentMutation = useVerifyPayment();
   const rejectPaymentMutation = useRejectPayment();
   const [reviewingPaymentFor, setReviewingPaymentFor] = useState<StudioBookingRecord | null>(null);
@@ -127,6 +138,7 @@ export default function StudioBookings() {
           p.matchingStatus !== "rejected"
       )
     : undefined;
+
 
   const isPaymentActionMutating = verifyPaymentMutation.isPending || rejectPaymentMutation.isPending;
 
@@ -184,10 +196,13 @@ export default function StudioBookings() {
   const searched = tabFiltered.filter((b) => {
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
+    const qCompact = q.replace(/[\s-]/g, "");
+    const refs = refsByBooking.get(String(b.id)) ?? [];
     return (
       b.clientName.toLowerCase().includes(q) ||
       b.packageName.toLowerCase().includes(q) ||
-      b.eventType.toLowerCase().includes(q)
+      b.eventType.toLowerCase().includes(q) ||
+      (qCompact.length > 0 && refs.some((r) => r.replace(/[\s-]/g, "").toLowerCase().includes(qCompact)))
     );
   });
 
@@ -310,9 +325,14 @@ export default function StudioBookings() {
       <div className="max-w-6xl mx-auto space-y-5 animate-fade-up relative pb-12">
 
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-heading font-bold">Bookings</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your studio bookings.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-heading font-bold">Bookings</h1>
+            <p className="text-sm text-muted-foreground mt-1">Manage your studio bookings.</p>
+          </div>
+          <Button variant="outline" className="gap-2 self-start sm:self-auto" onClick={() => setManualOpen(true)}>
+            <CalendarPlus className="w-4 h-4" /> Manual Booking
+          </Button>
         </div>
 
         {/* Status tabs */}
@@ -338,7 +358,7 @@ export default function StudioBookings() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bookings..."
+              placeholder="Search client, package, or reference no...."
               className="w-full h-9 rounded-md border border-input bg-transparent pl-9 pr-3 text-sm focus:ring-1 focus:ring-ring"
             />
           </div>
@@ -487,7 +507,13 @@ export default function StudioBookings() {
                       <p className={cn("font-medium text-sm truncate", b.status === "cancelled" && "text-muted-foreground line-through decoration-muted-foreground/40")}>
                         {b.clientName}
                       </p>
-                      <EmailVerifiedBadge verified={b.clientEmailVerified} className="my-0.5" />
+                      {b.isManual ? (
+                        <span className="inline-flex items-center my-0.5 px-1.5 py-0.5 rounded border text-[10px] font-medium bg-muted/60 text-muted-foreground">
+                          Recorded manually · Walk-in client
+                        </span>
+                      ) : (
+                        <EmailVerifiedBadge verified={b.clientEmailVerified} className="my-0.5" />
+                      )}
                       <p className="text-xs text-muted-foreground truncate">{b.packageName} · {b.eventType}</p>
                       <p className="text-xs text-muted-foreground truncate">{b.date} · {b.startTime}</p>
                     </div>
@@ -518,9 +544,9 @@ export default function StudioBookings() {
                         </Button>
                       </div>
                     ) : (
-                      <Button asChild variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
-                    {/* <Link to="/studio/bookings">View all</Link> */}
-                    </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => navigate(`/studio/bookings/${b.id}`)}>
+                        View <ArrowRight className="w-3 h-3" />
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -532,6 +558,15 @@ export default function StudioBookings() {
                     <span>Remaining <strong className={b.remainingBalance > 0 ? "text-amber-600" : "text-foreground"}>₱{b.remainingBalance.toLocaleString()}</strong></span>
                     <span className="capitalize">Payment <strong className="text-foreground">{(b.paymentStatus ?? "pending").replace("_", " ")}</strong></span>
                   </div>
+                )}
+
+                {(refsByBooking.get(String(b.id)) ?? []).length > 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    GCash Ref:{" "}
+                    <strong className="text-foreground font-mono">
+                      {(refsByBooking.get(String(b.id)) ?? []).join(", ")}
+                    </strong>
+                  </p>
                 )}
 
                 {/* Only surface what needs the owner's attention below the row */}
@@ -568,7 +603,7 @@ export default function StudioBookings() {
                   </div>
                 )}
 
-                {b.status === "confirmed" && !b.hasActiveCancellationRequest && b.remainingBalance > 0 &&
+                {b.status === "confirmed" && !b.isManual && !b.hasActiveCancellationRequest && b.remainingBalance > 0 &&
                   b.paymentStatus !== "pending_verification" && b.paymentStatus !== "fully_paid" && b.paymentStatus !== "partially_paid" && (
                   <div className="flex items-center gap-2 p-2.5 mt-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                     <DollarSign className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -586,7 +621,7 @@ export default function StudioBookings() {
                             <DollarSign className="w-3.5 h-3.5" /> Record Payment
                           </Button>
                         )}
-                        {nextManualStage ? (
+                        {b.isManual ? null : nextManualStage ? (
                           <select
                             value={displayStage}
                             onChange={(e) => setPendingTrackerChange({ booking: b, stage: e.target.value as TrackingStage })}
@@ -605,7 +640,7 @@ export default function StudioBookings() {
                             {b.serviceStatus === "delivered" ? "Awaiting completion" : b.serviceStatus === "event_day" ? "Confirm the shoot on the booking page" : "Advances automatically"}
                           </span>
                         )}
-                        {b.serviceStatus === "delivered" && (
+                        {!b.isManual && b.serviceStatus === "delivered" && (
                           <Button
                             size="sm"
                             className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -633,6 +668,8 @@ export default function StudioBookings() {
           )}
         </div>
         )}
+
+        <ManualBookingDialog open={manualOpen} onClose={() => setManualOpen(false)} />
 
         {/* CONFIRMATION MODAL: Accept / Decline */}
         {pendingAction && (

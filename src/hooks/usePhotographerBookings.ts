@@ -1,11 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { photographerBookingService } from "@/services/photographerBookingService";
+import { photographerBookingService, type ManualBookingInput } from "@/services/photographerBookingService";
 
 export function usePhotographerBookings() {
   return useQuery({
     queryKey: ["photographerBookings"],
     queryFn: () => photographerBookingService.list(),
     staleTime: 30_000,
+  });
+}
+
+export function useCreateManualBooking() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ManualBookingInput) => photographerBookingService.createManual(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["photographerBookings"] });
+      qc.invalidateQueries({ queryKey: ["photographer", "clients"] }); // the walk-in's booking count and revenue
+      qc.invalidateQueries({ queryKey: ["availability"] }); // the slot is now taken
+    },
   });
 }
 

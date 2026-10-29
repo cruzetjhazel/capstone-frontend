@@ -995,6 +995,24 @@ export default function BookingDetails() {
                 </div>
               </div>
 
+              {payments.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payment History</p>
+                  {payments.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
+                      <div>
+                        <p className="font-mono font-semibold text-foreground">{p.referenceNumber ?? "Onsite payment (cash)"}</p>
+                        <p className="text-muted-foreground">{p.paymentDate}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">{formatPrice(p.amount)}</p>
+                        <p className="text-[10px] uppercase text-muted-foreground">{String(p.matchingStatus).replace(/_/g, " ")}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 flex items-center justify-between">
                 <span className="text-xs font-semibold text-foreground">Remaining Balance</span>
                 <span className="text-lg font-bold text-primary">{formatPrice(remainingBalance)}</span>
