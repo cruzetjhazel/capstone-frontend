@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench, Phone, Mail
+  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench, Phone, Mail, Search
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -16,6 +16,11 @@ import {
   useFavoritePackages, useAddFavoritePackage, useRemoveFavoritePackage,
 } from "@/hooks/useFavorites";
 import { useRole } from "@/contexts/RoleContext";
+
+// Shared style tokens so every section card and chip looks consistent.
+const sectionCard = "bg-card rounded-2xl card-shadow border border-border/50";
+const sectionLabel = "text-sm font-semibold text-muted-foreground flex items-center gap-2";
+const chip = "px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20";
 
 // Determines which package (if any) should show the "Most Popular" badge.
 // Prefers an explicit backend flag; falls back to a booking/selection count
@@ -107,6 +112,23 @@ export default function PhotographerProfile() {
   const [activeTab, setActiveTab] = useState<"portfolio" | "packages" | "reviews">("portfolio");
   const [showAllReviews, setShowAllReviews] = useState(false);
 
+  // Fixed package search / filter state
+  const [packageSearch, setPackageSearch] = useState("");
+  const [packageSort, setPackageSort] = useState<"default" | "price-asc" | "price-desc">("default");
+
+
+  // Review star filter (null = all)
+  const [reviewStarFilter, setReviewStarFilter] = useState<number | null>(null);
+
+  // Shows the photographer's name in the top bar once the main heading has scrolled away.
+  const [scrolledPastHeader, setScrolledPastHeader] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolledPastHeader(window.scrollY > 300);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   if (photographer === undefined) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -144,20 +166,66 @@ export default function PhotographerProfile() {
     setReportDetails("");
   };
 
+  // Filtered packages keep their ORIGINAL index so ?package=${i} and the "Most Popular" badge stay correct.
+  const packageSearchTerm = packageSearch.trim().toLowerCase();
+
+  const visiblePackages = (p.packages ?? [])
+    .map((pkg, i) => ({ pkg, i }))
+    .filter(({ pkg }) => {
+
+      if (!packageSearchTerm) return true;
+      const haystack = [
+        pkg.name,
+        pkg.description,
+        ...(pkg.inclusions ?? []).map((inc: any) => (typeof inc === "string" ? inc : `${inc.name} ${inc.detail ?? ""}`)),
+      ].join(" ").toLowerCase();
+      return haystack.includes(packageSearchTerm);
+    })
+    .sort((a, b) =>
+      packageSort === "price-asc" ? Number(a.pkg.price) - Number(b.pkg.price)
+      : packageSort === "price-desc" ? Number(b.pkg.price) - Number(a.pkg.price)
+      : 0
+    );
+
+
+  const allReviews = p.reviewList ?? [];
+  const reviewCountsByStar = [5, 4, 3, 2, 1].map((star) => ({
+    star,
+    count: allReviews.filter((r) => r.rating === star).length,
+  }));
+  const filteredReviews = reviewStarFilter == null ? allReviews : allReviews.filter((r) => r.rating === reviewStarFilter);
+
+  const tabCounts: Record<"portfolio" | "packages" | "reviews", number | null> = {
+    portfolio: p.portfolio?.length ?? 0,
+    packages: p.packages?.length ?? 0,
+    reviews: p.reviews ?? 0,
+  };
+
   return (
     <div className="min-h-screen bg-background relative">
       {/* Top bar */}
       <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between px-6 h-16">
-          <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 px-4 sm:px-6 h-16">
+          <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
+
+          <p
+            className={cn(
+              "font-heading font-semibold text-sm truncate transition-all duration-300",
+              scrolledPastHeader ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1 pointer-events-none"
+            )}
+            aria-hidden={!scrolledPastHeader}
+          >
+            {p.name}
+          </p>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <Button 
               variant="outline" 
               size="icon"
+              aria-label={isFav ? "Remove from favorites" : "Add to favorites"}
               className="active:scale-75 transition-all duration-200"
               disabled={favoritesLoading || addFavorite.isPending || removeFavorite.isPending}
               onClick={() => {
@@ -187,12 +255,11 @@ export default function PhotographerProfile() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-8 animate-fade-up">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 animate-fade-up">
         {/* Profile header */}
-        <div className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+        <div className={cn(sectionCard, "overflow-hidden")}>
           <div
-            className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5"
-            style={{ height: "15rem" }}
+            className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5 h-44 sm:h-60 md:h-64"
           >
             {p.coverUrl && (
               <img
@@ -201,73 +268,81 @@ export default function PhotographerProfile() {
                 className="absolute inset-0 w-full h-full object-cover object-center"
               />
             )}
-            {/* Scrim starts dark at the bottom-left (where the avatar/name sit) and fades toward the top-right */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-black/55 via-black/10 to-transparent" />
+            {/* Soft scrim: only darkens the bottom edge so the avatar blends in, keeps the photo bright */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/0 to-transparent" />
           </div>
-          <div className="px-6 pb-6 relative">
-            <div className="w-24 h-24 rounded-2xl bg-primary/10 border-4 border-card flex items-center justify-center text-primary font-heading text-2xl font-bold overflow-hidden absolute -top-12 left-6 shadow-md">
-              {p.avatarUrl ? (
-                <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
-              ) : (
-                p.avatar
-              )}
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-start gap-6 pl-28 pt-4">
-              <div className="flex-1 min-w-0 pr-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-2xl font-heading font-bold">{p.name}</h1>
-                  <span className="px-2 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">{p.type}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {p.location}</span>
-                  <span className="flex items-center gap-1"><Camera className="w-3.5 h-3.5" /> {p.specialty}</span>
-                  {p.coverageArea && coverageLabel(p.coverageArea) && (
-                    <span className="flex items-center gap-1" title="Areas covered">
-                      <Globe className="w-3.5 h-3.5" /> Covers: {coverageLabel(p.coverageArea)}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <Star className="w-3.5 h-3.5 fill-accent text-accent" />
-                    {p.reviews > 0 ? `${p.rating} (${p.reviews} reviews)` : "No reviews yet"}
-                  </span>
-                </div>
-                {(p.phone || p.email || socialLinks.length > 0) && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-sm text-foreground">
-                    {p.phone && (
-                      <span className="flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-muted-foreground" /> {p.phone}
-                      </span>
-                    )}
-                    {p.email && (
-                      <span className="flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5 text-muted-foreground" /> {p.email}
-                      </span>
-                    )}
-                    {socialLinks.map(({ url, Icon, label }) => (
-                      <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
-                        className="flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors">
-                        <Icon className="w-3.5 h-3.5" /> {label}
-                      </a>
-                    ))}
-                  </div>
+
+          <div className="relative z-10 px-5 sm:px-8 pb-6">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
+              {/* Avatar overlaps the cover, like a social profile */}
+              <div className="-mt-14 sm:-mt-16 w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-2xl bg-card ring-4 ring-card shadow-lg flex items-center justify-center text-primary font-heading text-3xl font-bold overflow-hidden">
+                {p.avatarUrl ? (
+                  <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="w-full h-full bg-primary/10 flex items-center justify-center">{p.avatar}</span>
                 )}
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-sm text-muted-foreground">Starting at</p>
-                <p className="text-2xl font-heading font-bold text-primary">{formatPrice(p.priceMin)}</p>
+
+              <div className="flex-1 min-w-0 sm:pb-1">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-2xl sm:text-3xl font-heading font-bold tracking-tight leading-tight">{p.name}</h1>
+                  <span className="px-2.5 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">{p.type}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {p.location}</span>
+                  <span className="flex items-center gap-1.5"><Camera className="w-4 h-4" /> {p.specialty}</span>
+                  {p.coverageArea && coverageLabel(p.coverageArea) && (
+                    <span className="flex items-center gap-1.5" title="Areas covered">
+                      <Globe className="w-4 h-4" /> Covers: {coverageLabel(p.coverageArea)}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5">
+                    <Star className="w-4 h-4 fill-accent text-accent" />
+                    <span className="text-foreground font-medium">
+                      {p.reviews > 0 ? p.rating : ""}
+                    </span>
+                    {p.reviews > 0 ? `(${p.reviews} reviews)` : "No reviews yet"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="sm:text-right shrink-0 sm:pb-1 flex sm:block items-baseline gap-2 sm:gap-0 rounded-xl sm:rounded-none bg-muted/50 sm:bg-transparent px-4 py-2.5 sm:p-0">
+                <p className="text-xs sm:text-sm text-muted-foreground">Starting at</p>
+                <p className="text-2xl sm:text-3xl font-heading font-bold text-primary leading-tight">{formatPrice(p.priceMin)}</p>
               </div>
             </div>
+
+            {(p.phone || p.email || socialLinks.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-border/60 text-sm">
+                {p.phone && (
+                  <a href={`tel:${p.phone}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-foreground transition-colors">
+                    <Phone className="w-3.5 h-3.5 text-muted-foreground" /> {p.phone}
+                  </a>
+                )}
+                {p.email && (
+                  <a href={`mailto:${p.email}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-foreground transition-colors min-w-0">
+                    <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{p.email}</span>
+                  </a>
+                )}
+                {socialLinks.map(({ url, Icon, label }) => (
+                  <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-muted-foreground hover:text-primary transition-colors">
+                    <Icon className="w-3.5 h-3.5" /> {label}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Specializations strip */}
-        <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 flex flex-wrap items-center gap-4">
+        <div className={cn(sectionCard, "px-6 py-4 flex flex-wrap items-center gap-x-4 gap-y-3")}>
+          <span className={sectionLabel}>
+            <Tag className="w-4 h-4" /> Specializes in
+          </span>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Tag className="w-3.5 h-3.5" /> Specializes in
-            </span>
             {p.services.map((svc) => (
-              <span key={svc} className="px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20">
+              <span key={svc} className={chip}>
                 {svc}
               </span>
             ))}
@@ -276,33 +351,33 @@ export default function PhotographerProfile() {
 
         {/* Experience & Shooting Types */}
         {(p.yearsActive != null || coverageLabel(p.coverageArea) || (p.shootingTypes && p.shootingTypes.length > 0)) && (
-          <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+          <div className={cn(sectionCard, "px-6 py-5 grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-5")}>
             {p.yearsActive != null && (
               <div>
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5" /> Experience
+                <span className={sectionLabel}>
+                  <Calendar className="w-4 h-4" /> Experience
                 </span>
-                <p className="mt-2 text-base font-semibold">
+                <p className="mt-2 text-lg font-heading font-semibold">
                   {p.yearsActive} {p.yearsActive === 1 ? "year" : "years"}
                 </p>
               </div>
             )}
             {p.coverageArea && coverageLabel(p.coverageArea) && (
               <div>
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5" /> Areas Covered
+                <span className={sectionLabel}>
+                  <Globe className="w-4 h-4" /> Areas Covered
                 </span>
-                <p className="mt-2 text-base font-semibold">{coverageLabel(p.coverageArea)}</p>
+                <p className="mt-2 text-lg font-heading font-semibold">{coverageLabel(p.coverageArea)}</p>
               </div>
             )}
             {p.shootingTypes && p.shootingTypes.length > 0 && (
-              <div className="sm:col-span-2 border-t border-border/50 pt-5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5" /> Shooting Types Supported
+              <div>
+                <span className={sectionLabel}>
+                  <Camera className="w-4 h-4" /> Shooting Types Supported
                 </span>
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-2.5 flex flex-wrap gap-2">
                   {p.shootingTypes.map((t) => (
-                    <span key={t} className="px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20">
+                    <span key={t} className={chip}>
                       {t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                     </span>
                   ))}
@@ -313,20 +388,20 @@ export default function PhotographerProfile() {
         )}
 
         {/* About */}
-        <div className="bg-card rounded-xl card-shadow border border-border/50 p-6">
-          <h2 className="font-heading font-semibold mb-3">About</h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">{p.about}</p>
+        <div className={cn(sectionCard, "p-6")}>
+          <h2 className="font-heading font-semibold text-lg mb-3">About</h2>
+          <p className="text-sm sm:text-[15px] text-muted-foreground leading-relaxed max-w-3xl whitespace-pre-line">{p.about}</p>
         </div>
 
         {/* Photography Style */}
         {p.styles && p.styles.length > 0 && (
-          <div className="bg-card rounded-xl card-shadow border border-border/50 p-6">
-            <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
+          <div className={cn(sectionCard, "p-6")}>
+            <h2 className="font-heading font-semibold text-lg mb-3 flex items-center gap-2">
               <Palette className="w-4 h-4 text-primary" /> Photography Style
             </h2>
             <div className="flex flex-wrap gap-2">
               {p.styles.map((style) => (
-                <span key={style} className="px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20">
+                <span key={style} className={chip}>
                   {style}
                 </span>
               ))}
@@ -334,32 +409,49 @@ export default function PhotographerProfile() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-muted rounded-xl p-1">
-          {(["portfolio", "packages", "reviews"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                "flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors capitalize flex items-center justify-center gap-2",
-                activeTab === tab ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {tab === "portfolio" && <Image className="w-4 h-4" />}
-              {tab === "packages" && <Calendar className="w-4 h-4" />}
-              {tab === "reviews" && <MessageCircle className="w-4 h-4" />}
-              {tab}
-            </button>
-          ))}
+        {/* Tabs (sticks below the top bar while scrolling) */}
+        <div className="sticky top-16 z-30 -mx-2 px-2 py-2 bg-background/90 backdrop-blur-md">
+          <div className="flex gap-1 bg-muted rounded-xl p-1" role="tablist">
+            {(["portfolio", "packages", "reviews"] as const).map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={activeTab === tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "flex-1 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 capitalize flex items-center justify-center gap-2",
+                  activeTab === tab ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                )}
+              >
+                {tab === "portfolio" && <Image className="w-4 h-4" />}
+                {tab === "packages" && <Calendar className="w-4 h-4" />}
+                {tab === "reviews" && <MessageCircle className="w-4 h-4" />}
+                {tab}
+                {tabCounts[tab] ? (
+                  <span className={cn(
+                    "hidden sm:inline-block text-[11px] leading-none px-1.5 py-1 rounded-full",
+                    activeTab === tab ? "bg-primary/10 text-primary" : "bg-background/70 text-muted-foreground"
+                  )}>
+                    {tabCounts[tab]}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Portfolio tab */}
         {activeTab === "portfolio" && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-fade-in">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 animate-fade-in">
             {p.portfolio.length > 0 ? (
               p.portfolio.map((url, i) => (
-                <div key={i} className="aspect-[4/3] rounded-xl overflow-hidden bg-muted">
-                  <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-full object-cover" />
+                <div key={i} className="group aspect-[4/3] rounded-xl overflow-hidden bg-muted">
+                  <img
+                    src={url}
+                    alt={`Portfolio ${i + 1}`}
+                    loading="lazy"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
                 </div>
               ))
             ) : (
@@ -370,7 +462,7 @@ export default function PhotographerProfile() {
           </div>
         )}
 
-        {/* Packages tab - REDESIGNED */}
+        {/* Packages tab */}
         {activeTab === "packages" && (
           <div className="space-y-10 animate-fade-in">
             
@@ -383,16 +475,48 @@ export default function PhotographerProfile() {
                 <p className="text-sm text-muted-foreground mt-1">Pre-built services tailored for common event needs.</p>
               </div>
               
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {(p.packages ?? []).length > 0 && (
+                <div className={cn(sectionCard, "p-3 mb-6 flex flex-col md:flex-row md:items-center gap-3")}>
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="text"
+                      value={packageSearch}
+                      onChange={(e) => setPackageSearch(e.target.value)}
+                      placeholder="Search packages or inclusions..."
+                      aria-label="Search packages"
+                      className="flex h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm outline-none focus:outline-none focus-visible:outline-none focus-visible:border-secondary focus-visible:ring-2 focus-visible:ring-secondary/25 focus-visible:ring-offset-0 transition-shadow"
+                    />
+                  </div>
+
+                  <select
+                    value={packageSort}
+                    onChange={(e) => setPackageSort(e.target.value as typeof packageSort)}
+                    aria-label="Sort packages"
+                    className="flex h-10 w-full md:w-48 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:outline-none focus-visible:outline-none focus-visible:border-secondary focus-visible:ring-2 focus-visible:ring-secondary/25 focus-visible:ring-offset-0 transition-shadow"
+                  >
+                    <option value="default">Sort: Default</option>
+                    <option value="price-asc">Price: Low to high</option>
+                    <option value="price-desc">Price: High to low</option>
+                  </select>
+
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 pt-3">
                 {(p.packages ?? []).length === 0 ? (
                   <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
                     No fixed packages set up yet.
                   </div>
-                ) : (p.packages ?? []).map((pkg, i) => (
+                ) : visiblePackages.length === 0 ? (
+                  <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    No packages match your search. Try a different keyword.
+                  </div>
+                ) : visiblePackages.map(({ pkg, i }) => (
                   <div
                     key={pkg.name}
                     className={cn(
-                      "relative bg-card rounded-2xl border p-6 flex flex-col transition-all duration-300 hover:-translate-y-1",
+                      "relative bg-card rounded-2xl border p-5 flex flex-col transition-all duration-300 hover:-translate-y-0.5",
                       i === popularPackageIndex
                         ? "border-primary shadow-lg shadow-primary/10 bg-gradient-to-b from-card to-primary/5" 
                         : "border-border/50 card-shadow hover:shadow-lg"
@@ -415,19 +539,19 @@ export default function PhotographerProfile() {
                       >
                         <Heart className={`w-4 h-4 ${isPackageFavorite((pkg as any).id) ? "fill-red-500 text-red-500" : ""}`} />
                       </button>
-                      <h4 className="font-heading font-semibold text-lg">{pkg.name}</h4>
+                      <h4 className="font-heading font-semibold text-base leading-snug px-7">{pkg.name}</h4>
                       <div className="mt-3 flex items-baseline justify-center gap-1">
-                        <span className="text-3xl font-heading font-bold">{formatPrice(pkg.price)}</span>
+                        <span className="text-xl font-heading font-bold">{formatPrice(pkg.price)}</span>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-2">{pkg.description}</p>
+                      <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{pkg.description}</p>
                     </div>
 
-                    <div className="space-y-3 flex-grow">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Includes</p>
+                    <div className="space-y-3 flex-grow border-t border-border/50 pt-5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Includes</p>
                       {pkg.inclusions.map((inc, idx) => (
-                        <div key={idx} className="flex items-start gap-3 text-sm">
-                          <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" /> 
-                          <span className="text-muted-foreground leading-tight">
+                        <div key={idx} className="flex items-start gap-2.5 text-xs">
+                          <Check className="w-3.5 h-3.5 text-primary shrink-0 mt-px" /> 
+                          <span className="text-muted-foreground leading-snug">
                             {typeof inc === "string" ? inc : inc.name}
                             {typeof inc !== "string" && inc.detail && <span className="text-muted-foreground/70"> — {inc.detail}</span>}
                           </span>
@@ -435,9 +559,9 @@ export default function PhotographerProfile() {
                       ))}
                     </div>
 
-                    <div className="mt-8 pt-4 border-t border-border/50">
+                    <div className="mt-8">
                       <Link to={`/booking/${p.id}?package=${i}`} className="block" onClick={handleBookClick}>
-                        <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="lg">
+                        <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="default">
                           Select Package
                         </Button>
                       </Link>
@@ -497,42 +621,75 @@ export default function PhotographerProfile() {
         {/* Reviews tab */}
         {activeTab === "reviews" && (
           <div className="space-y-4 animate-fade-in">
-            <div className="flex items-center gap-4 mb-2">
+            <div className={cn(sectionCard, "flex items-center gap-4 px-6 py-4")}>
               <div className="flex items-center gap-2">
                 <Star className="w-6 h-6 fill-accent text-accent" />
                 <span className="text-2xl font-heading font-bold">{p.rating}</span>
               </div>
               <span className="text-sm text-muted-foreground">{p.reviews} total reviews</span>
             </div>
-            {(showAllReviews ? p.reviewList : p.reviewList.slice(0, 5)).map((review) => (
-              <div key={review.id} className="bg-card rounded-xl card-shadow border border-border/50 p-5">
+            {allReviews.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter reviews by rating">
+                <button
+                  onClick={() => { setReviewStarFilter(null); setShowAllReviews(false); }}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                    reviewStarFilter == null
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+                  )}
+                >
+                  All ({allReviews.length})
+                </button>
+                {reviewCountsByStar.map(({ star, count }) => (
+                  <button
+                    key={star}
+                    disabled={count === 0}
+                    onClick={() => { setReviewStarFilter(reviewStarFilter === star ? null : star); setShowAllReviews(false); }}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed",
+                      reviewStarFilter === star
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    {star} <Star className={cn("w-3.5 h-3.5", reviewStarFilter === star ? "fill-current" : "fill-accent text-accent")} /> ({count})
+                  </button>
+                ))}
+              </div>
+            )}
+            {reviewStarFilter != null && filteredReviews.length === 0 && (
+              <div className="py-8 text-center text-sm text-muted-foreground">No {reviewStarFilter}-star reviews yet.</div>
+            )}
+            {(showAllReviews ? filteredReviews : filteredReviews.slice(0, 5)).map((review) => (
+              <div key={review.id} className={cn(sectionCard, "p-5 sm:p-6")}>
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-heading text-sm font-bold">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-heading text-sm font-bold shrink-0">
                     {review.avatar}
                   </div>
-                  <div>
-                    <p className="font-medium text-sm">{review.name}</p>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{review.name}</p>
                     <p className="text-xs text-muted-foreground">{review.date}</p>
                   </div>
-                  <div className="ml-auto flex items-center gap-0.5">
+                  <div className="ml-auto flex items-center gap-0.5 shrink-0">
                     {Array.from({ length: review.rating }, (_, i) => (
                       <Star key={i} className="w-3.5 h-3.5 fill-accent text-accent" />
                     ))}
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">{review.text}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{review.text}</p>
                 {review.reply && (
-                  <div className="mt-4 border-l-2 border-primary/30 pl-4">
+                  <div className="mt-4 rounded-lg bg-muted/50 border-l-2 border-primary/40 px-4 py-3">
                     <p className="text-xs font-semibold text-foreground">Photographer reply</p>
-                    <p className="text-sm text-muted-foreground mt-1">{review.reply}</p>
+                    <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{review.reply}</p>
                   </div>
                 )}
               </div>
             ))}
-            {p.reviewList.length > 5 && (
+            {filteredReviews.length > 5 && (
               <div className="text-center pt-2">
                 <Button variant="outline" onClick={() => setShowAllReviews((v) => !v)}>
-                  {showAllReviews ? "Show less" : `See more reviews (${p.reviewList.length - 5} more)`}
+                  {showAllReviews ? "Show less" : `See more reviews (${filteredReviews.length - 5} more)`}
                 </Button>
               </div>
             )}
@@ -540,18 +697,18 @@ export default function PhotographerProfile() {
         )}
 
         {/* Bottom CTA */}
-        <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className={cn(sectionCard, "p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4")}>
           <div>
-            <h3 className="font-heading font-semibold">Ready to book {p.name}?</h3>
+            <h3 className="font-heading font-semibold text-lg">Ready to book {p.name}?</h3>
             <p className="text-sm text-muted-foreground mt-1">Choose a fixed package or build a custom package, then pick your preferred date.</p>
           </div>
-          <Link to={`/booking/${p.id}`} onClick={handleBookClick}>
+          <Link to={`/booking/${p.id}`} onClick={handleBookClick} className="shrink-0">
             <Button size="lg" className="font-medium w-full sm:w-auto">Book Now</Button>
           </Link>
         </div>
 
         {/* --- DISCREET REPORT LINK FOR PROFILE --- */}
-        <div className="text-center pt-4 pb-12">
+        <div className="text-center pt-2 pb-12">
           <button 
             onClick={() => setShowReportModal(true)} 
             className="text-xs text-muted-foreground/70 hover:text-destructive flex items-center justify-center gap-1.5 mx-auto transition-colors"
@@ -567,6 +724,7 @@ export default function PhotographerProfile() {
           <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4 my-8">
             <button 
               onClick={() => setShowReportModal(false)} 
+              aria-label="Close"
               className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-muted"
             >
               <X className="w-4 h-4" />
