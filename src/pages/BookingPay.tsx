@@ -11,6 +11,7 @@ import { formatPrice } from "@/data/photographers";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { bookingService, type BookingPaymentInfo } from "@/services/bookingService";
+import { formatGcashRef } from "@/lib/utils";
 import { useBooking } from "@/hooks/useBookings";
 
 type PayState = "form" | "verifying" | "verified" | "mismatch";
@@ -329,10 +330,10 @@ export default function BookingPay() {
                   <Input
                     id="ref"
                     inputMode="numeric"
-                    maxLength={GCASH_REF_DIGITS}
-                    placeholder="e.g. 1234567890123"
-                    value={refCode}
-                    onChange={(e) => setRefCode(e.target.value.replace(/\D/g, ""))}
+                    maxLength={GCASH_REF_DIGITS + 2}
+                    placeholder="e.g. 1234 567 890123"
+                    value={formatGcashRef(refCode)}
+                    onChange={(e) => setRefCode(e.target.value.replace(/\D/g, "").slice(0, GCASH_REF_DIGITS))}
                     aria-invalid={refCode !== "" && !isRefValid}
                     className={`font-mono text-sm ${refCode !== "" && !isRefValid ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   />
@@ -484,7 +485,7 @@ export default function BookingPay() {
               </div>
               <div className="flex justify-between py-1 border-b border-border/40">
                 <span className="text-muted-foreground">GCash Reference No.:</span>
-                <span className="font-mono font-semibold text-foreground">{refCode}</span>
+                <span className="font-mono font-semibold text-foreground">{formatGcashRef(refCode)}</span>
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-muted-foreground">Payment Date:</span>

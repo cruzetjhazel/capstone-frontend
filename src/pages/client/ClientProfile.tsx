@@ -236,139 +236,160 @@ export default function Profile() {
   return (
     <ClientLayout>
 
-      <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-24 relative">
+      <div className="max-w-4xl mx-auto space-y-4 animate-fade-up pb-24 relative">
 
-        <div className="bg-card p-6 rounded-xl border border-border/50 card-shadow">
-          <div className="flex items-center justify-between gap-3">
-            <h1 className="text-2xl font-heading font-bold">Account Settings</h1>
+        {/* Hero banner — same treatment as My Bookings */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/15 via-primary/5 to-accent/10 border border-primary/10 p-4 sm:p-5">
+          <div className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full border-[16px] border-primary/5 sm:h-56 sm:w-56" />
+          <div className="pointer-events-none absolute -right-4 -top-4 h-28 w-28 rounded-full border-[10px] border-primary/10 sm:h-36 sm:w-36" />
+          <div className="relative flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-heading font-bold text-foreground">Account Settings</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Manage your profile, preferences, and security.
+              </p>
+            </div>
             <Button variant="outline" size="sm" asChild>
               <Link to="/activity">My Activity</Link>
             </Button>
           </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Manage your profile, preferences, and security.
-          </p>
         </div>
 
-        {/* 1. PROFILE */}
-        <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
-          <div className="bg-muted/30 px-6 py-4 border-b border-border/50 flex items-center gap-2">
-            <User className="w-5 h-5 text-primary" />
-            <h3 className="font-heading font-semibold">Profile</h3>
-          </div>
-          <div className="p-6 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
 
-            <div className="space-y-2">
-              <Label>Profile Photo</Label>
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 overflow-hidden">
-                  {(avatarPreview || avatarUrl) ? (
-                    <img src={avatarPreview ?? avatarUrl ?? ""} alt={formData.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <Camera className="w-7 h-7" />
-                  )}
+          {/* IDENTITY — photo upload */}
+          <section className="bg-card rounded-xl card-shadow border border-border/50 p-4 flex flex-row lg:flex-col items-center gap-4 lg:text-center lg:sticky lg:top-6">
+            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 overflow-hidden shrink-0">
+              {(avatarPreview || avatarUrl) ? (
+                <img src={avatarPreview ?? avatarUrl ?? ""} alt={formData.name} className="w-full h-full object-cover" />
+              ) : (
+                <Camera className="w-7 h-7" />
+              )}
+            </div>
+            <div className="min-w-0 space-y-2">
+              <div>
+                <p className="font-heading font-semibold text-sm truncate">{formData.name || "Your name"}</p>
+                <div className="mt-1 flex lg:justify-center">
+                  <EmailVerifiedBadge verified={user?.emailVerified} />
                 </div>
+              </div>
+              <div>
                 <label htmlFor="avatar-input">
-                  <Button variant="outline" size="sm" asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
                     <span>Upload Photo</span>
                   </Button>
                 </label>
                 <input id="avatar-input" type="file" accept="image/png, image/jpeg" className="hidden" onChange={handleAvatarChange} />
+                <p className="text-[11px] text-muted-foreground mt-1.5">PNG or JPG, up to 2MB.</p>
               </div>
             </div>
+          </section>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Full Name</Label>
-                <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+          <div className="lg:col-span-2 space-y-4">
+
+            {/* 1. PROFILE */}
+            <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+              <div className="bg-muted/30 px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                <User className="w-4 h-4 text-primary" />
+                <h3 className="font-heading font-semibold text-sm">Profile</h3>
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>Email Address (Read-Only)</Label>
-                  <EmailVerifiedBadge verified={user?.emailVerified} />
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Full Name</Label>
+                  <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
                 </div>
-                <Input type="email" disabled value={formData.email} className="bg-muted/50 cursor-not-allowed" />
-                {user?.emailVerified === false && (
-                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                    Check your inbox (or spam) for the verification link.
-                  </p>
-                )}
-                <p className="text-[11px] text-muted-foreground">
-                  To update your email address,{" "}
-                  <Link to="/report-problem?change=email" className="text-primary hover:underline">
-                    contact support
-                  </Link>
-                  .
-                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Birthday</Label>
+                  <Input type="date" value={formData.birthday} onChange={(e) => setFormData({ ...formData, birthday: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Gender</Label>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Home Address</Label>
+                  <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
+                </div>
+
+                {/* Read-only contact details */}
+                <div className="space-y-1.5 md:border-t md:border-border/50 md:pt-3 md:col-span-2 md:grid md:grid-cols-2 md:gap-x-4 md:space-y-0">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs">Email Address (Read-Only)</Label>
+                      <EmailVerifiedBadge verified={user?.emailVerified} />
+                    </div>
+                    <Input type="email" disabled value={formData.email} className="bg-muted/50 cursor-not-allowed" />
+                    {user?.emailVerified === false && (
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                        Check your inbox (or spam) for the verification link.
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      To update your email address,{" "}
+                      <Link to="/report-problem?change=email" className="text-primary hover:underline">
+                        contact support
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 mt-3 md:mt-0">
+                    <Label className="text-xs">Contact Number (Read-Only)</Label>
+                    <Input
+                      disabled
+                      value={formData.phone}
+                      placeholder="No number on file"
+                      className="bg-muted/50 cursor-not-allowed"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Your registered number can't be changed here. Contact support if it needs updating.
+                    </p>
+                    <Link to="/report-problem?change=phone">
+                      <Button type="button" variant="outline" size="sm" className="mt-1 h-8 text-xs">
+                        Request Contact Number Change
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Contact Number (Read-Only)</Label>
-                <Input
-                  disabled
-                  value={formData.phone}
-                  placeholder="No number on file"
-                  className="bg-muted/50 cursor-not-allowed"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Your registered number can't be changed here. Contact support if it needs updating.
-                </p>
-                <Link to="/report-problem?change=phone">
-                  <Button type="button" variant="outline" size="sm" className="mt-1">
-                    Request Contact Number Change
+            </section>
+
+            {/* 2. SECURITY & ACCOUNT */}
+            <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+              <div className="bg-muted/30 px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-primary" />
+                <h3 className="font-heading font-semibold text-sm">Security & Account</h3>
+              </div>
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold">Password Management</p>
+                  <p className="text-[11px] text-muted-foreground mb-2.5">Update the password used to sign in to your account.</p>
+                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowPasswordModal(true)}>
+                    <Key className="w-3.5 h-3.5 mr-1.5" /> Change Password
                   </Button>
-                </Link>
-              </div>
-              <div className="space-y-2">
-                <Label>Birthday</Label>
-                <Input type="date" value={formData.birthday} onChange={(e) => setFormData({ ...formData, birthday: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Gender</Label>
-                <select
-                  value={formData.gender}
-                  onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Prefer not to say</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Home Address</Label>
-                <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
-              </div>
-            </div>
-          </div>
-        </section>
+                </div>
 
-        {/* 2. SECURITY & ACCOUNT */}
-        <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
-          <div className="bg-muted/30 px-6 py-4 border-b border-border/50 flex items-center gap-2">
-            <Lock className="w-5 h-5 text-primary" />
-            <h3 className="font-heading font-semibold">Security & Account</h3>
+                <div className="sm:border-l sm:border-border/50 sm:pl-4">
+                  <p className="text-xs font-semibold text-destructive">Danger Zone</p>
+                  <p className="text-[11px] text-muted-foreground mb-2.5">
+                    Temporarily disable your account. You can reactivate it by logging in again or contacting support.
+                  </p>
+                  <Button variant="destructive" size="sm" className="h-8 text-xs" onClick={handleDeactivateClick}>
+                    Deactivate Account
+                  </Button>
+                </div>
+              </div>
+            </section>
           </div>
-          <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs font-semibold">Password Management</p>
-              <p className="text-[11px] text-muted-foreground mb-3">Update the password used to sign in to your account.</p>
-              <Button variant="outline" size="sm" onClick={() => setShowPasswordModal(true)}>
-                <Key className="w-3.5 h-3.5 mr-1.5" /> Change Password
-              </Button>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-destructive">Danger Zone</p>
-              <p className="text-[11px] text-muted-foreground mb-3">
-                Temporarily disable your account. You can reactivate it by logging in again or contacting support.
-              </p>
-              <Button variant="destructive" size="sm" onClick={handleDeactivateClick}>
-                Deactivate Account
-              </Button>
-            </div>
-          </div>
-        </section>
+        </div>
       </div>
 
       {/* STICKY ACTION BAR — same pattern as StudioSettings.tsx */}

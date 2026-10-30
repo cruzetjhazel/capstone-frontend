@@ -224,7 +224,7 @@ export default function ReportProblem() {
   if (isSuccess) {
     return (
       <DashboardLayout>
-        <div className="max-w-xl mx-auto animate-fade-up py-10 flex flex-col items-center text-center space-y-5">
+        <div className="max-w-xl mx-auto animate-fade-up py-8 flex flex-col items-center text-center space-y-4">
           <div className="w-14 h-14 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center">
             <CheckCircle2 className="w-7 h-7" />
           </div>
@@ -235,7 +235,7 @@ export default function ReportProblem() {
             </p>
           </div>
           
-          <div className="w-full bg-card border border-border/50 rounded-2xl p-5 space-y-4">
+          <div className="w-full bg-card border border-border/50 rounded-2xl p-4 space-y-3">
             <div className="grid grid-cols-2 gap-4 text-left">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Report Reference</p>
@@ -276,13 +276,13 @@ export default function ReportProblem() {
   // -----------------------------------------------------------
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5 animate-fade-up py-4 sm:py-6">
+      <div className="max-w-3xl mx-auto space-y-4 pb-8 animate-fade-up">
         
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-heading font-bold flex items-center gap-2 text-foreground">
-              <AlertTriangle className="w-5 h-5 text-primary" />
+            <h1 className="text-2xl font-heading font-bold flex items-center gap-2 text-foreground">
+              <AlertTriangle className="w-6 h-6 text-primary" />
               Report a Problem
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -295,7 +295,7 @@ export default function ReportProblem() {
 
         {/* Context Banner for Pre-filled Booking */}
         {prefilledBooking && (
-          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 flex items-center justify-between">
+          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-background flex items-center justify-center border border-border/50 shrink-0">
                 <FileText className="w-4 h-4 text-primary" />
@@ -311,14 +311,27 @@ export default function ReportProblem() {
           </div>
         )}
 
+        {/* Context Banner for account-detail change requests (from Profile) */}
+        {isChangeRequest && (
+          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-background flex items-center justify-center border border-border/50 shrink-0">
+              <FileText className="w-4 h-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Account Change Request</p>
+              <p className="text-sm font-semibold text-foreground">{changeLabel}</p>
+            </div>
+          </div>
+        )}
+
         {/* Form Container */}
-        <div className="bg-card rounded-2xl border border-border/50 p-5 sm:p-6">
-          <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="bg-card rounded-2xl border border-border/50 p-4 sm:p-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             
             {/* What are you reporting? + Reason */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold">
                   What are you reporting? <span className="text-destructive">*</span>
                 </label>
                 <select 
@@ -326,7 +339,7 @@ export default function ReportProblem() {
                   value={target} 
                   onChange={(e) => setTarget(e.target.value)} 
                   disabled={!!prefilledBooking} 
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
+                  className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
                 >
                   <option value="" disabled>Select subject</option>
                   {targetOptions.map(opt => (
@@ -335,8 +348,8 @@ export default function ReportProblem() {
                 </select>
               </div>
 
-              <div className="space-y-2 flex flex-col">
-                <label className="text-sm font-semibold">
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-xs font-semibold">
                   Reason <span className="text-destructive">*</span>
                 </label>
                 <select 
@@ -344,7 +357,7 @@ export default function ReportProblem() {
                   value={reason} 
                   onChange={(e) => setReason(e.target.value)} 
                   disabled={!target}
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
+                  className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
                 >
                   <option value="" disabled>Select reason category</option>
                   {getReasonOptions().map(opt => (
@@ -364,7 +377,7 @@ export default function ReportProblem() {
                       placeholder="Tell us what you're reporting..."
                       value={otherReason}
                       onChange={(e) => setOtherReason(e.target.value)}
-                      className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </div>
                 )}
@@ -373,13 +386,13 @@ export default function ReportProblem() {
 
             {/* Reference (only shown when the subject needs one) */}
             {showReferenceField && (
-              <div className="space-y-2 animate-in fade-in duration-200 max-w-sm">
-                <label className="text-sm font-semibold flex justify-between">
+              <div className="space-y-1.5 animate-in fade-in duration-200 max-w-sm">
+                <label className="text-xs font-semibold flex justify-between">
                   <span>{getReferenceLabel()}</span>
                   {!prefilledBooking && <span className="text-muted-foreground text-xs font-normal">Optional</span>}
                 </label>
                 {prefilledBooking ? (
-                  <div className="flex h-10 w-full items-center gap-2 rounded-xl border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <div className="flex h-9 w-full items-center gap-2 rounded-xl border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
                     <FileText className="w-4 h-4 text-primary" />
                     <span className="font-mono font-bold text-foreground">{prefilledBooking}</span>
                     <span className="ml-auto text-[10px] uppercase font-bold bg-background px-1.5 py-0.5 rounded border border-border">Locked</span>
@@ -390,15 +403,15 @@ export default function ReportProblem() {
                     value={referenceId}
                     onChange={(e) => setReferenceId(e.target.value)}
                     placeholder={`e.g., ${getReferenceLabel()}...`}
-                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 )}
               </div>
             )}
 
             {/* Description */}
-            <div className="space-y-2 relative">
-              <label className="text-sm font-semibold">
+            <div className="space-y-1.5 relative">
+              <label className="text-xs font-semibold">
                 Description <span className="text-destructive">*</span>
               </label>
               <textarea 
@@ -407,7 +420,7 @@ export default function ReportProblem() {
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
                 placeholder="Tell us what happened — include dates, times, and any relevant context..." 
-                className="flex min-h-[120px] w-full rounded-xl border border-input bg-background px-3 py-2 pb-7 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none" 
+                className="flex min-h-[104px] w-full rounded-xl border border-input bg-background px-3 py-2 pb-7 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none" 
               />
               <div className="absolute bottom-3 right-3 text-xs text-muted-foreground/70 font-mono">
                 {details.length} / 2000
@@ -415,16 +428,16 @@ export default function ReportProblem() {
             </div>
 
             {/* How can we help? + Attachments */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-5 border-t border-border/40">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border/40">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold">
                   How can we help? <span className="text-destructive">*</span>
                 </label>
                 <select 
                   required 
                   value={resolution} 
                   onChange={(e) => setResolution(e.target.value)} 
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="" disabled>Select requested action</option>
                   <option value="investigate">Look into this</option>
@@ -436,8 +449,8 @@ export default function ReportProblem() {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-semibold flex justify-between">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold flex justify-between">
                   <span>Attachments</span>
                   <span className="text-muted-foreground text-xs font-normal">Optional • Max 3, 2MB each</span>
                 </label>
@@ -450,7 +463,7 @@ export default function ReportProblem() {
                     disabled={files.length >= 3}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
                   />
-                  <div className={`flex items-center justify-center gap-2 h-10 w-full rounded-xl border border-dashed border-input px-3 py-2 text-sm transition-colors ${files.length >= 3 ? 'bg-muted/50 text-muted-foreground/50' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'}`}>
+                  <div className={`flex items-center justify-center gap-2 h-9 w-full rounded-xl border border-dashed border-input px-3 py-2 text-sm transition-colors ${files.length >= 3 ? 'bg-muted/50 text-muted-foreground/50' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'}`}>
                     <UploadCloud className="w-4 h-4" />
                     {files.length >= 3 ? "Maximum files attached" : "Attach images or PDFs..."}
                   </div>

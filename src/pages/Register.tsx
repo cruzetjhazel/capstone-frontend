@@ -1,4 +1,5 @@
 import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
+import Logo from "@/components/Logo";
 import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -1147,12 +1148,7 @@ export default function Register() {
       {!isProfileBuilderStep && (
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-gradient-to-br from-[#1a1006] via-[#2a1810] to-[#4a2c1e] text-white">
         <div className="relative z-10 px-16 max-w-lg animate-fade-up">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
-              <Camera className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-heading text-2xl font-bold text-white">Bulan</span>
-          </div>
+          <Logo onDark className="mb-8" />
           <h1 className="text-4xl font-heading font-bold leading-tight mb-4">{stepLabel}</h1>
           <p className="text-white/60 text-lg leading-relaxed">
             {step === 1 && "Discover photographers, manage bookings, and grow your photography business — all in one place."}
@@ -1171,11 +1167,8 @@ export default function Register() {
 
       <div className={cn("flex-1 flex items-start justify-center px-6 py-12 bg-white text-foreground overflow-y-auto overflow-x-visible", !isProfileBuilderStep && "items-center")}>
         <div className={cn("w-full max-h-full overflow-y-visible animate-fade-up", isProfileBuilderStep ? "max-w-5xl" : "max-w-md")}>
-          <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Camera className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="font-heading font-semibold text-lg">Bulan</span>
+          <div className="lg:hidden mb-8">
+            <Logo />
           </div>
 
           <div className={cn("min-h-[76px] mb-8", step === 1 ? "invisible" : "visible")}>

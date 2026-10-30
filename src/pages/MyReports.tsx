@@ -23,6 +23,13 @@ const STATUS_CONFIG = {
   closed: { label: "Closed", color: "text-muted-foreground bg-muted border-border/50", icon: AlertCircle },
 };
 
+const getStatusConfig = (status: string) =>
+  STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? {
+    label: status ? status.replace(/_/g, " ") : "Unknown",
+    color: "text-muted-foreground bg-muted border-border/50",
+    icon: AlertCircle,
+  };
+
 const STATUS_TABS: { value: string; label: string }[] = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
@@ -180,7 +187,8 @@ export default function MyReports() {
             </div>
           ) : (
             filteredReports.map((report) => {
-              const StatusIcon = STATUS_CONFIG[report.status as keyof typeof STATUS_CONFIG].icon;
+              const statusCfg = getStatusConfig(report.status);
+              const StatusIcon = statusCfg.icon;
               return (
                 <div 
                   key={report.id} 
@@ -198,9 +206,9 @@ export default function MyReports() {
                   <div className="flex-1 space-y-1.5">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-mono font-bold text-primary text-sm">{report.id}</span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${STATUS_CONFIG[report.status as keyof typeof STATUS_CONFIG].color}`}>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${statusCfg.color}`}>
                         <StatusIcon className="w-3 h-3" />
-                        {STATUS_CONFIG[report.status as keyof typeof STATUS_CONFIG].label}
+                        {statusCfg.label}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -231,8 +239,8 @@ export default function MyReports() {
                 {selectedReport?.id}
               </DialogTitle>
               {selectedReport && (
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${STATUS_CONFIG[selectedReport.status as keyof typeof STATUS_CONFIG].color}`}>
-                  {STATUS_CONFIG[selectedReport.status as keyof typeof STATUS_CONFIG].label}
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 ${getStatusConfig(selectedReport.status).color}`}>
+                  {getStatusConfig(selectedReport.status).label}
                 </span>
               )}
             </div>

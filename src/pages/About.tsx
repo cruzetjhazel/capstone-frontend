@@ -44,7 +44,7 @@ const team = [
   { name: "Jhazel G. Cruzet", role: "Lead Developer & Programmer" },
   { name: "Erica G. Muring", role: "Project Manager" },
   { name: "Chariza Mae Demetrial", role: "System Analyst" },
-  { name: "Patrick Palacio", role: "Technical Writer" },
+  { name: "Patrick B. Palacio", role: "Technical Writer" },
 ];
 
 /* Small shared bits so section headers stay consistent */

@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useActivityLogs } from "@/hooks/useActivityLogs";
+import { Pagination, usePagination } from "@/components/ListPagination";
+
+const PAGE_SIZE = 10;
 
 const renderIcon = (category: string) => {
   switch (category) {
@@ -54,9 +57,11 @@ export default function ClientActivityLog() {
     });
   }, [logs, searchQuery, categoryFilter, dateFilter]);
 
+  const pager = usePagination(filteredLogs, PAGE_SIZE, `${searchQuery}|${dateFilter}|${categoryFilter}`);
+
   return (
     <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-6 animate-fade-up">
+      <div className="max-w-4xl mx-auto space-y-4 animate-fade-up">
         <div>
           <h1 className="text-2xl font-heading font-bold">My Activity</h1>
           <p className="text-sm text-muted-foreground mt-1">A record of your own actions on the platform.</p>
@@ -111,8 +116,8 @@ export default function ClientActivityLog() {
           <div className="bg-card rounded-xl border border-border/50 overflow-hidden card-shadow">
             <div className="divide-y divide-border">
               {filteredLogs.length > 0 ? (
-                filteredLogs.map((log) => (
-                  <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-muted/30 transition-colors">
+                pager.pageItems.map((log) => (
+                  <div key={log.id} className="px-4 py-3 flex items-start gap-3 hover:bg-muted/30 transition-colors">
                     {renderIcon(log.category)}
                     <div className="flex-1">
                       <p className="font-semibold text-sm text-foreground">{log.title}</p>
@@ -138,6 +143,8 @@ export default function ClientActivityLog() {
             </div>
           </div>
         )}
+
+        {!isLoading && !error && <Pagination pagination={pager} />}
       </div>
     </DashboardLayout>
   );

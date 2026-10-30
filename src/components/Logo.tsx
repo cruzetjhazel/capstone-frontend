@@ -21,7 +21,7 @@ export default function Logo({
     <div className={cn("flex items-center gap-2.5 group", className)}>
       <div className={cn(box, "rounded-lg overflow-hidden flex-shrink-0 bg-[#1a1410]")}>
     <img
-      src="/images/bulan-logo.png"
+      src="/images/LensBook-logo.jpg"
       alt="LensBook"
       className="w-full h-full object-cover"
     />

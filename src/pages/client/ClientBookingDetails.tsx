@@ -8,17 +8,55 @@ import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
 import { useToast } from "@/hooks/use-toast";
 import toast from "react-hot-toast";
-import { cn } from "@/lib/utils";
+import { cn, getInitials, formatGcashRef } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft,
-  Award, AlertCircle, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt, Check,
-  CheckCircle2, Camera, Wand2, PackageCheck, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
+  AlertCircle, ChevronDown, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt,
+  CheckCircle2, Camera, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
 } from "lucide-react";
-   import { useState, useMemo } from "react";
-   import { SlotOfferCard } from "@/components/booking/SlotOfferCard";
-   import { BudgetRequestPanel } from "@/components/booking/BudgetRequestPanel";
+import { useState, useMemo } from "react";
+import { SlotOfferCard } from "@/components/booking/SlotOfferCard";
+// BUDGETING (disabled for now): import { BudgetRequestPanel } from "@/components/booking/BudgetRequestPanel";
+import { ServiceProgressTracker, SERVICE_PROGRESS_STEPS, getCurrentStepIndex } from "@/components/booking/ServiceProgressTracker";
 
 type RequestType = "reschedule" | "cancel" | "modify" | null;
+
+const CARD = "bg-card rounded-2xl border border-border/50 card-shadow";
+
+const PILL_TONES = {
+  good: "text-emerald-700 border-emerald-200 bg-emerald-50",
+  warn: "text-amber-700 border-amber-200 bg-amber-50",
+  muted: "text-muted-foreground border-border bg-muted/50",
+  bad: "text-destructive border-destructive/30 bg-destructive/10",
+} as const;
+
+// "2026-10-22" -> "Thu, Oct 22, 2026". Display only, the stored value is never changed.
+const formatDate = (dateString?: string) => {
+  if (!dateString) return "";
+  const match = String(dateString).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return String(dateString);
+  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return d.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+};
+
+const InfoItem = ({ Icon, label, children }: { Icon: LucideIcon; label: string; children: React.ReactNode }) => (
+  <div className="flex items-start gap-3">
+    <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+      <Icon className="w-4 h-4 text-primary" />
+    </div>
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="text-sm font-medium text-foreground break-words">{children}</div>
+    </div>
+  </div>
+);
+
+const BreakdownRow = ({ label, value, strong }: { label: React.ReactNode; value: React.ReactNode; strong?: boolean }) => (
+  <div className={cn("flex justify-between items-center gap-3", strong && "font-semibold text-foreground")}>
+    <span className={cn(!strong && "text-muted-foreground")}>{label}</span>
+    <span className={cn("tabular-nums", !strong && "font-medium text-foreground")}>{value}</span>
+  </div>
+);
 
 const RESCHEDULE_MODIFY_ENABLED = true;
 
@@ -41,21 +79,6 @@ const formatTime = (timeString: string) => {
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hour12}:${minutes} ${period}`;
 };
-// Client-facing Service Progress — 4 stages. "confirmed_paid" is a
-// frontend-only display stage (service_status is still null, but the
-// booking is Confirmed and payment is settled) — never sent to or received
-// from the backend. The other 3 map directly to ServiceTrackerStatus. Booking
-// status (pending/confirmed/completed/cancelled/expired) is shown separately
-// via the badge above, not as a tracker stage.
-     const SERVICE_PROGRESS_STEPS: { id: "confirmed_paid" | "upcoming" | "event_day" | "editing" | "delivered" | "completed"; label: string; description: string; icon: LucideIcon }[] = [
-       { id: "confirmed_paid", label: "Confirmed & Paid", description: "Your booking is confirmed and payment is settled", icon: CheckCircle2 },
-       { id: "upcoming", label: "Upcoming", description: "Waiting for your event date to arrive", icon: Clock },
-       { id: "event_day", label: "Event Day", description: "It's photoshoot day!", icon: Camera },
-       { id: "editing", label: "Editing", description: "Photos are currently being processed", icon: Wand2 },
-       { id: "delivered", label: "Delivered", description: "All files have been delivered", icon: PackageCheck },
-       { id: "completed", label: "Completed", description: "This booking is concluded", icon: CheckCircle2 },
-     ];
-
 export default function BookingDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
@@ -325,17 +348,65 @@ export default function BookingDetails() {
     }
   };
 
-  const getCurrentStepIndex = (b: any) => {
-    if (b.status === "completed" || b.serviceStatus === "completed") return 5;
-    if (b.serviceStatus === "delivered") return 4;
-    if (b.serviceStatus === "editing") return 3;
-    if (b.serviceStatus === "event_day") return 2;
-    if (b.serviceStatus === "upcoming") return 1;
-    if (b.status === "confirmed" && (b.paymentStatus === "partially_paid" || b.paymentStatus === "fully_paid")) return 0;
-    return -1;
-  };
-
   const currentStep = getCurrentStepIndex(booking);
+
+  // ---- Display-only values for the simplified layout (no new requests, no new data) ----
+  const showProgress = !["cancelled", "rejected", "expired", "no_show"].includes(booking.status);
+  const canManage = showProgress && booking.status !== "completed";
+  const paidShown = booking.status === "confirmed" || booking.status === "completed" ? amountPaid : 0;
+  const isPaidInFull = booking.paymentStatus === "fully_paid" || (remainingBalance <= 0 && paidShown > 0);
+  const paidPercent = booking.subtotal > 0 ? Math.min(100, (paidShown / booking.subtotal) * 100) : 0;
+  const showPayNow = booking.status === "confirmed" && booking.paymentStatus === "pending" && !booking.awaitingOfferAcceptance;
+  const canReview = !!booking.isReviewable && !noShowBlocksReview && !myReviews.some((r) => r.bookingId === String(booking.id));
+  const pendingRequestTitle = booking.hasActiveRequest
+    ? "Cancellation request pending"
+    : booking.rescheduleInfo && !booking.rescheduleInfo.decision
+    ? "Reschedule request pending"
+    : "Modification request pending";
+
+  // ONE status pill instead of several badges, banners and repeated labels.
+  const statusPill: { label: string; tone: keyof typeof PILL_TONES; Icon: LucideIcon; spin?: boolean } | null = (() => {
+    if (hasActiveRequest) return { label: "Request pending", tone: "warn", Icon: AlertCircle };
+    if (booking.status === "cancelled") return { label: "Cancelled", tone: "bad", Icon: X };
+    if (booking.status === "waitlisted") return { label: "Waitlisted", tone: "warn", Icon: Clock };
+    if (booking.status === "pending") return { label: "Waiting for approval", tone: "muted", Icon: Clock };
+    if (booking.status === "expired") return { label: "Expired", tone: "muted", Icon: Clock };
+    if (booking.status === "completed") return { label: "Completed", tone: "good", Icon: CheckCircle2 };
+    if (booking.status === "confirmed" && booking.awaitingOfferAcceptance) return { label: "Offer available", tone: "warn", Icon: Clock };
+    if (booking.status === "confirmed" && booking.paymentStatus === "pending") return { label: "Payment due", tone: "warn", Icon: Clock };
+    if (booking.status === "confirmed" && booking.paymentStatus === "pending_verification") return { label: "Payment under review", tone: "muted", Icon: Loader2, spin: true };
+    if (booking.status === "confirmed") return { label: "Confirmed", tone: "good", Icon: CheckCircle2 };
+    return null;
+  })();
+  const StatusIcon = statusPill?.Icon;
+
+  const showEventChip =
+    !!booking.eventType &&
+    !String(booking.packageName ?? "").toLowerCase().includes(String(booking.eventType).toLowerCase());
+
+  const inclusions: { Icon: LucideIcon; label: string }[] = isCustom
+    ? [
+        { Icon: Camera, label: customBuild.editedPhotos?.label || "Standard photos" },
+        { Icon: Users, label: customBuild.photographers?.label || "1 Photographer" },
+        { Icon: Clock, label: customBuild.delivery?.label || "Standard 30 Days" },
+        { Icon: FolderOpen, label: customBuild.rawFiles ? "RAW files included" : "RAW not included" },
+        { Icon: MapPin, label: customBuild.secondLocation ? "Second location included" : "Single location" },
+      ]
+    : [
+        { Icon: Camera, label: `${booking.packagePhotos || "300"} edited photos` },
+        { Icon: FolderOpen, label: "RAW files included" },
+        { Icon: Clock, label: "30-day delivery" },
+      ];
+
+  // Only offer actions that are actually available right now.
+  const canShowReschedule = RESCHEDULE_MODIFY_ENABLED && canRescheduleBooking;
+  const canShowModify = RESCHEDULE_MODIFY_ENABLED && canModifyDetails;
+  const canShowExtension = !!booking.extensionEligible;
+  const canShowPostpone = !!booking.allowedActions?.can_postpone;
+  const showNoShow = booking.status === "confirmed" && !noShowAlreadyReported && !serviceTooFarAlong && canReportNoShow;
+  const hasAnyAction = canShowReschedule || canShowModify || canShowExtension || canShowPostpone || canRequestCancellation || showNoShow;
+  const hasChangeActions = canShowReschedule || canShowModify || canShowExtension || canShowPostpone || (!!modifyBlockedReason && (!canShowReschedule || !canShowModify));
+  const hasDangerActions = canRequestCancellation || showNoShow || (booking.status === "confirmed" && !noShowAlreadyReported && noShowReportExpired);
 
   const fallbackName: string = typeof booking?.photographerName === "string" && booking.photographerName.trim() !== ""
     ? booking.photographerName
@@ -352,90 +423,44 @@ export default function BookingDetails() {
   
   return (
     <DashboardLayout>
-      <div className="w-full max-w-[1400px] mx-auto space-y-5 animate-fade-up">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+      <div className="max-w-5xl mx-auto space-y-4 pb-8 animate-fade-up">
+        {/* Header — title, ONE status pill, and at most one primary action */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <Link to="/bookings">
-              <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0">
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0" aria-label="Back to bookings">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             </Link>
-            <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Booking Details</span>
-              <h1 className="text-xl font-bold font-heading -mt-0.5">Booking #{booking.id}</h1>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Booking #{booking.id}</p>
+              <h1 className="text-xl font-bold font-heading -mt-0.5 truncate">
+                {isCustom ? "Customized Package" : booking.packageName}
+              </h1>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {hasVerifiedPayment && (
-              <Link to={`/booking/${booking.id}/receipt`}>
-                <Button variant="outline" size="sm" className="text-xs gap-1.5 rounded-full">
-                  <Receipt className="w-3.5 h-3.5" /> View Receipt
-                </Button>
+            {statusPill && StatusIcon && (
+              <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold border rounded-full px-3 py-1.5", PILL_TONES[statusPill.tone])}>
+                <StatusIcon className={cn("w-3.5 h-3.5", statusPill.spin && "animate-spin")} /> {statusPill.label}
+              </span>
+            )}
+            {!hasActiveRequest && showPayNow && (
+              <Link to={`/booking/${booking.id}/pay`}>
+                <Button size="sm" className="text-xs rounded-full bg-primary">Pay Now</Button>
               </Link>
             )}
-
-            {hasActiveRequest ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
-                <AlertCircle className="w-3.5 h-3.5" /> Request Pending
-              </span>
-            ) : (
-              <>
-                {booking.status === "waitlisted" && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
-                    <Clock className="w-3.5 h-3.5" /> Waitlisted — Schedule Held by Another Booking
-                  </span>
-                )}
-                {booking.status === "pending" && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
-                    <Clock className="w-3.5 h-3.5" /> Waiting for Approval
-                  </span>
-                )}
-                   {booking.status === "confirmed" && booking.awaitingOfferAcceptance && (
-     <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 rounded-full px-3 py-1.5">
-       <Clock className="w-3.5 h-3.5" /> Offer Available — Accept to Pay
-     </span>
-   )}
-   {booking.status === "confirmed" && booking.paymentStatus === "pending" && !booking.awaitingOfferAcceptance && (
-                  <Link to={`/booking/${booking.id}/pay`}>
-                    <Button size="sm" className="text-xs rounded-full bg-primary">Pay Now</Button>
-                  </Link>
-                )}
-                {booking.status === "confirmed" && booking.paymentStatus === "pending_verification" && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Payment Under Review
-                  </span>
-                )}
-                {booking.status === "confirmed" &&
-                  (booking.paymentStatus === "partially_paid" || booking.paymentStatus === "fully_paid") && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Payment Verified
-                  </span>
-                )}
-                {booking.status === "completed" && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Completed
-                  </span>
-                )}
-                {booking.isReviewable && !noShowBlocksReview && !myReviews.some((r) => r.bookingId === String(booking.id)) && (
-                  <Button size="sm" className="text-xs rounded-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setShowReviewModal(true)}>
-                    <Star className="w-3.5 h-3.5" /> Review & Rate
-                  </Button>
-                )}
-                {booking.status === "expired" && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border border-border bg-muted/50 rounded-full px-3 py-1.5">
-                    <Clock className="w-3.5 h-3.5" /> Expired
-                  </span>
-                )}
-
-              </>
+            {!hasActiveRequest && canReview && (
+              <Button size="sm" className="text-xs rounded-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setShowReviewModal(true)}>
+                <Star className="w-3.5 h-3.5" /> Review & Rate
+              </Button>
             )}
           </div>
         </div>
 
         {booking.status === "cancelled" && !booking.nonCompletionReason && (
-          <div className="bg-destructive/10 p-5 rounded-2xl border border-destructive/30 space-y-1">
+          <div className="bg-destructive/10 p-4 rounded-2xl border border-destructive/30 space-y-1">
             <p className="text-sm font-semibold text-destructive">
               {booking.isDeclined
                 ? "Booking Request Declined"
@@ -452,7 +477,7 @@ export default function BookingDetails() {
         )}
 
    <SlotOfferCard booking={booking} />
-   <BudgetRequestPanel booking={booking} />
+   {/* BUDGETING (disabled for now): <BudgetRequestPanel booking={booking} /> */}
 
    {booking.statusNotice && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -493,7 +518,7 @@ export default function BookingDetails() {
         )}
 
                 {(booking.nonCompletionReason || booking.nonCompletionState === "overturned") && (
-          <div className="bg-destructive/10 p-5 rounded-2xl border border-destructive/30 space-y-2">
+          <div className="bg-destructive/10 p-4 rounded-2xl border border-destructive/30 space-y-2">
             <p className="text-sm font-semibold text-destructive">
               {booking.nonCompletionState === "upheld"
                 ? booking.nonCompletionReason === "photographer_no_show"
@@ -568,482 +593,367 @@ export default function BookingDetails() {
           </div>
         )}
 
-        {/* Service Progress — existing six-stage tracker, refined presentation only */}
-        {booking.status !== 'cancelled' && booking.status !== 'rejected' && booking.status !== 'expired' && booking.status !== 'no_show' && (
-          <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-heading font-bold text-xs sm:text-sm uppercase tracking-wider text-muted-foreground">Service Progress</h3>
-              <span className="text-[11px] sm:text-xs font-bold text-primary bg-primary/10 rounded-full px-2.5 py-1">
-                  {currentStep >= 0 ? SERVICE_PROGRESS_STEPS[currentStep].label : "Not Started"}
-              </span>
-            </div>
+        {/* Service progress — one tracker, one sentence. No badge or banner repeating the same stage. */}
+        {showProgress && (
+          <div className={cn(CARD, "p-4 sm:p-5")}>
+            <h2 className="font-heading font-semibold text-sm mb-2">Service progress</h2>
 
-            <div className="relative w-full overflow-x-auto pb-1">
-              <div className="relative min-w-[560px] sm:min-w-0">
-                <div className="absolute top-4 sm:top-4.5 left-4 sm:left-[18px] right-4 sm:right-[18px]">
-                  <div className="h-[2px] w-full bg-muted rounded-full" />
-                  <div
-                    className="absolute top-0 left-0 h-[2px] bg-primary transition-all duration-700 rounded-full"
-                      style={{ width: `${(Math.max(currentStep, 0) / (SERVICE_PROGRESS_STEPS.length - 1)) * 100}%` }}
-                  />
-                </div>
+            <ServiceProgressTracker booking={booking} />
 
-                <div className="relative z-10 flex items-start justify-between w-full">
-                  {SERVICE_PROGRESS_STEPS.map((step, idx) => {
-                    // When the booking is Completed there is nothing left to do, so the final
-                    // step is rendered as fully done (solid fill) instead of "in progress".
-                    const allDone = currentStep === SERVICE_PROGRESS_STEPS.length - 1;
-                    const isCurrent = idx === currentStep;
-                    const isCompleted = idx < currentStep || (isCurrent && (allDone || step.id === "delivered"));
-                    const isActive = isCurrent && !isCompleted;
-                    const StepIcon = step.icon;
-
-                    return (
-                      <div key={idx} className="flex flex-col items-center gap-2 flex-1">
-                        <div className={cn(
-                          "w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border-2 transition-colors duration-300 bg-card shrink-0",
-                          isCompleted ? "border-primary bg-primary text-primary-foreground" :
-                          isActive ? "border-primary text-primary ring-4 ring-primary/15" :
-                          "border-muted text-muted-foreground/50",
-                          allDone && isCurrent && "ring-4 ring-primary/20"
-                        )}>
-                          {isCompleted ? <Check className="w-4 h-4" /> : <StepIcon className="w-4 h-4" />}
-                        </div>
-                        <span className={cn(
-                          "text-[10px] sm:text-[11px] text-center leading-tight px-0.5",
-                          isCurrent ? "text-foreground font-bold" : isCompleted ? "text-foreground/70 font-medium" : "text-muted-foreground/60"
-                        )}>
-                          {step.label}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 flex items-center justify-center gap-2 bg-muted/30 rounded-lg py-2.5 px-4 text-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-              <p className="text-xs sm:text-sm text-foreground">
-                {currentStep >= 0
-                  ? SERVICE_PROGRESS_STEPS[currentStep].description
-                  : "Once your payment is confirmed, your service progress will appear here."}
-              </p>
-            </div>
+            <p className="mt-4 text-sm text-center text-muted-foreground">
+              {currentStep >= 0
+                ? SERVICE_PROGRESS_STEPS[currentStep].description
+                : "Once your payment is confirmed, your service progress will appear here."}
+            </p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* LEFT COLUMN — wide */}
-          <div className="lg:col-span-2 space-y-5">
-            {/* Your Shoot + Package, combined into one card */}
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-5">
-              <div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+          {/* LEFT — the shoot, then changes & requests */}
+          <div className="lg:col-span-2 space-y-4 min-w-0">
+            <section className={cn(CARD, "p-5 space-y-5")}>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h2 className="text-sm font-heading font-semibold">Shoot details</h2>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-2.5 py-1 rounded-full">
-                    {booking.eventType}
-                  </span>
+                  {showEventChip && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                      {booking.eventType}
+                    </span>
+                  )}
                   {isCustom && (
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" /> Custom Package
+                      <Sparkles className="w-3 h-3" /> Custom package
                     </span>
                   )}
                 </div>
-                <h2 className="text-lg sm:text-xl font-heading font-bold mt-2">
-                  {isCustom ? "Customized Package" : booking.packageName}
-                </h2>
-                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5" />
-                  {isCustom ? "Built specifically for your event" : "Standard package"} &bull; Provided by {booking.photographerName}
-                </p>
               </div>
 
-              {/* Your Shoot — horizontal on desktop */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-5 border-t border-border/60">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Calendar className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-xs text-muted-foreground">Shoot Date</p>
-                    <p className="text-sm font-medium text-foreground">{booking.date}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Clock className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-xs text-muted-foreground">{booking.endTime ? "Scheduled Coverage" : "Start Time"}</p>
-                    <p className="text-sm font-medium text-foreground">
-                      {formatTime(booking.startTime)}{booking.endTime ? ` – ${formatTime(booking.endTime)}` : ""}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <MapPin className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-xs text-muted-foreground">Venue</p>
-                    <p className="text-sm font-medium text-foreground">{booking.eventLocation}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Multiple schedules (e.g. Prenup + Wedding on separate,
-                  non-contiguous dates) — only shown when there's more than
-                  the one primary schedule already covered by "Your Shoot"
-                  above, so a normal single-date booking's page looks
-                  exactly as it always has. */}
-              {booking.schedules && booking.schedules.length > 1 && (
-                <div className="pt-5 border-t border-border/60">
-                  <h3 className="text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    Photography Sessions
-                  </h3>
-                  <p className="text-xs text-muted-foreground -mt-1 mb-3">
-                    These sessions all belong to this one booking and package. The photographer reviews and confirms them together.
-                  </p>
-                  <div className="space-y-2.5">
-                    {booking.schedules.map((sch) => (
-                      <div key={sch.id ?? "primary"} className="flex items-start gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              {booking.schedules && booking.schedules.length > 1 ? (
+                /* Several sessions: list them once instead of repeating the primary date above them. */
+                <div className="space-y-3">
+                  {booking.schedules.map((sch: any) => {
+                    const where = sch.isPrimary
+                      ? booking.eventLocation
+                      : sch.locationType
+                      ? [sch.eventAddress, sch.locationLabel].filter(Boolean).join(", ") || String(sch.locationType).replace(/_/g, " ")
+                      : "Same location as the booking";
+                    return (
+                      <div key={sch.id ?? "primary"} className="flex items-start gap-3 rounded-xl bg-muted/30 p-3">
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                           <Calendar className="w-4 h-4 text-primary" />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {sch.label} <span className="text-muted-foreground font-normal">— {sch.eventDate}</span>
-                          </p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">{sch.label}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {formatTime(sch.startTime)}
+                            {formatDate(sch.eventDate)} · {formatTime(sch.startTime)}
                             {sch.endTime ? ` – ${formatTime(sch.endTime)}` : " · End time to be confirmed"}
                           </p>
-                          {!sch.isPrimary && (
+                          {where && (
                             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              {sch.locationType
-                                ? [sch.eventAddress, sch.locationLabel].filter(Boolean).join(", ") || sch.locationType.replace(/_/g, " ")
-                                : "Same location as the booking"}
+                              <MapPin className="w-3 h-3 shrink-0" /> {where}
                             </p>
                           )}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <InfoItem Icon={Calendar} label="Date">{formatDate(booking.date)}</InfoItem>
+                  <InfoItem Icon={Clock} label={booking.endTime ? "Coverage" : "Start time"}>
+                    {formatTime(booking.startTime)}{booking.endTime ? ` – ${formatTime(booking.endTime)}` : ""}
+                  </InfoItem>
+                  <InfoItem Icon={MapPin} label="Venue">
+                    {booking.eventLocation ? (
+                      booking.eventLocation
+                    ) : canShowModify && !hasActiveRequest ? (
+                      <button type="button" onClick={() => handleOpenForm("modify")} className="text-primary hover:underline font-medium">
+                        Add venue
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground font-normal">Not provided</span>
+                    )}
+                  </InfoItem>
                 </div>
               )}
 
-              {/* Package inclusions — compact icon rows, no boxed nesting */}
-              <div className="pt-5 border-t border-border/60">
-                <h3 className="text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  {isCustom ? "What's Included" : "Package Includes"}
-                </h3>
-
-                {isCustom ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Camera className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{customBuild.editedPhotos?.label || "Standard photos"}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{customBuild.photographers?.label || "1 Photographer"}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{customBuild.delivery?.label || "Standard 30 Days"}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{customBuild.rawFiles ? "RAW files included" : "RAW not included"}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{customBuild.secondLocation ? "Second location included" : "Single location"}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Camera className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">{booking.packagePhotos || "300"} edited photos</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">RAW files included</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-foreground">30-day delivery</span>
-                    </div>
-                  </div>
-                )}
+              <div className="pt-4 border-t border-border/60">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">What's included</p>
+                <div className="flex flex-wrap gap-2">
+                  {inclusions.map(({ Icon, label }) => (
+                    <span key={label} className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-3 py-1.5 text-xs text-foreground">
+                      <Icon className="w-3.5 h-3.5 text-primary shrink-0" /> {label}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+            </section>
 
-            {/* Booking Actions */}
-            {booking.status !== 'completed' && booking.status !== 'cancelled' && booking.status !== 'rejected' && booking.status !== 'expired' && booking.status !== 'no_show' && (
-              <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6">
-                <h3 className="text-sm font-heading font-semibold mb-1">Booking Actions</h3>
-
-                {!canRequestCancellation && (
-                  <div className="mb-4 mt-3 p-3 bg-muted text-muted-foreground text-xs rounded-lg border border-border flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <p>
-                      {booking.serviceStatus
-                        ? "Cancellation is no longer available once the service has started."
-                        : "This booking can no longer be cancelled."}
+            {/* Changes & requests — collapsed by default, only shows what is actually available */}
+            {canManage && (
+              hasActiveRequest ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex gap-3 items-start">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">{pendingRequestTitle}</p>
+                    <p className="text-xs text-amber-700/80 mt-0.5">
+                      The photographer has been notified. You can send another request once they approve or decline this one.
                     </p>
                   </div>
-                )}
-
-                {hasActiveRequest ? (
-                  <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-5">
-                    <div className="flex gap-3 items-start">
-                      <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-                      <div className="w-full">
-                        <p className="text-sm font-bold text-amber-800">{booking.hasActiveRequest ? "Cancellation request pending" : booking.rescheduleInfo && !booking.rescheduleInfo.decision ? "Reschedule request pending" : "Modification request pending"}</p>
-                        <p className="text-xs text-amber-700/80 mt-1 mb-4">The photographer has been notified. You can't send another request until they approve or decline this one.</p>
-                      </div>
+                </div>
+              ) : hasAnyAction ? (
+                <details className={cn(CARD, "group")} open={showNoShow || undefined}>
+                  <summary className="flex items-center justify-between gap-3 p-4 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                    <div>
+                      <h2 className="text-sm font-heading font-semibold">Need to make a change?</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">Requests are sent to the photographer for approval.</p>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground mb-4">Need to change something? Submit a request to the studio.</p>
-                    {modifyBlockedReason && (
-                      <p className="text-[11px] text-muted-foreground -mt-2 mb-3 flex items-start gap-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {modifyBlockedReason}
-                      </p>
-                    )}
-                    {booking.extensionEligible && (
-                      <div className="mb-3">
-                        <Button
-                          onClick={() => setShowExtensionModal(true)}
-                          disabled={booking.hasPendingExtension}
-                          variant="outline"
-                          className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50"
-                        >
-                          <Clock className="w-3.5 h-3.5" />
-                          {booking.hasPendingExtension ? "Extension request pending" : "Request Additional Coverage"}
-                        </Button>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <Button onClick={() => handleOpenForm("reschedule")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canRescheduleBooking} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
-                        <CalendarPlus className="w-3.5 h-3.5" /> Reschedule
-                      </Button>
-                      <Button onClick={() => handleOpenForm("modify")} disabled={!RESCHEDULE_MODIFY_ENABLED || !canModifyDetails} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50">
-                        <Edit3 className="w-3.5 h-3.5" /> Modify Details
-                      </Button>
-                      <Button
-                        onClick={() => handleOpenForm("cancel")}
-                        disabled={!canRequestCancellation}
-                        variant="outline"
-                        className="w-full text-xs font-semibold h-10 gap-1.5 text-destructive/80 border-destructive/25 bg-destructive/5 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:text-muted-foreground disabled:border-border disabled:bg-transparent"
-                      >
-                        <FileX className="w-3.5 h-3.5" /> Cancel Booking
-                      </Button>
-                    </div>
-                    {booking.allowedActions?.can_postpone && (
-                      <div className="mt-3">
-                        <Button onClick={() => handleOpenForm("reschedule", "weather")} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5">
-                          <CalendarPlus className="w-3.5 h-3.5" /> Postpone (weather / venue / agreed)
-                        </Button>
-                        <p className="text-[11px] text-muted-foreground mt-1.5">
-                          For bad weather, venue problems or another agreed reason. Works close to the date and on Event Day. The photographer must approve.
-                        </p>
-                      </div>
-                    )}
-                    {booking.status === "confirmed" && !noShowAlreadyReported && (
-                      <div className="mt-3">
-                        <Button
-                          onClick={() => setShowNoShowModal(true)}
-                          disabled={!canReportNoShow}
-                          variant="destructive"
-                          className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50"
-                        >
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          Report photographer no-show
-                        </Button>
-                        {canReportNoShow && noShowDeadline && (
-                          <p className="text-[11px] text-muted-foreground mt-1.5">
-                            You can report until {noShowDeadline.toLocaleString()} (48 hours after the scheduled end of the service).
-                          </p>
-                        )}
-                        {!canReportNoShow && noShowReportExpired && (
-                          <p className="text-[11px] text-destructive mt-1.5">
-                            The reporting period for this booking has expired{noShowDeadline ? ` (ended ${noShowDeadline.toLocaleString()})` : ""}.
-                          </p>
-                        )}
-                        {!canReportNoShow && !noShowReportExpired && (
-                          <p className="text-[11px] text-muted-foreground mt-1.5">
-                            Available after the scheduled start time ({booking.date} at {formatTime(booking.startTime)}).
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+                    <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 transition-transform group-open:rotate-180" />
+                  </summary>
 
-          {/* RIGHT COLUMN — supporting info */}
-          <div className="space-y-5">
-            {/* Payment */}
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-4">
-              <h3 className="text-sm font-heading font-semibold flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-primary" /> Payment Summary
-              </h3>
-
-              <div className="space-y-2 text-xs">
-                {isCustom ? (
-                  <>
-                    {customBuild.hourlyRate != null ? (
-                      <>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Booked Coverage</span>
-                          <span className="font-medium text-foreground">{customBuild.hours ?? 0} hour{(customBuild.hours ?? 0) === 1 ? "" : "s"}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Hourly Rate</span>
-                          <span className="font-medium text-foreground">{formatPrice(customBuild.hourlyRate)}/hour</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Coverage Price</span>
-                          <span className="font-medium text-foreground">{formatPrice(customBuild.hourlyRate * (customBuild.hours ?? 0))}</span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/30 mt-1">
-                          Coverage Reminder: this is the agreed photography coverage period. If the event ends
-                          earlier, the booking isn't automatically reduced or refunded. Need more time? You can
-                          request additional coverage from your photographer — subject to their approval and an
-                          extra hourly charge.
-                        </p>
-                        {booking.extensions && booking.extensions.length > 0 && (
-                          <div className="pt-2 mt-1 border-t border-border/30 space-y-1.5">
-                            <p className="text-[11px] font-semibold text-foreground">Additional Coverage</p>
-                            {booking.extensions.map((ext) => (
-                              <div key={ext.id} className="flex justify-between items-center text-[11px]">
-                                <span className="text-muted-foreground">
-                                  +{ext.requestedHours}h {ext.status === "approved" ? `(approved, ends ${ext.newEndTime})` : ext.status === "declined" ? "(declined)" : "(pending approval)"}
-                                </span>
-                                <span className={cn("font-medium", ext.status === "approved" && "text-foreground")}>
-                                  {ext.status === "declined" ? "—" : `${formatPrice(ext.additionalCharge)}`}
-                                </span>
-                              </div>
-                            ))}
-                            {booking.approvedExtensionCharge > 0 && (
-                              <div className="flex justify-between items-center text-xs pt-1 border-t border-border/20 font-semibold">
-                                <span>Total Additional Charge</span>
-                                <span>{formatPrice(booking.approvedExtensionCharge)}</span>
-                              </div>
+                  <div className="px-4 pb-4 pt-4 border-t border-border/60 space-y-3">
+<div className={cn("grid gap-4 md:gap-6", hasChangeActions && hasDangerActions && "md:grid-cols-2")}>
+                    {hasChangeActions && (
+                      <div className="space-y-3 min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Change your booking</p>
+                        {(canShowReschedule || canShowModify || canShowExtension || canShowPostpone) && (
+                          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+                            {canShowReschedule && (
+                              <Button onClick={() => handleOpenForm("reschedule")} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5">
+                                <CalendarPlus className="w-3.5 h-3.5" /> Reschedule
+                              </Button>
+                            )}
+                            {canShowModify && (
+                              <Button onClick={() => handleOpenForm("modify")} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5">
+                                <Edit3 className="w-3.5 h-3.5" /> Update details
+                              </Button>
+                            )}
+                            {canShowExtension && (
+                              <Button
+                                onClick={() => setShowExtensionModal(true)}
+                                disabled={booking.hasPendingExtension}
+                                variant="outline"
+                                className="w-full text-xs font-semibold h-10 gap-1.5 disabled:opacity-50"
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                                {booking.hasPendingExtension ? "Extension pending" : "Add coverage time"}
+                              </Button>
+                            )}
+                            {canShowPostpone && (
+                              <Button onClick={() => handleOpenForm("reschedule", "weather")} variant="outline" className="w-full text-xs font-semibold h-10 gap-1.5">
+                                <CalendarPlus className="w-3.5 h-3.5" /> Postpone
+                              </Button>
                             )}
                           </div>
                         )}
-                      </>
-                    ) : (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Base Fee</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.baseFee)}</span>
+
                       </div>
                     )}
-                    {customBuild.editedPhotos && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">{customBuild.editedPhotos.label}</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.editedPhotos.price)}</span>
+
+                    {hasDangerActions && (
+                      <div className={cn("space-y-3 min-w-0", hasChangeActions && "pt-4 border-t border-border/60 md:pt-0 md:border-t-0 md:border-l md:pl-6")}>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cancel or report</p>
+                        {canRequestCancellation && (
+                          <Button
+                            onClick={() => handleOpenForm("cancel")}
+                            variant="outline"
+                            className="w-full text-xs font-semibold h-10 gap-1.5 text-destructive/80 border-destructive/25 bg-destructive/5 hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <FileX className="w-3.5 h-3.5" /> {cancelsImmediately ? "Cancel booking" : "Request cancellation"}
+                          </Button>
+                        )}
+                        {showNoShow && (
+                          <div className="space-y-1.5">
+                            <Button
+                              onClick={() => setShowNoShowModal(true)}
+                              variant="outline"
+                              className="w-full text-xs font-semibold h-10 gap-1.5 text-destructive/80 border-destructive/25 bg-destructive/5 hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" /> Report photographer no-show
+                            </Button>
+                            {noShowDeadline && (
+                              <p className="text-[11px] text-muted-foreground">
+                                You can report until {noShowDeadline.toLocaleString()} (48 hours after the scheduled end).
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {!showNoShow && booking.status === "confirmed" && !noShowAlreadyReported && noShowReportExpired && (
+                          <p className="text-[11px] text-muted-foreground">
+                            The window to report a no-show for this booking has ended.
+                          </p>
+                        )}
                       </div>
                     )}
-                    {customBuild.photographers && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">{customBuild.photographers.label}</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.photographers.price)}</span>
-                      </div>
-                    )}
-                    {customBuild.rawFiles && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">RAW Files</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.rawFiles.price)}</span>
-                      </div>
-                    )}
-                    {customBuild.secondLocation && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Second Location</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.secondLocation.price)}</span>
-                      </div>
-                    )}
-                    {customBuild.delivery && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">{customBuild.delivery.label}</span>
-                        <span className="font-medium text-foreground">{formatPrice(customBuild.delivery.price)}</span>
-                      </div>
-                    )}
-                  </>
+                  </div>
+
+                  {canShowPostpone && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Postpone is for bad weather, venue problems or another agreed reason.
+                    </p>
+                  )}
+                  {(!canShowReschedule || !canShowModify) && modifyBlockedReason && (
+                    <p className="text-[11px] text-muted-foreground flex items-start gap-1.5 rounded-lg bg-muted/50 px-3 py-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {modifyBlockedReason}
+                    </p>
+                  )}
+                </div>
+                </details>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center">
+                  Changes and cancellations are no longer available for this booking.
+                </p>
+              )
+            )}
+          </div>
+
+          {/* RIGHT — money and people */}
+          <div className="space-y-4">
+            {/* Payment: one headline number, details tucked away */}
+            <section className={cn(CARD, "p-5")}>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <h2 className="text-sm font-heading font-semibold">Payment</h2>
+                {hasVerifiedPayment && (
+                  <Link to={`/booking/${booking.id}/receipt`} className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1">
+                    <Receipt className="w-3.5 h-3.5" /> View receipt
+                  </Link>
+                )}
+              </div>
+
+              {isPaidInFull ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Paid in full</p>
+                    <p className="text-xs text-muted-foreground">{formatPrice(booking.subtotal)} total</p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-xs text-muted-foreground">Balance due</p>
+                  <p className="text-2xl font-bold font-heading text-primary">{formatPrice(remainingBalance)}</p>
+                  <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width: `${paidPercent}%` }} />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    {formatPrice(paidShown)} paid of {formatPrice(booking.subtotal)}
+                  </p>
+                </div>
+              )}
+
+              <details className="group mt-4 pt-4 border-t border-border/60">
+                <summary className="flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden text-xs font-semibold text-primary">
+                  <span>View breakdown &amp; history</span>
+                  <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                </summary>
+
+                <div className="mt-3 space-y-2 text-xs">
+                  {isCustom && (
+                    <>
+                      {customBuild.hourlyRate != null ? (
+                        <>
+                          <BreakdownRow label="Booked coverage" value={`${customBuild.hours ?? 0} hour${(customBuild.hours ?? 0) === 1 ? "" : "s"}`} />
+                          <BreakdownRow label="Hourly rate" value={`${formatPrice(customBuild.hourlyRate)}/hour`} />
+                          <BreakdownRow label="Coverage price" value={formatPrice(customBuild.hourlyRate * (customBuild.hours ?? 0))} />
+                          {booking.extensions && booking.extensions.length > 0 && (
+                            <div className="pt-2 mt-1 border-t border-border/30 space-y-1.5">
+                              <p className="text-[11px] font-semibold text-foreground">Additional coverage</p>
+                              {booking.extensions.map((ext: any) => (
+                                <BreakdownRow
+                                  key={ext.id}
+                                  label={`+${ext.requestedHours}h ${ext.status === "approved" ? `(approved, ends ${ext.newEndTime})` : ext.status === "declined" ? "(declined)" : "(pending approval)"}`}
+                                  value={ext.status === "declined" ? "—" : formatPrice(ext.additionalCharge)}
+                                />
+                              ))}
+                              {booking.approvedExtensionCharge > 0 && (
+                                <BreakdownRow strong label="Total additional charge" value={formatPrice(booking.approvedExtensionCharge)} />
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <BreakdownRow label="Base fee" value={formatPrice(customBuild.baseFee)} />
+                      )}
+                      {customBuild.editedPhotos && <BreakdownRow label={customBuild.editedPhotos.label} value={formatPrice(customBuild.editedPhotos.price)} />}
+                      {customBuild.photographers && <BreakdownRow label={customBuild.photographers.label} value={formatPrice(customBuild.photographers.price)} />}
+                      {customBuild.rawFiles && <BreakdownRow label="RAW files" value={formatPrice(customBuild.rawFiles.price)} />}
+                      {customBuild.secondLocation && <BreakdownRow label="Second location" value={formatPrice(customBuild.secondLocation.price)} />}
+                      {customBuild.delivery && <BreakdownRow label={customBuild.delivery.label} value={formatPrice(customBuild.delivery.price)} />}
+                      {customBuild.hourlyRate != null && (
+                        <p className="text-[11px] text-muted-foreground pt-1">
+                          Coverage is the agreed photography period and isn't reduced or refunded if your event ends early.
+                          Need more time? Request additional coverage — subject to photographer approval and an hourly charge.
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  <div className="pt-2 border-t border-border/60 space-y-2">
+                    <BreakdownRow strong label="Total" value={formatPrice(booking.subtotal)} />
+                    <BreakdownRow label="Paid so far" value={formatPrice(paidShown)} />
+                    <BreakdownRow label="Balance" value={formatPrice(remainingBalance)} />
+                  </div>
+
+                  {payments.length > 0 && (
+                    <div className="space-y-2 pt-3">
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Payment history</p>
+                      {payments.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5">
+                          <div className="min-w-0">
+                            <p className="font-mono font-semibold text-foreground truncate">{p.referenceNumber ? formatGcashRef(p.referenceNumber) : "Onsite payment (cash)"}</p>
+                            <p className="text-muted-foreground">{p.paymentDate}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-semibold">{formatPrice(p.amount)}</p>
+                            <p className="text-[10px] uppercase text-muted-foreground">{String(p.matchingStatus).replace(/_/g, " ")}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            </section>
+
+            {/* Photographer */}
+            <section className={cn(CARD, "p-5")}>
+              <h2 className="text-sm font-heading font-semibold mb-3">Your photographer</h2>
+              <div className="flex items-center gap-3">
+                {photographer?.avatarUrl ? (
+                  <img src={photographer.avatarUrl} alt={booking.photographerName} className="w-10 h-10 rounded-xl object-cover shrink-0" />
                 ) : (
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Package Base</span>
-                    <span className="font-medium text-foreground">{formatPrice(booking.subtotal)}</span>
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary font-heading font-bold text-sm flex items-center justify-center shrink-0">
+                    {getInitials(booking.photographerName)}
                   </div>
                 )}
-
-                <div className="flex justify-between items-center pt-2 border-t border-border/60">
-                  <span className="font-semibold text-foreground">Package Total</span>
-                  <span className="font-semibold text-foreground">{formatPrice(booking.subtotal)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Deposit Paid</span>
-                  <span className="font-medium text-foreground">{(booking.status === 'confirmed' || booking.status === 'completed') ? formatPrice(amountPaid) : formatPrice(0)}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{booking.photographerName}</p>
+                  <Link to={`/photographers/${booking.photographerId}`} className="text-xs text-primary hover:underline">
+                    View profile
+                  </Link>
                 </div>
               </div>
-
-              {payments.length > 0 && (
-                <div className="space-y-2 pt-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payment History</p>
-                  {payments.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
-                      <div>
-                        <p className="font-mono font-semibold text-foreground">{p.referenceNumber ?? "Onsite payment (cash)"}</p>
-                        <p className="text-muted-foreground">{p.paymentDate}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold">{formatPrice(p.amount)}</p>
-                        <p className="text-[10px] uppercase text-muted-foreground">{String(p.matchingStatus).replace(/_/g, " ")}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground">Remaining Balance</span>
-                <span className="text-lg font-bold text-primary">{formatPrice(remainingBalance)}</span>
-              </div>
-            </div>
-
-            {/* Photographer / Studio */}
-            <div className="bg-card rounded-2xl border border-border/50 card-shadow p-5 sm:p-6 space-y-3">
-              <h3 className="text-sm font-heading font-semibold flex items-center gap-2">
-                <Award className="w-4 h-4 text-primary" /> Photographer
-              </h3>
-
-              <p className="text-sm font-semibold text-foreground">{booking.photographerName}</p>
 
               {(photographer?.phone || photographer?.email) && (
-                <div className="space-y-1 text-xs text-muted-foreground">
+                <div className="mt-4 space-y-2 text-xs">
                   {photographer?.phone && (
-                    <p className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5" /> {photographer.phone}
-                    </p>
+                    <a href={`tel:${photographer.phone}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary">
+                      <Phone className="w-3.5 h-3.5 shrink-0" /> {photographer.phone}
+                    </a>
                   )}
                   {photographer?.email && (
-                    <p className="flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5" /> {photographer.email}
-                    </p>
+                    <a href={`mailto:${photographer.email}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary break-all">
+                      <Mail className="w-3.5 h-3.5 shrink-0" /> {photographer.email}
+                    </a>
                   )}
                 </div>
               )}
 
-              {socialLinks.length > 0 ? (
-                <div className="flex items-center gap-2 pt-1">
+              {socialLinks.length > 0 && (
+                <div className="flex items-center gap-2 mt-4">
                   {socialLinks.map(({ url, Icon, label }) => (
                     <a
                       key={label}
@@ -1051,18 +961,18 @@ export default function BookingDetails() {
                       target="_blank"
                       rel="noreferrer"
                       title={label}
+                      aria-label={label}
                       className="w-8 h-8 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
                     >
                       <Icon className="w-3.5 h-3.5" />
                     </a>
                   ))}
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground pt-1">No public links on file.</p>
               )}
-            </div>
+            </section>
           </div>
         </div>
+
       </div>
 
       {requestModalOpen && requestFormType && (

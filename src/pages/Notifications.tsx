@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { Pagination, PillTabs, usePagination } from "@/components/ListPagination";
 import { useNotifications, useNotificationActions } from "@/hooks/useNotifications";
 import type { AppNotification } from "@/services/notificationService";
 
@@ -38,6 +39,10 @@ const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: stri
 
 const filterOptions = ["All", "Booking", "Payment", "System"] as const;
 
+const PAGE_SIZE = 8;
+
+type StatusView = "all" | "unread" | "read";
+
 export default function Notifications() {
   const { user, role } = useRole();
   const [limit, setLimit] = useState(50);
@@ -45,12 +50,22 @@ export default function Notifications() {
   const canLoadMore = notifications.length >= limit;
   const { markRead, markAllRead } = useNotificationActions(user?.email);
   const [filter, setFilter] = useState<string>("All");
+  const [statusView, setStatusView] = useState<StatusView>("all");
 
   const [markAllModalOpen, setMarkAllModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const filtered = notifications.filter((n) => filter === "All" || n.type === filter.toLowerCase());
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const readCount = notifications.length - unreadCount;
+
+  const filtered = notifications.filter(
+    (n) =>
+      (filter === "All" || n.type === filter.toLowerCase()) &&
+      (statusView === "all" || (statusView === "unread" ? !n.read : n.read))
+  );
+
+  // Page through the fetched notifications; resets when a filter changes.
+  const pager = usePagination(filtered, PAGE_SIZE, `${filter}|${statusView}`);
 
   const handleMarkAsRead = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -91,7 +106,7 @@ export default function Notifications() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-10">
+      <div className="max-w-4xl mx-auto space-y-4 animate-fade-up pb-8">
 
         {/* PAGE HEADER */}
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -115,14 +130,24 @@ export default function Notifications() {
           )}
         </div>
 
-        {/* CATEGORY FILTERS */}
-        <div className="flex gap-2 flex-wrap">
+        {/* STATUS TABS + CATEGORY FILTERS */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+        <PillTabs<StatusView>
+          value={statusView}
+          onChange={setStatusView}
+          tabs={[
+            { key: "all", label: "All", count: notifications.length },
+            { key: "unread", label: "Unread", count: unreadCount },
+            { key: "read", label: "Read", count: readCount },
+          ]}
+        />
+        <div className="flex gap-1.5 flex-wrap">
           {filterOptions.map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                "px-4 py-1.5 rounded-full text-xs font-semibold transition-all",
+                "px-3.5 py-1 rounded-full text-xs font-semibold transition-all",
                 filter === f
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -132,42 +157,43 @@ export default function Notifications() {
             </button>
           ))}
         </div>
+        </div>
 
         {/* NOTIFICATIONS LIST CONTAINER */}
         <div className="bg-card rounded-2xl border border-border/50 shadow-sm divide-y divide-border/40 overflow-hidden">
           {isLoading ? (
-            <div className="py-16 text-center text-sm text-muted-foreground space-y-2">
+            <div className="py-12 text-center text-sm text-muted-foreground space-y-2">
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
               <p>Loading notification feed...</p>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="py-16 text-center">
+            <div className="py-12 text-center">
               <Bell className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-sm font-medium text-foreground">No notifications found</p>
               <p className="text-xs text-muted-foreground mt-1">
-                There are no updates under the "{filter}" category right now.
+                There are no {statusView === "all" ? "" : `${statusView} `}updates under the "{filter}" category right now.
               </p>
             </div>
           ) : (
-            filtered.map((n) => {
+            pager.pageItems.map((n) => {
               const config = typeConfig[n.type] || typeConfig.system;
               return (
                 <div
                   key={n.id}
                   onClick={() => markViewed(n)}
                   className={cn(
-                    "flex items-start gap-4 px-6 py-4 transition-colors cursor-pointer hover:bg-muted/30",
+                    "flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer hover:bg-muted/30",
                     n.read ? "opacity-60 bg-muted/20 hover:opacity-100" : "bg-primary/[0.03]"
                   )}
                 >
                   {/* Category Icon */}
                   <div
                     className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 shadow-xs",
+                      "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 shadow-xs",
                       config.bg
                     )}
                   >
-                    <config.icon className={cn("w-5 h-5", config.color)} />
+                    <config.icon className={cn("w-4 h-4", config.color)} />
                   </div>
 
                   {/* Body Content */}
@@ -185,25 +211,25 @@ export default function Notifications() {
                         <span className="w-2 h-2 rounded-full bg-primary shrink-0 animate-pulse" />
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                       {n.description}
                     </p>
-                    <p className="text-[11px] text-muted-foreground/80 mt-2 font-mono">
+                    <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono">
                       {n.time}
                     </p>
 
                     {/* Contextual Quick Actions */}
                     {n.bookingId && (
-                      <div className="flex flex-wrap gap-2 mt-3">
+                      <div className="flex flex-wrap gap-2 mt-2">
                         {n.action === "pay" && role === "client" && (
                           <Link to={`/booking/${n.bookingId}/pay`}>
-                            <Button size="sm" className="gap-1.5 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">
+                            <Button size="sm" className="gap-1.5 h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">
                               <Wallet className="w-3.5 h-3.5" /> Pay Deposit / Balance
                             </Button>
                           </Link>
                         )}
                         <Link to={role === "admin" ? (n.title.includes("Dispute") ? "/admin/reports" : "/admin/bookings") : detailsPath(n.bookingId)}>
-                          <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs rounded-lg">
+                          <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs rounded-lg">
                             <FileText className="w-3.5 h-3.5" /> View Details
                           </Button>
                         </Link>
@@ -236,18 +262,23 @@ export default function Notifications() {
           )}
         </div>
 
-        {canLoadMore && (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setLimit((l) => l + 50)}
-              disabled={isFetching}
-              className="rounded-xl text-xs"
-            >
-              {isFetching ? "Loading…" : "Load older notifications"}
-            </Button>
-          </div>
+        {!isLoading && (
+          <Pagination
+            pagination={pager}
+            extra={
+              canLoadMore && pager.page === pager.totalPages ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLimit((l) => l + 50)}
+                  disabled={isFetching}
+                  className="rounded-xl text-xs h-8"
+                >
+                  {isFetching ? "Loading…" : "Load older notifications"}
+                </Button>
+              ) : undefined
+            }
+          />
         )}
       </div>
 
