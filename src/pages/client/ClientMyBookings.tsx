@@ -91,13 +91,44 @@ function getSessionLabel(booking: any) {
   return "Photo Session";
 }
 
+function getLocationLabel(booking: any, photographer?: any) {
+  const pick = (...vals: any[]): string | undefined =>
+    vals.find((v) => typeof v === "string" && v.trim())?.trim();
+
+  // A ready-made location string, if the API sends one
+  const full = pick(booking.eventLocation, booking.event_location, booking.location, booking.venue, booking.eventVenue);
+  if (full) return full;
+
+  // Fall back to the primary schedule's own location, if it has one
+  const primary = booking.schedules?.find((s: any) => s.isPrimary) ?? booking.schedules?.[0];
+  const fromSchedule = [pick(primary?.eventAddress), pick(primary?.locationLabel)].filter(Boolean).join(", ");
+  if (fromSchedule) return fromSchedule;
+
+  // Otherwise build it from the parts the booking form collects
+  const parts = [
+    pick(booking.eventAddress, booking.event_address, booking.address),
+    pick(booking.barangayName, booking.barangay?.name, booking.barangay),
+    pick(booking.cityMunicipalityName, booking.cityName, booking.city, booking.cityMunicipality?.name, booking.city_municipality?.name),
+    pick(booking.provinceName, booking.province?.name, booking.province),
+  ].filter(Boolean);
+  if (parts.length) return parts.join(", ");
+
+  // Studio bookings have no client address: the studio is the location
+  const type = String(booking.locationType ?? booking.location_type ?? "").toLowerCase();
+  if (type === "studio") {
+    const studioAddr = pick(photographer?.address, photographer?.location, photographer?.studioAddress);
+    return studioAddr ? `Studio · ${studioAddr}` : "At the studio";
+  }
+  return "Location not provided";
+}
+
 function getProviderRoleLabel(photographer?: any) {
   const type = photographer?.type ?? photographer?.role ?? photographer?.accountType;
   return typeof type === "string" && type.toLowerCase() === "studio" ? "Studio" : "Photographer";
 }
 
 function getPaymentSummary(booking: any) {
-  const total = Math.max(0, Number(booking.totalPrice ?? booking.subtotal ?? 0));
+  const total = Math.max(0, Number(booking.subtotal ?? booking.totalPrice ?? 0));
   const remaining = booking.status === "completed" || booking.paymentStatus === "fully_paid"
     ? 0
     : Math.max(0, Number(booking.dueNow ?? booking.balance ?? 0));
@@ -112,6 +143,46 @@ function PaymentSummary({ booking }: { booking: any }) {
       <span>Paid <strong className="text-emerald-600">₱{summary.paid.toLocaleString()}</strong></span>
       <span>Remaining <strong className={summary.remaining > 0 ? "text-amber-600" : "text-foreground"}>₱{summary.remaining.toLocaleString()}</strong></span>
     </div>
+  );
+}
+
+function getPaymentState(booking: any) {
+  const { remaining } = getPaymentSummary(booking);
+  if (booking.status === "waitlisted") return null;
+  if (booking.status === "pending") {
+    return { label: "Waiting for approval", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
+  }
+  if (booking.status === "confirmed" && booking.awaitingOfferAcceptance) {
+    return { label: "Offer available", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
+  }
+  if (booking.paymentStatus === "pending_verification") {
+    return { label: "Payment under review", className: "bg-amber-500/10 text-amber-600", icon: Clock3 };
+  }
+  if (remaining > 0 && booking.paymentStatus === "partially_paid") {
+    return {
+      label: `Balance due on-site · ₱${remaining.toLocaleString()}`,
+      className: "bg-blue-500/10 text-blue-600",
+      icon: MapPin,
+    };
+  }
+  if (remaining > 0) {
+    return {
+      label: `Payment due · ₱${remaining.toLocaleString()}`,
+      className: "bg-rose-500/10 text-rose-600",
+      icon: CreditCard,
+    };
+  }
+  return { label: "Payment verified", className: "bg-emerald-500/10 text-emerald-600", icon: CheckCircle2 };
+}
+
+function PaymentStatusChip({ booking }: { booking: any }) {
+  const state = getPaymentState(booking);
+  if (!state) return null;
+  const Icon = state.icon;
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full", state.className)}>
+      <Icon className="w-3.5 h-3.5" /> {state.label}
+    </span>
   );
 }
 
@@ -132,7 +203,7 @@ function ClientPaymentAction({ booking, prominent = false }: { booking: any; pro
     <Link to={`/booking/${booking.id}/pay`}>
       <Button size="sm" className={cn("gap-1.5 rounded-xl", prominent && "bg-amber-600 hover:bg-amber-700 text-white")}>
         <CreditCard className="w-3.5 h-3.5" />
-        {booking.paymentStatus === "partially_paid" ? "Pay Remaining" : "Pay Now"}
+        Pay Now
       </Button>
     </Link>
   );
@@ -185,7 +256,7 @@ function CurrentBookingCard({ booking, photographer, matchedRef }: { booking: an
   const showTracker = !TERMINAL_STATUSES.filter((s) => s !== "completed").includes(booking.status) && booking.status !== "waitlisted";
 
   return (
-    <div className="bg-gradient-to-br from-primary/10 via-primary/[0.04] to-accent/5 border border-primary/10 hover:border-primary/30 transition-colors rounded-2xl p-4">
+    <div className="bg-card border border-border/60 hover:border-primary/30 transition-colors rounded-2xl p-4">
       <div className="flex gap-3 sm:gap-4">
         <BookingThumb photographer={photographer} fallbackAvatar={booking.photographerAvatar} name={booking.photographerName} size="md" />
 
@@ -204,14 +275,18 @@ function CurrentBookingCard({ booking, photographer, matchedRef }: { booking: an
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs sm:text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5"><CalendarIcon className="w-4 h-4 text-primary/70" /> {formatDate(booking.date)}</span>
             <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-primary/70" /> {formatTime(booking.startTime)}</span>
-            <span className="flex items-center gap-1.5 min-w-0"><MapPin className="w-4 h-4 text-primary/70 shrink-0" /> <span className="truncate">{booking.eventLocation}</span></span>
+            <span className="flex items-center gap-1.5 min-w-0 max-w-full" title={getLocationLabel(booking, photographer)}>
+              <MapPin className="w-4 h-4 text-primary/70 shrink-0" />
+              <span className="truncate">{getLocationLabel(booking, photographer)}</span>
+            </span>
           </div>
         </div>
       </div>
 
       <div className="mt-3 pt-3 border-t border-primary/10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <PaymentSummary booking={booking} />
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
+          <PaymentStatusChip booking={booking} />
           <ClientPaymentAction booking={booking} prominent />
           <Link to={`/booking/${booking.id}/details`}>
             <Button variant="outline" size="sm" className="gap-1.5 rounded-xl h-8">
@@ -226,9 +301,7 @@ function CurrentBookingCard({ booking, photographer, matchedRef }: { booking: an
           Matched GCash Ref: <span className="font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">{matchedRef}</span>
         </p>
       )}
-      {booking.paymentStatus === "pending_verification" && booking.status !== "waitlisted" && (
-        <p className="mt-2 text-xs text-amber-700">Payment is under review.</p>
-      )}
+
       {booking.statusNotice && (
         <p className="mt-2 text-xs text-amber-700 bg-amber-500/10 rounded-lg px-3 py-2">{booking.statusNotice}</p>
       )}
@@ -260,7 +333,10 @@ function HistoryBookingRow({
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-primary/70" /> {formatDate(booking.date)}</span>
           <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-primary/70" /> {formatTime(booking.startTime)}</span>
-          <span className="flex items-center gap-1 truncate"><MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" /> <span className="truncate">{booking.eventLocation}</span></span>
+          <span className="flex items-center gap-1 min-w-0 max-w-full" title={getLocationLabel(booking, photographer)}>
+            <MapPin className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+            <span className="truncate">{getLocationLabel(booking, photographer)}</span>
+          </span>
         </div>
         {matchedRef && (
           <p className="mt-1 text-[11px] text-muted-foreground">
@@ -461,7 +537,7 @@ export default function MyBookings() {
     return (
       String(b.photographerName ?? "").toLowerCase().includes(q) ||
       getSessionLabel(b).toLowerCase().includes(q) ||
-      String(b.eventLocation ?? "").toLowerCase().includes(q) ||
+      getLocationLabel(b).toLowerCase().includes(q) ||
       String(b.id) === q.replace(/^#/, "") ||
       matchedRefFor(b) !== undefined
     );
@@ -601,14 +677,14 @@ export default function MyBookings() {
                   <h2 className="text-base font-heading font-bold flex items-center gap-2">
                     <HistoryIcon className="w-5 h-5 text-muted-foreground" /> Booking History
                   </h2>
-                  <div className="flex items-center gap-1 bg-muted/60 rounded-full p-1 flex-wrap">
+                  <div className="inline-flex flex-wrap items-center gap-1 rounded-full border border-border/50 bg-muted/50 p-1">
                     {FILTERS.map((f) => (
                       <button
                         key={f.key}
                         onClick={() => setFilter(f.key)}
                         className={cn(
                           "text-xs font-semibold px-3 py-1 rounded-full transition-colors",
-                          filter === f.key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                          filter === f.key ? "bg-card text-primary shadow-sm" : "text-primary/60 hover:text-primary"
                         )}
                       >
                         {f.label}

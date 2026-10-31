@@ -12,7 +12,7 @@ interface ClientLayoutProps {
 export function ClientLayout({ children }: ClientLayoutProps) {
   return (
     <div className="min-h-screen flex flex-col w-full bg-background">
-      <MarketingNavbar solid />
+      <MarketingNavbar solid showThemeToggle />
       <main className="flex-1 w-full pt-16">
         <div className="p-6 lg:p-8">{children}</div>
       </main>

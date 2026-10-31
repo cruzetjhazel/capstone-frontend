@@ -24,8 +24,8 @@ type RequestType = "reschedule" | "cancel" | "modify" | null;
 const CARD = "bg-card rounded-2xl border border-border/50 card-shadow";
 
 const PILL_TONES = {
-  good: "text-emerald-700 border-emerald-200 bg-emerald-50",
-  warn: "text-amber-700 border-amber-200 bg-amber-50",
+  good: "text-emerald-700 border-emerald-200 bg-emerald-50 dark:text-emerald-300 dark:border-emerald-500/30 dark:bg-emerald-500/10",
+  warn: "text-amber-700 border-amber-200 bg-amber-50 dark:text-amber-300 dark:border-amber-500/30 dark:bg-amber-500/10",
   muted: "text-muted-foreground border-border bg-muted/50",
   bad: "text-destructive border-destructive/30 bg-destructive/10",
 } as const;
@@ -833,7 +833,9 @@ export default function BookingDetails() {
                 </div>
               ) : (
                 <div>
-                  <p className="text-xs text-muted-foreground">Balance due</p>
+                  <p className="text-xs text-muted-foreground">
+                    {booking.paymentStatus === "partially_paid" ? "Balance due on-site" : "Balance due"}
+                  </p>
                   <p className="text-2xl font-bold font-heading text-primary">{formatPrice(remainingBalance)}</p>
                   <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
                     <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width: `${paidPercent}%` }} />

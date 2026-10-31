@@ -24,7 +24,7 @@ import { useClientProfile } from "@/hooks/useClientProfile";
 import toast from "react-hot-toast";
 import { useRole } from "@/contexts/RoleContext";
    import { bookingService, type CreateBookingPayload } from "@/services/bookingService";
-   import { BudgetOfferField, NegotiationBanner } from "@/components/booking/BudgetOfferField";
+   // BUDGET FEATURE (disabled): import { BudgetOfferField, NegotiationBanner } from "@/components/booking/BudgetOfferField";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { allowedLocationTypes, provinceAllowed, cityAllowed, coverageNote } from "@/data/coverage";
 import {
@@ -232,6 +232,16 @@ function SessionTimeSlots({ date, startTime, times, loading, isTaken, onPick }: 
   );
 }
 
+// Small label/value pair used by the compact Review step.
+function ReviewField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="text-sm font-medium text-foreground mt-0.5">{children}</div>
+    </div>
+  );
+}
+
 export default function Booking() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -281,9 +291,13 @@ export default function Booking() {
   const initialPkg = initialPkgParam !== null ? parseInt(initialPkgParam) : -1;
 
      const [step, setStep] = useState(0);
-   const [budgetInput, setBudgetInput] = useState("");
-   const [budgetNote, setBudgetNote] = useState("");
-  const [packageMode, setPackageMode] = useState<"fixed" | "custom">("fixed");
+   // BUDGET FEATURE (disabled): const [budgetInput, setBudgetInput] = useState("");
+   // BUDGET FEATURE (disabled): const [budgetNote, setBudgetNote] = useState("");
+  // "Open Calculator" / "Build Your Own" on the photographer's profile links here with
+  // ?custom=true, so start in custom mode. Everything else (including ?package=N) starts fixed.
+  const [packageMode, setPackageMode] = useState<"fixed" | "custom">(
+    searchParams.get("custom") === "true" ? "custom" : "fixed"
+  );
   const [selectedPkg, setSelectedPkg] = useState<number>(initialPkg);
   const [customBuild, setCustomBuild] = useState<CustomBuild>(makeDefaultBuild());
   const [selectedAddOns, setSelectedAddOns] = useState<number[]>([]);
@@ -1123,6 +1137,7 @@ export default function Booking() {
         return;
       }
     }
+   /* BUDGET FEATURE (disabled)
    if (budgetInput.trim()) {
      const offered = Number(budgetInput);
      if (!Number.isFinite(offered) || offered <= 0 || offered >= subtotal) {
@@ -1131,6 +1146,7 @@ export default function Booking() {
        return;
      }
    }
+   */
    setIsConfirmModalOpen(true);
   };
 
@@ -1163,9 +1179,11 @@ export default function Booking() {
         } : {}),
         ...(guestCount.trim() ? { guest_count: parseInt(guestCount, 10) } : {}),
            ...(notes.trim() ? { special_requests: notes.trim() } : {}),
+   /* BUDGET FEATURE (disabled)
    ...(budgetInput.trim()
      ? { budget_amount: Number(budgetInput), ...(budgetNote.trim() ? { budget_note: budgetNote.trim() } : {}) }
      : {}),
+   */
         // Additional sessions of THIS booking's single package. A blank
         // duration is simply omitted so the backend applies the package's
         // duration (or leaves it to be confirmed); a session with no own
@@ -1270,7 +1288,7 @@ export default function Booking() {
             </div>
             <h2 className="font-heading font-bold text-xl mb-2">Client accounts only</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              You're signed in as a {role === "studio" ? "studio/photographer" : role} account. Only client accounts can    {budgetInput.trim() ? "Submit Booking Request with Offer" : "Submit Booking Request"}s — sign in with a client account to book {p.name}.
+              You're signed in as a {role === "studio" ? "studio/photographer" : role} account. Only client accounts can submit booking requests — sign in with a client account to book {p.name}.
             </p>
             <button onClick={() => navigate(-1)} className="text-xs text-muted-foreground hover:text-foreground">
               Go back
@@ -1339,7 +1357,7 @@ export default function Booking() {
           <div className="lg:col-span-2 space-y-6">
 
             {/* ===== Step 0: Date ===== */}
-               {step === 0 && <NegotiationBanner />}
+               {/* BUDGET FEATURE (disabled): {step === 0 && <NegotiationBanner />} */}
    {step === 0 && (
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
                 <h3 className="font-heading font-semibold text-lg mb-1">Choose Your Start Time</h3>
@@ -1861,15 +1879,15 @@ export default function Booking() {
                   {additionalSchedules.length > 0 && ` Because you added extra sessions, only packages that allow multiple sessions can be selected${customAllowsMultiple ? " (this includes Build Your Own)" : ""}. Each session stays a separate schedule.`}
                 </p>
 
-                <div className="flex gap-1 bg-muted rounded-xl p-1 mb-6">
+                <div className="flex gap-1 rounded-full border border-border/50 bg-muted/50 p-1 mb-6">
                   <button onClick={() => setPackageMode("fixed")}
-                    className={cn("flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2",
-                      packageMode === "fixed" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                    className={cn("flex-1 px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center justify-center gap-2",
+                      packageMode === "fixed" ? "bg-card text-primary shadow-sm" : "text-primary/60 hover:text-primary")}>
                     <PackageIcon className="w-4 h-4" /> Fixed Packages
                   </button>
                   <button onClick={() => setPackageMode("custom")}
-                    className={cn("flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2",
-                      packageMode === "custom" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                    className={cn("flex-1 px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center justify-center gap-2",
+                      packageMode === "custom" ? "bg-card text-primary shadow-sm" : "text-primary/60 hover:text-primary")}>
                     <Wand2 className="w-4 h-4" /> Build Your Own
                   </button>
                 </div>
@@ -2234,63 +2252,94 @@ export default function Booking() {
               </div>
             )}
 
-            {/* ===== Step 4: Review ===== */}
             {step === 4 && (
-              <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up">
-                <h3 className="font-heading font-semibold text-lg mb-1">Review Your Booking</h3>
-                   <p className="text-sm text-muted-foreground mb-5">Double-check everything before sending the request.</p>
-   <div className="mb-5">
-     <BudgetOfferField
-          subtotal={subtotal}
-   platformFee={0}
-       budget={budgetInput}
-       note={budgetNote}
-       onBudgetChange={setBudgetInput}
-       onNoteChange={setBudgetNote}
-     />
-   </div>
-                <div className="space-y-4 text-sm">
-                  <div className="p-4 rounded-xl bg-muted/50 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-heading font-bold">{p.avatar}</div>
-                    <div>
-                      <p className="font-heading font-semibold">{p.name}</p>
-                      <p className="text-xs text-muted-foreground">{p.type} · {p.specialty}</p>
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-xl border border-border space-y-1">
-                    <p><span className="text-muted-foreground">Event:</span> {Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}</p>
-                    {allScheduleEntries.length > 1 && (
-                      <p className="text-[11px] text-muted-foreground pt-1">
-                        All sessions below belong to this one booking and package. This is a request, not a confirmed reservation — the photographer will review the requested sessions and confirm whether they can accommodate them. Each session is a separate schedule; the dates in between are not reserved.
-                      </p>
-                    )}
-                    {allScheduleEntries.filter((s) => s.dateStr).map((s, i) => (
-                      <div key={s.key} className={cn(i > 0 && "pt-2 mt-2 border-t border-border/50")}>
-                        {allScheduleEntries.length > 1 && (
-                          <p className="text-xs font-semibold text-foreground">Session {i + 1} — {s.label}</p>
-                        )}
-                        <p><span className="text-muted-foreground">Date:</span> {prettyDate(s.dateStr, "long")}</p>
-                        <p><span className="text-muted-foreground">Starts:</span> {prettyTime(s.startTime)}</p>
-                        <p>
-                          <span className="text-muted-foreground">Estimated end:</span>{" "}
-                          {s.endTime ? prettyTime(s.endTime) : "Duration to be confirmed by the photographer"}
+              <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 sm:p-6 animate-fade-up">
+                <h3 className="font-heading font-semibold text-lg">Review Your Booking</h3>
+                <p className="text-sm text-muted-foreground mt-0.5 mb-4">
+                  {p.name} · {p.type} · {p.specialty}. Double-check everything before sending the request.
+                </p>
+
+                {/* BUDGET FEATURE (disabled)
+                <div className="mb-4">
+                  <BudgetOfferField
+                    subtotal={subtotal}
+                    platformFee={0}
+                    budget={budgetInput}
+                    note={budgetNote}
+                    onBudgetChange={setBudgetInput}
+                    onNoteChange={setBudgetNote}
+                  />
+                </div>
+                */}
+
+                <div className="space-y-3 text-sm">
+                  {/* Schedule & coverage */}
+                  <div className="p-4 rounded-xl border border-border">
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                      <ReviewField label="Event" className="col-span-2">
+                        {Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}
+                      </ReviewField>
+
+                      {allScheduleEntries.length > 1 && (
+                        <p className="col-span-2 text-[11px] text-muted-foreground -mt-1">
+                          All sessions below belong to this one booking and package. This is a request, not a confirmed reservation — the photographer will review the requested sessions and confirm whether they can accommodate them. Each session is a separate schedule; the dates in between are not reserved.
                         </p>
-                        {i > 0 && (
-                          <p><span className="text-muted-foreground">Location:</span> {s.locationText || "Same as the main booking"}</p>
-                        )}
-                      </div>
-                    ))}
+                      )}
+
+                      {allScheduleEntries.filter((s) => s.dateStr).map((s, i) => (
+                        <div key={s.key} className={cn("col-span-2 grid grid-cols-2 gap-x-6 gap-y-3", i > 0 && "pt-3 border-t border-border/50")}>
+                          {allScheduleEntries.length > 1 && (
+                            <p className="col-span-2 text-xs font-semibold text-foreground">Session {i + 1} — {s.label}</p>
+                          )}
+                          <ReviewField label="Date">{prettyDate(s.dateStr, "long")}</ReviewField>
+                          <ReviewField label="Time">
+                            {s.endTime
+                              ? `${prettyTime(s.startTime)} – ${prettyTime(s.endTime)}`
+                              : <>{prettyTime(s.startTime)} <span className="font-normal text-muted-foreground text-xs">· duration to be confirmed by the photographer</span></>}
+                          </ReviewField>
+                          {i > 0 && (
+                            <ReviewField label="Location" className="col-span-2">{s.locationText || "Same as the main booking"}</ReviewField>
+                          )}
+                        </div>
+                      ))}
+
+                      {packageMode === "custom" && rates.hourlyRate != null && (
+                        <ReviewField label="Booked Coverage">
+                          {slidingSessionHours.length > 1
+                            ? `${slidingSessionHours.map((h) => `${h} hr${h === 1 ? "" : "s"}`).join(" + ")} = ${slidingSessionHours.reduce((a, b) => a + b, 0)} hrs across ${slidingSessionHours.length} separate sessions`
+                            : `${customHours ?? rates.minHours ?? 1} hour${(customHours ?? 1) === 1 ? "" : "s"}`}{" "}
+                          <span className="font-normal text-muted-foreground text-xs">({formatPrice(rates.hourlyRate)}/hour)</span>
+                        </ReviewField>
+                      )}
+                      {packageMode === "custom" && isUnitModel && (
+                        <ReviewField label="Custom pricing" className="col-span-2">
+                          {rates.pricingModel === "per_day"
+                            ? `${unitQuantity} event day${unitQuantity === 1 ? "" : "s"} × ${formatPrice(unitRate)}`
+                            : `${unitQuantity} ${unitQuantity === 1 ? "person" : "people"} × ${formatPrice(unitRate)}`}
+                          {" · "}
+                          {rates.coverageHours ? `${rates.coverageHours} hr coverage per session` : "coverage length to be confirmed by the photographer"}
+                        </ReviewField>
+                      )}
+                      {packageMode === "custom" && rates.hourlyRate == null && !isUnitModel && selectedDurationExtra && (
+                        <ReviewField label="Coverage">{selectedDurationExtra.label}</ReviewField>
+                      )}
+
+                      <ReviewField label={`Setting${allScheduleEntries.length > 1 ? " (main location)" : ""}`}>{locationType}</ReviewField>
+                      {locationType !== "Studio" && (
+                        <ReviewField label="Location">
+                          {[
+                            barangays.find((b) => b.id === barangayId)?.name,
+                            citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
+                            provinces.find((pv) => pv.id === provinceId)?.name,
+                          ].filter(Boolean).join(", ")}
+                        </ReviewField>
+                      )}
+                      {eventAddress && <ReviewField label="Address / Venue" className="col-span-2">{eventAddress}</ReviewField>}
+                      {guestCount && <ReviewField label="Guests">~{guestCount}</ReviewField>}
+                    </div>
+
                     {packageMode === "custom" && rates.hourlyRate != null && (
-                      <p>
-                      <span className="text-muted-foreground">Booked Coverage:</span>{" "}
-                      {slidingSessionHours.length > 1
-                        ? `${slidingSessionHours.map((h) => `${h} hr${h === 1 ? "" : "s"}`).join(" + ")} = ${slidingSessionHours.reduce((a, b) => a + b, 0)} hrs across ${slidingSessionHours.length} separate sessions`
-                        : `${customHours ?? rates.minHours ?? 1} hour${(customHours ?? 1) === 1 ? "" : "s"}`}{" "}
-                      ({formatPrice(rates.hourlyRate)}/hour)
-                    </p>
-                    )}
-                    {packageMode === "custom" && rates.hourlyRate != null && (
-                      <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border/50 text-[11px] text-muted-foreground space-y-1">
+                      <div className="mt-3 p-2.5 rounded-lg bg-muted/50 border border-border/50 text-[11px] leading-snug text-muted-foreground space-y-1">
                         <p className="font-semibold text-foreground">Photography Coverage Terms</p>
                         <p>
                           The selected coverage hours are the agreed photography coverage period. If the event
@@ -2303,58 +2352,40 @@ export default function Booking() {
                         </p>
                       </div>
                     )}
-                    {packageMode === "custom" && isUnitModel && (
-                      <p>
-                        <span className="text-muted-foreground">Custom pricing:</span>{" "}
-                        {rates.pricingModel === "per_day"
-                          ? `${unitQuantity} event day${unitQuantity === 1 ? "" : "s"} × ${formatPrice(unitRate)}`
-                          : `${unitQuantity} ${unitQuantity === 1 ? "person" : "people"} × ${formatPrice(unitRate)}`}
-                        {" · "}
-                        {rates.coverageHours ? `${rates.coverageHours} hr coverage per session` : "coverage length to be confirmed by the photographer"}
-                      </p>
-                    )}
-                    {packageMode === "custom" && rates.hourlyRate == null && !isUnitModel && selectedDurationExtra && (
-                      <p><span className="text-muted-foreground">Coverage:</span> {selectedDurationExtra.label}</p>
-                    )}
-                    <p><span className="text-muted-foreground">Setting{allScheduleEntries.length > 1 ? " (main location)" : ""}:</span> {locationType}</p>
-                    {locationType !== "Studio" && (
-                      <p><span className="text-muted-foreground">Location:</span> {[
-                        barangays.find((b) => b.id === barangayId)?.name,
-                        citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
-                        provinces.find((pv) => pv.id === provinceId)?.name,
-                      ].filter(Boolean).join(", ")}</p>
-                    )}
-                    {eventAddress && <p><span className="text-muted-foreground">Specific Address / Venue:</span> {eventAddress}</p>}
-                    {guestCount && <p><span className="text-muted-foreground">Guests:</span> ~{guestCount}</p>}
-                  </div>
-                  <div className="p-4 rounded-xl border border-border">
-                    <div className="flex justify-between">
-                      <div>
-                        <p className="font-medium">{packageName}{packageMode === "custom" && <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">Custom</span>}</p>
-                        <p className="text-xs text-muted-foreground">{packagePhotos === 999 ? "Unlimited" : packagePhotos} photos</p>
-                      </div>
-                      <p className="font-heading font-bold text-primary">{formatPrice(packagePrice)}</p>
-                    </div>
-                    {packageMode === "fixed" && selectedAddOns.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-border space-y-1">
-                        {selectedAddOns.map((i) => (
-                          <div key={i} className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">+ {photographerAddOns[i].name}</span>
-                            <span>{formatPrice(photographerAddOns[i].price)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4 rounded-xl border border-border space-y-1">
-                    <p><span className="text-muted-foreground">Contact:</span> {contactName} · {contactPhone}</p>
-                    <p><span className="text-muted-foreground">Email:</span> {contactEmail}</p>
-                    {notes && <p><span className="text-muted-foreground">Notes:</span> {notes}</p>}
                   </div>
 
-                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2 mt-4">
+                  {/* Package + contact side by side on desktop */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="p-4 rounded-xl border border-border">
+                      <div className="flex justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium">{packageName}{packageMode === "custom" && <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">Custom</span>}</p>
+                          <p className="text-xs text-muted-foreground">{packagePhotos === 999 ? "Unlimited" : packagePhotos} photos</p>
+                        </div>
+                        <p className="font-heading font-bold text-primary shrink-0">{formatPrice(packagePrice)}</p>
+                      </div>
+                      {packageMode === "fixed" && selectedAddOns.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border space-y-1">
+                          {selectedAddOns.map((i) => (
+                            <div key={i} className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">+ {photographerAddOns[i].name}</span>
+                              <span>{formatPrice(photographerAddOns[i].price)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-border space-y-2">
+                      <ReviewField label="Contact">{contactName} · {contactPhone}</ReviewField>
+                      <ReviewField label="Email"><span className="break-all">{contactEmail}</span></ReviewField>
+                      {notes && <ReviewField label="Notes">{notes}</ReviewField>}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <p className="text-xs text-primary/90">
+                    <p className="text-xs text-primary/90 leading-snug">
                       <strong>Note:</strong> By confirming, the photographer has up to 48 hours to review your request. Your time is only reserved once your request is accepted and your payment is confirmed. You won't be charged until it is approved.
                     </p>
                   </div>
@@ -2418,7 +2449,8 @@ export default function Booking() {
                   </Button>
                 ) : (
                   <Button className="w-full" size="lg" onClick={handleOpenConfirm}>
-                       {budgetInput.trim() ? "Submit Booking Request with Offer" : "Submit Booking Request"}
+                       {/* BUDGET FEATURE (disabled): {budgetInput.trim() ? "Submit Booking Request with Offer" : "Submit Booking Request"} */}
+                       Submit Booking Request
                   </Button>
                 )}
                 {stepPos > 0 && (
@@ -2431,7 +2463,7 @@ export default function Booking() {
                 <p className="text-xs text-destructive text-center mt-3">{currentValidation.reason}</p>
               )}
               <p className="text-xs text-muted-foreground text-center mt-3">
-                No payment is required right now. Over your budget? You can offer your own price on the last step.
+                No payment is required right now.
               </p>
             </div>
           </div>
@@ -2455,6 +2487,7 @@ export default function Booking() {
 <span className="block rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
   The photographer has <strong>up to 48 hours</strong> to review it. Your time is <strong>only reserved once your payment is confirmed</strong>, and you won't be charged until the request is approved.
 </span>
+   {/* BUDGET FEATURE (disabled)
    {budgetInput.trim() && (
   <span className="block rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-foreground">
     <strong className="text-primary text-sm">Your offer: {formatPrice(Number(budgetInput))}</strong>{" "}
@@ -2462,11 +2495,12 @@ export default function Booking() {
     <span className="block mt-1 text-muted-foreground">The listed price stays the same unless you accept the photographer's terms.</span>
   </span>
 )}
+   */}
             </p>
             <div className="mt-6 pt-4 border-t border-border flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsConfirmModalOpen(false)} disabled={isSubmitting}>Back</Button>
               <Button onClick={handleFinalSubmit} disabled={isSubmitting}>
-                {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : budgetInput.trim() ? "Confirm & Send Offer" : "Confirm Submit"}
+                {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting</> : /* BUDGET FEATURE (disabled): budgetInput.trim() ? "Confirm & Send Offer" : */ "Confirm Submit"}
               </Button>
             </div>
           </div>

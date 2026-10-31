@@ -175,6 +175,9 @@
   --warning-foreground: 22 30% 10%;
 }
 
+.dark {
+  color-scheme: dark;
+}
 
 @layer base {
   body {
@@ -210,4 +213,16 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   appearance: textfield;
   -moz-appearance: textfield;
+}
+
+html {
+  overflow-y: scroll;
+}
+
+/* Radix (dropdowns, selects, dialogs) add padding/margin to make up for the scrollbar
+   when they lock scrolling. The scrollbar is always present now, so that would
+   shift the page. */
+html body[data-scroll-locked] {
+  padding-right: 0 !important;
+  margin-right: 0 !important;
 }

@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import Reveal from "@/components/Reveal";
 import { fetchPhotographer } from "@/services/photographerService";
 import { formatPrice, inclusionText, type Photographer } from "@/data/photographers";
 import { coverageLabel } from "@/data/coverage";
@@ -17,10 +18,28 @@ import {
 } from "@/hooks/useFavorites";
 import { useRole } from "@/contexts/RoleContext";
 
+
 // Shared style tokens so every section card and chip looks consistent.
-const sectionCard = "bg-card rounded-2xl card-shadow border border-border/50";
+const sectionCard = "bg-card/95 backdrop-blur-sm rounded-2xl border border-border/50 shadow-[0_1px_2px_hsl(0_0%_0%/0.04),0_12px_32px_-16px_hsl(var(--primary)/0.2)]";
 const sectionLabel = "text-sm font-semibold text-muted-foreground flex items-center gap-2";
 const chip = "px-3 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-medium border border-secondary/20";
+
+// Cover always fills the whole frame, edge to edge, with a soft fade-in once it loads.
+function CoverImage({ src, alt }: { src: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      decoding="async"
+      onLoad={() => setLoaded(true)}
+      className={cn(
+        "absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-500",
+        loaded ? "opacity-100" : "opacity-0"
+      )}
+    />
+  );
+}
 
 // Determines which package (if any) should show the "Most Popular" badge.
 // Prefers an explicit backend flag; falls back to a booking/selection count
@@ -129,6 +148,8 @@ export default function PhotographerProfile() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+
+
   if (photographer === undefined) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -203,6 +224,7 @@ export default function PhotographerProfile() {
 
   return (
     <div className="min-h-screen bg-background relative">
+
       {/* Top bar */}
       <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 px-4 sm:px-6 h-16">
@@ -255,21 +277,24 @@ export default function PhotographerProfile() {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 animate-fade-up">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5 animate-fade-up">
         {/* Profile header */}
         <div className={cn(sectionCard, "overflow-hidden")}>
-          <div
-            className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/5 h-44 sm:h-60 md:h-64"
-          >
-            {p.coverUrl && (
-              <img
-                src={p.coverUrl}
-                alt={`${p.name} cover`}
-                className="absolute inset-0 w-full h-full object-cover object-center"
+          <div className="relative overflow-hidden aspect-[5/2] sm:aspect-[4/1] bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/25">
+            {p.coverUrl ? (
+              <CoverImage src={p.coverUrl} alt={`${p.name} cover`} />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 opacity-60"
+                style={{
+                  backgroundImage: "radial-gradient(hsl(var(--primary) / 0.25) 1.5px, transparent 1.5px)",
+                  backgroundSize: "24px 24px",
+                }}
               />
             )}
-            {/* Soft scrim: only darkens the bottom edge so the avatar blends in, keeps the photo bright */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/0 to-transparent" />
+            {/* Soft scrim so the avatar blends in without dulling the photo */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-black/60 via-black/15 to-transparent" />
           </div>
 
           <div className="relative z-10 px-5 sm:px-8 pb-6">
@@ -286,7 +311,7 @@ export default function PhotographerProfile() {
               <div className="flex-1 min-w-0 sm:pb-1">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="text-2xl sm:text-3xl font-heading font-bold tracking-tight leading-tight">{p.name}</h1>
-                  <span className="px-2.5 py-0.5 rounded-full bg-muted text-xs font-medium text-muted-foreground">{p.type}</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/15 text-xs font-semibold text-primary">{p.type}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {p.location}</span>
@@ -315,18 +340,18 @@ export default function PhotographerProfile() {
             {(p.phone || p.email || socialLinks.length > 0) && (
               <div className="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-border/60 text-sm">
                 {p.phone && (
-                  <a href={`tel:${p.phone}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-foreground transition-colors">
+                  <a href={`tel:${p.phone}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/60 bg-background/70 hover:bg-muted text-foreground transition-colors">
                     <Phone className="w-3.5 h-3.5 text-muted-foreground" /> {p.phone}
                   </a>
                 )}
                 {p.email && (
-                  <a href={`mailto:${p.email}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-foreground transition-colors min-w-0">
+                  <a href={`mailto:${p.email}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/60 bg-background/70 hover:bg-muted text-foreground transition-colors min-w-0">
                     <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{p.email}</span>
                   </a>
                 )}
                 {socialLinks.map(({ url, Icon, label }) => (
                   <a key={label} href={url} target="_blank" rel="noreferrer" title={label}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted text-muted-foreground hover:text-primary transition-colors">
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/60 bg-background/70 hover:bg-muted text-muted-foreground hover:text-primary transition-colors">
                     <Icon className="w-3.5 h-3.5" /> {label}
                   </a>
                 ))}
@@ -336,6 +361,7 @@ export default function PhotographerProfile() {
         </div>
 
         {/* Specializations strip */}
+        <Reveal>
         <div className={cn(sectionCard, "px-6 py-4 flex flex-wrap items-center gap-x-4 gap-y-3")}>
           <span className={sectionLabel}>
             <Tag className="w-4 h-4" /> Specializes in
@@ -348,9 +374,11 @@ export default function PhotographerProfile() {
             ))}
           </div>
         </div>
+        </Reveal>
 
         {/* Experience & Shooting Types */}
         {(p.yearsActive != null || coverageLabel(p.coverageArea) || (p.shootingTypes && p.shootingTypes.length > 0)) && (
+          <Reveal>
           <div className={cn(sectionCard, "px-6 py-5 grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-5")}>
             {p.yearsActive != null && (
               <div>
@@ -385,16 +413,20 @@ export default function PhotographerProfile() {
               </div>
             )}
           </div>
+          </Reveal>
         )}
 
         {/* About */}
+        <Reveal>
         <div className={cn(sectionCard, "p-6")}>
           <h2 className="font-heading font-semibold text-lg mb-3">About</h2>
           <p className="text-sm sm:text-[15px] text-muted-foreground leading-relaxed max-w-3xl whitespace-pre-line">{p.about}</p>
         </div>
+        </Reveal>
 
         {/* Photography Style */}
         {p.styles && p.styles.length > 0 && (
+          <Reveal>
           <div className={cn(sectionCard, "p-6")}>
             <h2 className="font-heading font-semibold text-lg mb-3 flex items-center gap-2">
               <Palette className="w-4 h-4 text-primary" /> Photography Style
@@ -407,11 +439,12 @@ export default function PhotographerProfile() {
               ))}
             </div>
           </div>
+          </Reveal>
         )}
 
         {/* Tabs (sticks below the top bar while scrolling) */}
         <div className="sticky top-16 z-30 -mx-2 px-2 py-2 bg-background/90 backdrop-blur-md">
-          <div className="flex gap-1 bg-muted rounded-xl p-1" role="tablist">
+          <div className="flex gap-1 rounded-full border border-border/50 bg-muted/50 p-1" role="tablist">
             {(["portfolio", "packages", "reviews"] as const).map((tab) => (
               <button
                 key={tab}
@@ -419,8 +452,8 @@ export default function PhotographerProfile() {
                 aria-selected={activeTab === tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
-                  "flex-1 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 capitalize flex items-center justify-center gap-2",
-                  activeTab === tab ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                  "flex-1 px-3 sm:px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 capitalize flex items-center justify-center gap-2",
+                  activeTab === tab ? "bg-card text-primary shadow-sm" : "text-primary/60 hover:text-primary"
                 )}
               >
                 {tab === "portfolio" && <Image className="w-4 h-4" />}
@@ -445,14 +478,16 @@ export default function PhotographerProfile() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 animate-fade-in">
             {p.portfolio.length > 0 ? (
               p.portfolio.map((url, i) => (
-                <div key={i} className="group aspect-[4/3] rounded-xl overflow-hidden bg-muted">
-                  <img
-                    src={url}
-                    alt={`Portfolio ${i + 1}`}
-                    loading="lazy"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                </div>
+                <Reveal key={i} delay={(i % 4) * 70}>
+                  <div className="group aspect-[4/3] rounded-xl overflow-hidden bg-muted">
+                    <img
+                      src={url}
+                      alt={`Portfolio ${i + 1}`}
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  </div>
+                </Reveal>
               ))
             ) : (
               <div className="col-span-full py-12 text-center text-sm text-muted-foreground">
@@ -466,6 +501,24 @@ export default function PhotographerProfile() {
         {activeTab === "packages" && (
           <div className="space-y-10 animate-fade-in">
             
+            {/* Quick entry to the custom calculator, so it's easy to find however many fixed packages there are */}
+            <div className="-mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Wrench className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-heading font-semibold text-sm">Don't see the right fit?</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Build a custom package with your own coverage, photo count, and add-ons.
+                  </p>
+                </div>
+              </div>
+              <Link to={`/booking/${p.id}?custom=true`} onClick={handleBookClick} className="shrink-0">
+                <Button variant="outline" size="sm" className="w-full sm:w-auto">Build Your Own</Button>
+              </Link>
+            </div>
+
             {/* Fixed Packages Section */}
             <div>
               <div className="mb-6">
@@ -662,7 +715,8 @@ export default function PhotographerProfile() {
               <div className="py-8 text-center text-sm text-muted-foreground">No {reviewStarFilter}-star reviews yet.</div>
             )}
             {(showAllReviews ? filteredReviews : filteredReviews.slice(0, 5)).map((review) => (
-              <div key={review.id} className={cn(sectionCard, "p-5 sm:p-6")}>
+              <Reveal key={review.id}>
+              <div className={cn(sectionCard, "p-5 sm:p-6")}>
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-heading text-sm font-bold shrink-0">
                     {review.avatar}
@@ -685,6 +739,7 @@ export default function PhotographerProfile() {
                   </div>
                 )}
               </div>
+              </Reveal>
             ))}
             {filteredReviews.length > 5 && (
               <div className="text-center pt-2">
@@ -697,6 +752,7 @@ export default function PhotographerProfile() {
         )}
 
         {/* Bottom CTA */}
+        <Reveal>
         <div className={cn(sectionCard, "p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4")}>
           <div>
             <h3 className="font-heading font-semibold text-lg">Ready to book {p.name}?</h3>
@@ -706,6 +762,7 @@ export default function PhotographerProfile() {
             <Button size="lg" className="font-medium w-full sm:w-auto">Book Now</Button>
           </Link>
         </div>
+        </Reveal>
 
         {/* --- DISCREET REPORT LINK FOR PROFILE --- */}
         <div className="text-center pt-2 pb-12">

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -80,27 +80,19 @@ const queryClient = new QueryClient();
 // --- THEME ENFORCER COMPONENT ---
 function RouteThemeEnforcer() {
   const location = useLocation();
-  const { theme, systemTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   const isPublicRoute = 
     ["/", "/explore", "/login", "/register", "/photographers", "/about", "/account-status", "/email-verified"].includes(location.pathname) || 
     location.pathname.startsWith("/photographers/");
 
-  useEffect(() => {
-    if (isPublicRoute) {
-      document.documentElement.classList.remove("dark");
-      document.documentElement.style.colorScheme = "light";
-    } else {
-      const activeTheme = theme === "system" ? systemTheme : theme;
-      if (activeTheme === "dark") {
-        document.documentElement.classList.add("dark");
-        document.documentElement.style.colorScheme = "dark";
-      } else {
-        document.documentElement.classList.remove("dark");
-        document.documentElement.style.colorScheme = "light";
-      }
-    }
-  }, [location.pathname, theme, systemTheme, isPublicRoute]);
+  // Layout effect = the theme is applied before paint, so there's no flash when
+  // moving between a light public page and a dark client page.
+  useLayoutEffect(() => {
+    const dark = !isPublicRoute && resolvedTheme === "dark";
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  }, [location.pathname, resolvedTheme, isPublicRoute]);
 
   return null;
 }

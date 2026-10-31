@@ -5,6 +5,7 @@ import {
   Menu, X, LayoutDashboard, Settings, User, LogOut, Bell, HelpCircle,
   Calendar, Heart, Star, Wallet, Loader2, LucideIcon,
 } from "lucide-react";
+import { ThemeToggleCompact } from "@/components/ThemeToggle";
 import Logo from "@/components/Logo";
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,8 @@ const baseNavLinks = [
 interface Props {
   /** If true, navbar starts solid (use on pages without a dark hero). */
   solid?: boolean;
+  /** Only passed by ClientLayout, so the toggle never appears on public pages. */
+  showThemeToggle?: boolean;
 }
 
 // One dropdown row: highlights itself (tinted background + accent dot) when
@@ -52,7 +55,7 @@ function ClientMenuLink({
   );
 }
 
-export default function MarketingNavbar({ solid = false }: Props) {
+export default function MarketingNavbar({ solid = false, showThemeToggle }: Props) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(solid);
   const { user, logout, isLoading } = useRole();
@@ -139,6 +142,7 @@ export default function MarketingNavbar({ solid = false }: Props) {
         </nav>
 
         <div className="flex items-center gap-3">
+          {showThemeToggle && <ThemeToggleCompact />}
           {isClient && (
             <div className="hidden md:block">
               <NotificationBell onDark={onDark} />

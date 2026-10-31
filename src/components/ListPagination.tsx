@@ -101,7 +101,7 @@ export interface PillTab<K extends string> {
   count?: number;
 }
 
-/** Segmented pill tabs, styled like the existing history filter pills. */
+/** Segmented pill tabs: tinted track, white active pill with brand-colored text. Matches ReportingNav. */
 export function PillTabs<K extends string>({
   tabs,
   value,
@@ -116,7 +116,7 @@ export function PillTabs<K extends string>({
   return (
     <div
       role="tablist"
-      className={cn("inline-flex items-center gap-1 bg-muted/60 rounded-full p-1 max-w-full overflow-x-auto", className)}
+      className={cn("inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/50 p-1 max-w-full overflow-x-auto", className)}
     >
       {tabs.map((t) => {
         const active = value === t.key;
@@ -127,8 +127,8 @@ export function PillTabs<K extends string>({
             aria-selected={active}
             onClick={() => onChange(t.key)}
             className={cn(
-              "inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold px-3.5 py-1.5 rounded-full transition-colors",
-              active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              "inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-semibold px-4 py-1.5 rounded-full transition-colors",
+              active ? "bg-card text-primary shadow-sm" : "text-primary/60 hover:text-primary"
             )}
           >
             {t.label}
@@ -136,7 +136,7 @@ export function PillTabs<K extends string>({
               <span
                 className={cn(
                   "min-w-[1.25rem] px-1.5 rounded-full text-[10px] leading-5 text-center tabular-nums",
-                  active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-background text-muted-foreground"
+                  active ? "bg-primary/10 text-primary" : "bg-primary/10 text-primary/70"
                 )}
               >
                 {t.count}

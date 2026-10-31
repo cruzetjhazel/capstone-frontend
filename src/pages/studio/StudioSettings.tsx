@@ -16,11 +16,16 @@ import {
   type PhotographerApplication,
 } from "@/services/photographerApplicationService";
 import toast from "react-hot-toast";
+import { prepareImageForUpload } from "@/lib/prepareImage";
+
 import {
   Camera, Image as ImageIcon, Briefcase,
   Link2, ShieldCheck, CreditCard, Lock, AlertTriangle,
   FileText, Check, X, Upload, Key, QrCode, MapPin, Layers, Plus
 } from "lucide-react";
+
+const COVER_MIN_WIDTH = 1000;         // below this a cover can't look sharp, so it is rejected
+const COVER_RECOMMENDED_WIDTH = 1600; // below this we warn the studio
 
 const SERVICE_OPTIONS = [
   "Wedding", "Debut", "Birthday", "Engagement", "Pre-Nuptial", "Graduation",
@@ -284,24 +289,36 @@ export default function StudioSettings() {
 
   const removeStyle = (style: string) => setStyles((prev) => prev.filter((s) => s !== style));
 
-  const handleAvatarSelect = (file: File | null) => {
+  const handleAvatarSelect = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Image must be under 2MB.");
-      return;
+    try {
+      const { file: prepared } = await prepareImageForUpload(file, { maxWidth: 1200 });
+      setProfilePhotoFile(prepared);
+      setProfilePhotoPreview(URL.createObjectURL(prepared));
+    } catch {
+      toast.error("Couldn't process that image. Please try a different JPG or PNG.");
     }
-    setProfilePhotoFile(file);
-    setProfilePhotoPreview(URL.createObjectURL(file));
   };
 
-  const handleCoverSelect = (file: File | null) => {
+  const handleCoverSelect = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Image must be under 2MB.");
-      return;
+    try {
+      const { file: prepared, originalWidth, originalHeight } = await prepareImageForUpload(file);
+      if (originalWidth < COVER_MIN_WIDTH) {
+        toast.error(`This image is only ${originalWidth}px wide and would look blurry. Use at least ${COVER_RECOMMENDED_WIDTH}px wide (2400×600 is ideal).`);
+        return;
+      }
+      if (originalWidth < COVER_RECOMMENDED_WIDTH) {
+        toast(`This cover is ${originalWidth}×${originalHeight}px. It may look soft on large screens. 2400×600 is ideal.`, {
+          icon: <AlertTriangle className="w-5 h-5 text-amber-500" />,
+          duration: 6000,
+        });
+      }
+      setCoverPhotoFile(prepared);
+      setCoverPhotoPreview(URL.createObjectURL(prepared));
+    } catch {
+      toast.error("Couldn't process that image. Please try a different JPG or PNG.");
     }
-    setCoverPhotoFile(file);
-    setCoverPhotoPreview(URL.createObjectURL(file));
   };
 
   const handleDiscard = () => {
@@ -627,8 +644,11 @@ export default function StudioSettings() {
 
               <div className="space-y-2 flex-1 w-full">
                 <Label>Cover Banner</Label>
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Best at 2400×600 px (4:1). Large photos are accepted. We only shrink them if they're over 2 MB.
+                </p>
                 <label htmlFor="cover-input"
-                  className="h-20 w-full rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center hover:bg-muted/80 transition-colors cursor-pointer overflow-hidden">
+                  className="aspect-[4/1] w-full rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center hover:bg-muted/80 transition-colors cursor-pointer overflow-hidden">
                   {(coverPhotoPreview || coverPhotoUrl) ? (
                     <img src={coverPhotoPreview ?? coverPhotoUrl ?? ""} alt="Cover" className="w-full h-full object-cover" />
                   ) : (
@@ -639,7 +659,7 @@ export default function StudioSettings() {
                   )}
                 </label>
                 <input id="cover-input" type="file" accept="image/png, image/jpeg" className="hidden"
-                  onChange={(e) => handleCoverSelect(e.target.files?.[0] ?? null)} />
+                  onChange={(e) => { handleCoverSelect(e.target.files?.[0] ?? null); e.target.value = ""; }} />
               </div>
             </div>
 

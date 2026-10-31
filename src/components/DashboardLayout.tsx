@@ -45,7 +45,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       <div className="flex-1 flex flex-col min-w-0">
         <DashboardHeader onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto bg-background lg:rounded-tl-3xl border-l border-t border-border/30">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto [scrollbar-gutter:stable] bg-background lg:rounded-tl-3xl border-l border-t border-border/30">
           {children}
         </main>
       </div>
