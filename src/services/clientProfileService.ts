@@ -34,7 +34,8 @@ function toClientProfile(raw: RawClientProfile): ClientProfile {
 
 export interface UpdateClientProfilePayload {
   name?: string;
-  phone_number?: string | null;
+  // phone_number / email are intentionally not updatable here. They change only through
+  // /client/change-contact-number and /client/change-email (password re-auth).
   birthday?: string | null;
   gender?: string | null;
   address?: string | null;

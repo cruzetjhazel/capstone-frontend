@@ -21,7 +21,7 @@ import {
 import { useAvailabilityWindows } from "@/hooks/useAvailabilityWindows";
 
 const BOOKING_HOUR_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const SLOT_INTERVAL_OPTIONS = [15, 20, 30, 45, 60];
+const SLOT_INTERVAL_OPTIONS = [30, 45, 60];
 
 type DayStatus = "available" | "blocked" | "booked" | "pending" | "mixed" | "closed";
 type FilterKey = DayStatus | "past";
@@ -130,7 +130,7 @@ export default function StudioCalendar() {
   const createBookingHour = useCreateBookingHour();
   const deleteBookingHour = useDeleteBookingHour();
   const updateSlotInterval = useUpdateSlotInterval();
-  const { data: slotInterval = 60 } = useSlotInterval();
+  const { data: slotInterval = 30 } = useSlotInterval();
   const [newBookingHourPeriod, setNewBookingHourPeriod] = useState<Record<number, { start: string; end: string }>>({});
 
   const bookingHoursForDay = (day: number) =>
@@ -880,7 +880,7 @@ export default function StudioCalendar() {
                 onChange={(e) => updateSlotInterval.mutate(Number(e.target.value))}
                 disabled={updateSlotInterval.isPending}
               >
-                {SLOT_INTERVAL_OPTIONS.map((m) => <option key={m} value={m}>{m} minutes</option>)}
+                {(SLOT_INTERVAL_OPTIONS.includes(slotInterval) ? SLOT_INTERVAL_OPTIONS : [slotInterval, ...SLOT_INTERVAL_OPTIONS]).map((m) => <option key={m} value={m}>{m} minutes</option>)}
               </select>
             </div>
           </div>

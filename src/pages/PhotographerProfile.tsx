@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Settings2, Paperclip, Palette, Wrench, Phone, Mail, Search
+  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Paperclip, Palette, Wrench, Phone, Mail, Search
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -502,7 +502,7 @@ export default function PhotographerProfile() {
           <div className="space-y-10 animate-fade-in">
             
             {/* Quick entry to the custom calculator, so it's easy to find however many fixed packages there are */}
-            <div className="-mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4">
               <div className="flex items-start gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <Wrench className="w-4 h-4" />
@@ -624,48 +624,28 @@ export default function PhotographerProfile() {
               </div>
             </div>
 
-            {/* Custom Package Calculator Section */}
-            <div>
-              <div className="mb-6">
-                <h3 className="text-xl font-heading font-bold flex items-center gap-2">
-                  <Wrench className="w-5 h-5 text-primary" /> Build Your Own
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">Need something specific? Create a tailored package.</p>
-              </div>
-
-              <div className="bg-gradient-to-br from-card to-muted/50 rounded-2xl border border-border card-shadow-hover p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
-                {/* Decorative background element */}
-                <div className="absolute -right-12 -top-12 w-48 h-48 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-                
-                <div className="flex-1 space-y-4 relative z-10">
-                  <div>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-3">
-                      <Settings2 className="w-3.5 h-3.5" /> Dynamic Pricing
-                    </span>
-                    <h4 className="text-2xl font-heading font-bold">Custom Package Calculator</h4>
-                    <p className="text-muted-foreground mt-2 max-w-md leading-relaxed">
-                      Configure your own rates and options. Select base fees, adjust coverage hours, choose photo count tiers, and add optional extras to perfectly match your event.
-                    </p>
-                  </div>
-                  
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                    {["Flexible coverage times", "Tiered photo counts", "Express delivery options", "Premium add-ons"].map((feature) => (
-                      <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary/60 shrink-0" /> {feature}
-                      </li>
+            {/* Custom package — closing call to action */}
+            <div className={cn(sectionCard, "p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-5")}>
+              <div className="flex items-start gap-4 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-lg font-heading font-bold">Create your own package</h4>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+                    Pick your coverage hours, number of photos, and extras. Your total updates as you choose.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {["Coverage hours", "Photo count", "Fast delivery", "Add-ons"].map((feature) => (
+                      <span key={feature} className={chip}>{feature}</span>
                     ))}
-                  </ul>
-                </div>
-
-                <div className="w-full md:w-auto relative z-10 shrink-0">
-                  <Link to={`/booking/${p.id}?custom=true`} className="block" onClick={handleBookClick}>
-                    <Button size="lg" className="w-full md:w-auto px-8 shadow-md">
-                      Open Calculator
-                    </Button>
-                  </Link>
-                  <p className="text-xs text-center text-muted-foreground mt-3">Instant transparent pricing</p>
+                  </div>
                 </div>
               </div>
+
+              <Link to={`/booking/${p.id}?custom=true`} className="shrink-0" onClick={handleBookClick}>
+                <Button size="lg" className="w-full md:w-auto px-8">Customize Package</Button>
+              </Link>
             </div>
 
           </div>
@@ -770,7 +750,7 @@ export default function PhotographerProfile() {
             onClick={() => setShowReportModal(true)} 
             className="text-xs text-muted-foreground/70 hover:text-destructive flex items-center justify-center gap-1.5 mx-auto transition-colors"
           >
-            <AlertTriangle className="w-3.5 h-3.5" /> Report this Professional
+            <AlertTriangle className="w-3.5 h-3.5" /> Report this {/studio/i.test(p.type ?? "") ? "Studio" : "Photographer"}
           </button>
         </div>
       </div>
@@ -788,7 +768,7 @@ export default function PhotographerProfile() {
             </button>
             
             <h3 className="text-lg font-heading font-semibold flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" /> Report Professional
+              <AlertTriangle className="w-5 h-5" /> Report {/studio/i.test(p.type ?? "") ? "Studio" : "Photographer"}
             </h3>
             
             <div className="space-y-4 pt-2">

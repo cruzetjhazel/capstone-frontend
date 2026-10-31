@@ -4,7 +4,8 @@ import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom"
 import {
   ArrowLeft, ArrowRight, Check,
   ChevronLeft, Sparkles, Wand2, Package as PackageIcon, Info, Clock, MapPin,
-  LogIn, Lock, Loader2, X, CalendarPlus
+  LogIn, Lock, Loader2, X, CalendarPlus,
+  CalendarHeart, CalendarDays, Users, UserRound, Phone, Mail, MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,9 @@ function calculateCustomPrice(b: CustomBuild, r: CustomRates, hours?: number | n
   return r.baseFee + extrasPrice;
 }
 
+// Master switch for "Add another day" / "Add a different session". Set to true to bring the feature back.
+const MULTI_SESSIONS_ENABLED = false;
+
 // One additional photography session belonging to THIS booking's single
 // package/service — not a separate event. Separate services are separate
 // bookings.
@@ -169,8 +173,8 @@ function SessionDateField({ photographerId, packageId, customDurationMinutes, se
           disabled={(d) => { const s = statusOf(d); return s === "past" || s === "booked" || s === "unknown" || !!isDateTaken?.(toYmd(d)); }}
           modifiers={{ booked: (d) => statusOf(d) === "booked", partial: (d) => statusOf(d) === "partial" }}
           modifiersClassNames={{
-            booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
-            partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
+            booked: "relative isolate !text-destructive !opacity-100 !bg-transparent !font-semibold line-through cursor-not-allowed before:content-[''] before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:h-8 before:w-8 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-destructive/15",
+            partial: "relative isolate !text-amber-700 dark:!text-amber-400 !bg-transparent !font-semibold before:content-[''] before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:h-8 before:w-8 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:!bg-amber-500/15",
           }}
           className="pointer-events-auto" showOutsideDays
         />
@@ -232,12 +236,51 @@ function SessionTimeSlots({ date, startTime, times, loading, isTaken, onPick }: 
   );
 }
 
+type PriceLine = {
+  key: string;
+  section: string;        // group heading, e.g. "Package", "Options", "Extras", "Add-ons"
+  label: string;
+  detail?: string;        // small grey text under the label
+  amount: number | null;  // null = "Included"
+  plus?: boolean;         // show "+₱..." for optional items
+};
+
+function PriceBreakdown({ lines }: { lines: PriceLine[] }) {
+  const sections: { title: string; items: PriceLine[] }[] = [];
+  lines.forEach((l) => {
+    let s = sections.find((x) => x.title === l.section);
+    if (!s) { s = { title: l.section, items: [] }; sections.push(s); }
+    s.items.push(l);
+  });
+
+  return (
+    <div className="space-y-4 text-sm">
+      {sections.map((s) => (
+        <div key={s.title} className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.title}</p>
+          {s.items.map((l) => (
+            <div key={l.key} className="flex items-start justify-between gap-4">
+              <span className="min-w-0 break-words leading-snug">
+                <span className="text-foreground">{l.label}</span>
+                {l.detail && <span className="block text-[11px] text-muted-foreground mt-0.5">{l.detail}</span>}
+              </span>
+              <span className={cn("shrink-0 whitespace-nowrap leading-snug", l.amount == null ? "text-muted-foreground" : "font-medium")}>
+                {l.amount == null ? "Included" : `${l.plus ? "+" : ""}${formatPrice(l.amount)}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Small label/value pair used by the compact Review step.
 function ReviewField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="text-sm font-medium text-foreground mt-0.5">{children}</div>
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="text-[15px] font-semibold leading-snug text-foreground mt-1">{children}</div>
     </div>
   );
 }
@@ -413,11 +456,11 @@ export default function Booking() {
   const onlyCityId = allowedCities.length === 1 ? allowedCities[0].id : null;
 
   useEffect(() => {
-    if (needsPsgcLocation && onlyProvinceId != null && provinceId == null) setProvinceId(onlyProvinceId);
+    if (onlyProvinceId != null && provinceId == null) setProvinceId(onlyProvinceId);
   }, [needsPsgcLocation, onlyProvinceId, provinceId]);
 
   useEffect(() => {
-    if (needsPsgcLocation && onlyCityId != null && cityMunicipalityId == null) setCityMunicipalityId(onlyCityId);
+    if (onlyCityId != null && cityMunicipalityId == null) setCityMunicipalityId(onlyCityId);
   }, [needsPsgcLocation, onlyCityId, cityMunicipalityId]);
 
   const [guestCount, setGuestCount] = useState("");
@@ -515,7 +558,7 @@ export default function Booking() {
           : rates.hourlyRate != null ? (customHours ?? rates.minHours ?? 1) * 60 : (selectedDurationExtra as any)?.durationMinutes)
       : undefined;
 
-  const { data: customStartTimesForRevalidation = [], isLoading: loadingCustomRevalidation } = useAvailableStartTimes(
+  const { data: customStartTimesForRevalidation = [], isFetching: loadingCustomRevalidation } = useAvailableStartTimes(
     p?.id,
     dateStr,
     undefined,
@@ -719,6 +762,15 @@ export default function Booking() {
     return [primary, ...extras];
   }, [eventType, specificEventType, dateStr, startTime, estimatedEndTime, additionalSchedulesWithEndTime]);
 
+  // Main booking location, shown in the Booking Summary sidebar.
+  const mainLocationText = needsPsgcLocation
+    ? [
+        barangays.find((b) => b.id === barangayId)?.name,
+        citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name,
+        provinces.find((pv) => pv.id === provinceId)?.name,
+      ].filter(Boolean).join(", ")
+    : "";
+
   // ── Sliding-hours coverage caps ──
   // Max whole hours a schedule can cover before the next schedule of this
   // booking starts on the same day. Infinity = nothing after it.
@@ -891,11 +943,99 @@ export default function Booking() {
     });
   };
   // The package price never depends on how many sessions the booking has.
-  const packagePrice = packageMode === "fixed" ? (pkg?.price ?? 0) : customPrice;
+    const packagePrice = packageMode === "fixed" ? (pkg?.price ?? 0) : customPrice;
   const packageName = packageMode === "fixed" ? (pkg?.name ?? "—") : "Custom Package";
   const packagePhotos = packageMode === "fixed" ? (pkg?.photos ?? 0) : 0;
 
   const subtotal = packagePrice + (packageMode === "fixed" ? selectedAddOns.reduce((sum, i) => sum + photographerAddOns[i].price, 0) : 0);
+
+  // Live itemized breakdown — drives the sidebar and the Review step.
+  const priceBreakdown: PriceLine[] = (() => {
+    const lines: PriceLine[] = [];
+
+    // ---- Fixed package + add-ons ----
+    if (packageMode === "fixed") {
+      if (pkg) {
+        lines.push({
+          key: "pkg",
+          section: "Package",
+          label: `${pkg.name} Package`,
+          detail: packagePhotos > 0 ? `${packagePhotos === 999 ? "Unlimited" : packagePhotos} photos` : undefined,
+          amount: pkg.price,
+        });
+      }
+      selectedAddOns.forEach((i) => {
+        const a = photographerAddOns[i];
+        if (!a) return;
+        lines.push({ key: `addon-${a.id ?? i}`, section: "Add-ons", label: a.name, amount: a.price, plus: true });
+      });
+      return lines;
+    }
+
+    // ---- Custom package ----
+    const pkgSection = "Custom Package";
+    const ignoreDuration = rates.hourlyRate != null || isUnitModel;
+
+    if (isUnitModel) {
+      lines.push({
+        key: "unit",
+        section: pkgSection,
+        label: rates.pricingModel === "per_day"
+          ? `${unitQuantity} event day${unitQuantity === 1 ? "" : "s"}`
+          : `${unitQuantity} ${unitQuantity === 1 ? "person" : "people"}`,
+        detail: `${formatPrice(unitRate)} each`,
+        amount: unitRate * unitQuantity,
+      });
+    } else if (rates.hourlyRate != null && customHours != null) {
+      slidingSessionHours.forEach((h, idx) => {
+        const single = slidingSessionHours.length === 1;
+        let detail: string | undefined = `${h} hr${h === 1 ? "" : "s"}`;
+        if (single) {
+          if (rates.baseHours != null) {
+            const extraHrs = Math.max(0, h - rates.baseHours);
+            detail = `${formatPrice(rates.baseFee)} base (first ${rates.baseHours} hr${rates.baseHours === 1 ? "" : "s"})`
+              + (extraHrs > 0 ? ` + ${extraHrs} hr × ${formatPrice(rates.hourlyRate!)}` : "");
+          } else {
+            detail = `${h} hr × ${formatPrice(rates.hourlyRate!)}`;
+          }
+        }
+        lines.push({
+          key: `hrs-${idx}`,
+          section: pkgSection,
+          label: single ? `Coverage · ${h} hr${h === 1 ? "" : "s"}` : `Session ${idx + 1} · ${h} hr${h === 1 ? "" : "s"}`,
+          detail,
+          amount: slidingSessionCharges[idx] ?? 0,
+        });
+      });
+    } else {
+      lines.push({ key: "base", section: pkgSection, label: "Base fee", amount: rates.baseFee });
+    }
+
+    // Single-select tiers (Edited Photos, Delivery Speed, ...): show the active option
+    tierGroups.forEach(([tierName, allGroupExtras]) => {
+      const group = ignoreDuration
+        ? allGroupExtras!.filter((e) => (e as any).durationMinutes == null)
+        : allGroupExtras;
+      if (!group || group.length === 0) return;
+      const active = group.find((e) => isTierOptionActive(group, e));
+      if (!active) return;
+      lines.push({
+        key: `tier-${tierName}`,
+        section: "Options",
+        label: active.label,
+        detail: tierName,
+        amount: active.price === 0 ? null : active.price,
+        plus: true,
+      });
+    });
+
+    // Toggled extras (RAW Files, Extra Photographer, Drone, ...)
+    flatExtras
+      .filter((e) => customBuild.selectedExtraIds.includes(e.id) && (!ignoreDuration || (e as any).durationMinutes == null))
+      .forEach((e) => lines.push({ key: `extra-${e.id}`, section: "Extras", label: e.label, amount: e.price, plus: true }));
+
+    return lines;
+  })();
 
   type StepValidation = { ok: boolean; reason?: string };
 
@@ -1093,6 +1233,8 @@ export default function Booking() {
   };
 
   const currentValidation = validateStep(step);
+  // Shown directly under the Event Type field instead of the banner.
+  const eventTypeError = step === 1 && !eventType && !currentValidation.ok ? currentValidation.reason : null;
 
   // End times only make sense once a package/duration is being chosen (Package step onward).
   const showEndTimes = step >= 2;
@@ -1102,11 +1244,9 @@ export default function Booking() {
     (step === 0 && ((!!dateStr && loadingStartTimes) || sessionsChecking)) ||
     (step === 2 && (
       sessionsChecking ||
-      (packageMode === "fixed" && packageFitQueries.some((q) => q.isFetching)) ||
+      (packageMode === "fixed" && selectedPkg >= 0 && !!packageFitQueries[selectedPkg]?.isFetching) ||
       (packageMode === "custom" && (
-        (!!dateStr && customDurationMinutesForRevalidation != null && loadingCustomRevalidation) ||
-        durationFitQueries.some((q) => q.isFetching) ||
-        durationExtraFitQueries.some((q) => q.isFetching)
+        (!!dateStr && customDurationMinutesForRevalidation != null && loadingCustomRevalidation)
       ))
     ));
 
@@ -1319,7 +1459,14 @@ export default function Booking() {
             <span>{step > 0 ? "Back" : "Cancel"}</span>
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-heading text-xs font-bold">{p.avatar}</div>
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-heading text-xs font-bold overflow-hidden shrink-0">
+              {(() => {
+                const src = (p as any).avatarUrl ?? (p as any).profileImage ?? (p as any).profilePhoto ?? (p as any).logo ?? (p as any).image;
+                return typeof src === "string" && src.startsWith("http") || (typeof src === "string" && src.startsWith("/"))
+                  ? <img src={src} alt={p.name} className="w-full h-full object-cover" />
+                  : p.avatar;
+              })()}
+            </div>
             <span className="font-heading font-semibold text-sm">{p.name}</span>
           </div>
         </div>
@@ -1346,15 +1493,15 @@ export default function Booking() {
           ))}
         </div>
 
-        {!currentValidation.ok && !isCheckingAvailability && (
+        {!currentValidation.ok && !isCheckingAvailability && !eventTypeError && (
           <div className="mb-5 p-3 rounded-xl bg-accent/10 border border-accent/30 flex items-start gap-2 animate-fade-in">
             <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
             <p className="text-xs">{currentValidation.reason}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
+          <div className="min-w-0 space-y-6">
 
             {/* ===== Step 0: Date ===== */}
                {/* BUDGET FEATURE (disabled): {step === 0 && <NegotiationBanner />} */}
@@ -1367,8 +1514,8 @@ export default function Booking() {
 
                 <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
                   <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-primary/20 border border-primary/40" /> Available</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-400/30 border border-amber-500/50" /> Partially booked</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-destructive/20 border border-destructive/40" /> Fully booked</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/60" /> Partially booked</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-destructive/20 border border-destructive/60" /> Fully booked</span>
                   <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-muted border border-border" /> Past date</span>
                   {loadingAvailability && (
                     <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -1396,20 +1543,26 @@ export default function Booking() {
                         unknown: (d) => getDateStatus(d) === "unknown",
                       }}
                       modifiersClassNames={{
-                        past: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
-                        booked: "!text-destructive !opacity-100 !bg-transparent line-through cursor-not-allowed",
-                        partial: "!text-amber-600 dark:!text-amber-400 !bg-transparent font-semibold",
-                        unknown: "!text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                        past: "pointer-events-none !text-muted-foreground/40 !bg-transparent cursor-not-allowed",
+                        booked: "relative isolate pointer-events-none !text-destructive !opacity-100 !bg-transparent !font-semibold line-through cursor-not-allowed before:content-[''] before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:h-8 before:w-8 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-destructive/15",
+                        partial: "relative isolate !text-amber-700 dark:!text-amber-400 !bg-transparent !font-semibold before:content-[''] before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:h-8 before:w-8 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:!bg-amber-500/15",
+                        unknown: "pointer-events-none !text-muted-foreground/40 !bg-transparent cursor-not-allowed",
                       }}
-                      className="rounded-xl border pointer-events-auto"
+                                            className="rounded-xl border pointer-events-auto"
+                      classNames={{
+                        day: "h-9 w-9 text-center text-sm p-0 relative rounded-full focus-within:relative focus-within:z-20",
+                        day_button: "h-9 w-9 p-0 inline-flex items-center justify-center rounded-full font-normal transition-colors duration-150 hover:bg-primary/10 hover:text-foreground disabled:pointer-events-none disabled:hover:bg-transparent",
+                        selected: "relative isolate bg-transparent text-primary font-semibold ring-1 ring-primary/40 rounded-full before:content-[''] before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:h-8 before:w-8 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-primary/20",
+                        today: "bg-transparent text-foreground ring-1 ring-primary/30 rounded-full",
+                      }}
                       showOutsideDays
                     />
                   </div>
 
-                  {/* Right side of the box, next to the calendar — availability
+                  {/* Right side of the box, next to the calendar: availability
                       result + start/end time pickers, or the booked-date
                       conflict panel, depending on what's selected. */}
-                  <div className="flex-1 min-w-0 w-full space-y-4">
+                      <div className="flex-1 min-w-0 w-full space-y-4">
                     {!date && (
                       <div className="h-full min-h-[280px] flex items-center justify-center p-6 rounded-xl border border-dashed border-border text-center">
                         <p className="text-sm text-muted-foreground">Pick a date on the calendar to choose your start time.</p>
@@ -1417,24 +1570,27 @@ export default function Booking() {
                     )}
 
                     {date && !dayConflict && (
-                      <div className="space-y-4 animate-fade-in">
-                        <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex items-center gap-3">
-                          <Check className="w-5 h-5 text-primary shrink-0" />
+                      <div className="space-y-3 animate-fade-in">
+                        <div className="px-3 py-2.5 rounded-xl border border-primary/30 bg-primary/5 flex items-center gap-2.5">
+                          <Check className="w-4 h-4 text-primary shrink-0" />
                           <div>
                             <p className="font-medium text-sm">{date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} is available!</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">Now pick your event start time below.</p>
+                            <p className="text-xs text-muted-foreground">Now pick your event start time below.</p>
                           </div>
                         </div>
-                        <div className="p-5 rounded-xl border border-border">
-                          <div className="flex items-center justify-between gap-2 mb-4">
+                        <div className="p-4 rounded-xl border border-border">
+                          <div className="flex items-center justify-between gap-2 mb-3">
                             <div className="flex items-center gap-2.5">
                               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                                 <Clock className="w-4 h-4 text-primary" />
                               </div>
-                              <p className="font-medium text-sm">Available Start Times</p>
+                              <p className="font-medium text-sm whitespace-nowrap">Available Start Times</p>
                             </div>
                             {!loadingStartTimes && availableStartTimes.length > 0 && (
-                              <span className="text-[11px] text-muted-foreground">{availableStartTimes.length} open</span>
+                              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                                {availableStartTimes.length} open
+                              </span>
                             )}
                           </div>
 
@@ -1449,7 +1605,7 @@ export default function Booking() {
                           ) : (
                             <>
                               {/* Segmented AM / PM tabs */}
-                              <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 mb-3">
+                              <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-muted/60 mb-3">
                                 {TIME_PERIODS.map((period) => {
                                   const slots = startTimesByPeriod[period.key];
                                   const isActive = activePeriod === period.key;
@@ -1460,9 +1616,9 @@ export default function Booking() {
                                       disabled={slots.length === 0}
                                       onClick={() => setActivePeriod(period.key)}
                                       className={cn(
-                                        "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-colors",
+                                        "flex items-center justify-center gap-1.5 py-1.5 rounded-full text-xs font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                                         isActive
-                                          ? "bg-card text-foreground shadow-sm"
+                                          ? "bg-card text-foreground shadow-sm ring-1 ring-border/60"
                                           : slots.length === 0
                                           ? "text-muted-foreground/40 cursor-not-allowed"
                                           : "text-muted-foreground hover:text-foreground"
@@ -1489,27 +1645,20 @@ export default function Booking() {
                                       title={startTakenBySibling("primary", dateStr, t) ? "Already used by another schedule in this booking" : undefined}
                                       onClick={() => setStartTime(t)}
                                       className={cn(
-                                        "relative px-2 py-2.5 rounded-lg border text-sm font-medium transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed disabled:line-through",
+                                        "h-9 px-2 rounded-full border text-[13px] font-medium text-center whitespace-nowrap transition-all duration-200 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-50 disabled:cursor-not-allowed disabled:line-through disabled:bg-muted/40 disabled:border-dashed disabled:hover:bg-muted/40 disabled:hover:border-border",
                                         startTime === t
-                                          ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                                          : "border-primary/30 bg-primary/5 text-foreground hover:border-primary/60 hover:bg-primary/10"
+                                          ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                                          : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-primary/5"
                                       )}
                                     >
                                       {prettyTime(t)}
-                                      {startTime === t && (
-                                        <Check className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2" />
-                                      )}
+
                                     </button>
                                   ))}
                                 </div>
                               )}
 
-                              {startTime && (
-                                <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center gap-2">
-                                  <Check className="w-4 h-4 text-primary shrink-0" />
-                                  <p className="text-sm font-medium">Start Time: {prettyTime(startTime)}</p>
-                                </div>
-                              )}
+
                             </>
                           )}
                         </div>
@@ -1555,7 +1704,7 @@ export default function Booking() {
                     photographer has a package that allows multiple sessions
                     under one booking. A normal single-session booking stays
                     exactly as simple as before. */}
-                {(multiSessionPackages.length > 0 || customAllowsMultiple) && (
+                {MULTI_SESSIONS_ENABLED && (multiSessionPackages.length > 0 || customAllowsMultiple) && (
                   <div className="mt-6 pt-5 border-t border-border/50">
                     {!showMultiSchedule && additionalSchedules.length === 0 ? (
                       <div className="space-y-2">
@@ -1717,18 +1866,27 @@ export default function Booking() {
 
             {/* ===== Step 1: Event Info ===== */}
             {step === 1 && (
+              <>
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up space-y-5">
-                <div>
-                  <h3 className="font-heading font-semibold text-lg mb-1">Event & Contact Details</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Tell us about your event and how the photographer can reach you.
-                  </p>
+
+
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <CalendarDays className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-heading font-semibold text-sm">Event Information</h4>
+                    <p className="text-xs text-muted-foreground">Tell us about your upcoming event.</p>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="eventType">Event Type{additionalSchedules.length > 0 ? " (Session 1)" : ""} *</Label>
+                  <Label htmlFor="eventType" className="flex items-center gap-1.5">
+                    <CalendarHeart className="w-3 h-3 text-muted-foreground/70" /> Event Type{additionalSchedules.length > 0 ? " (Session 1)" : ""} <span className="text-destructive">*</span>
+                  </Label>
                   <select
                     id="eventType"
+                    aria-invalid={!!eventTypeError}
                     value={eventType}
                     onChange={(e) => {
                       setEventType(e.target.value);
@@ -1736,13 +1894,19 @@ export default function Booking() {
                     }}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="">Select event type…</option>
+                    <option value="">What occasion are you celebrating?</option>
                     {systemEventTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
 
+                  {eventTypeError && (
+                    <p className="text-xs text-destructive flex items-center gap-1.5">
+                      <Info className="w-3 h-3 shrink-0" /> {eventTypeError}
+                    </p>
+                  )}
+
                   {eventType === "Other" && (
                     <div className="mt-3 animate-fade-in space-y-2">
-                      <Label htmlFor="specificEventType" className="text-xs text-muted-foreground">Please specify your event *</Label>
+                      <Label htmlFor="specificEventType" className="text-xs text-muted-foreground">Please specify your event <span className="text-destructive">*</span></Label>
                       <Input
                         id="specificEventType"
                         placeholder="e.g. Sweet 16, Reunion..."
@@ -1754,7 +1918,10 @@ export default function Booking() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="locationType">Location Type *</Label>
+                  <Label htmlFor="locationType" className="flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 text-muted-foreground/70" /> Location Type <span className="text-destructive">*</span>
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground -mt-1">Where will the photography session take place?</p>
                   <select
                     id="locationType"
                     value={locationType}
@@ -1779,7 +1946,7 @@ export default function Booking() {
                 {(locationType === "Client Location" || locationType === "Outdoor Location" || locationType === "Other") && (
                   <div className="space-y-4 animate-fade-in">
                     <div className="space-y-2">
-                      <Label htmlFor="province">Province *</Label>
+                      <Label htmlFor="province">Province <span className="text-destructive">*</span></Label>
                       <select id="province" value={provinceId ?? ""} disabled={onlyProvinceId != null} onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                         <option value="">Select province…</option>
@@ -1788,17 +1955,22 @@ export default function Booking() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="cityMunicipality">City / Municipality *</Label>
+                      <Label htmlFor="cityMunicipality">City / Municipality <span className="text-destructive">*</span></Label>
                       <select id="cityMunicipality" value={cityMunicipalityId ?? ""} disabled={!provinceId || onlyCityId != null}
                         onChange={(e) => setCityMunicipalityId(e.target.value ? Number(e.target.value) : null)}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                         <option value="">Select city/municipality…</option>
                         {allowedCities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
+                      {onlyCityId != null && (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                          <Info className="w-3 h-3 shrink-0" /> This photographer only accepts clients in {allowedCities[0]?.name}.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="barangay">Barangay *</Label>
+                      <Label htmlFor="barangay">Barangay <span className="text-destructive">*</span></Label>
                       <select id="barangay" value={barangayId ?? ""} disabled={!cityMunicipalityId}
                         onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
@@ -1808,7 +1980,7 @@ export default function Booking() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="address">Specific Address / Venue *</Label>
+                      <Label htmlFor="address">Specific Address / Venue <span className="text-destructive">*</span></Label>
                       <div className="relative">
                         <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                         <Input id="address" className="pl-9" placeholder="Street, building, venue name, or other details"
@@ -1820,7 +1992,7 @@ export default function Booking() {
 
                 {locationType === "Outside Bicol" && (
                   <div className="space-y-2 animate-fade-in">
-                    <Label htmlFor="outsideBicolAddress">Full Address *</Label>
+                    <Label htmlFor="outsideBicolAddress">Full Address <span className="text-destructive">*</span></Label>
                     <div className="relative">
                       <MapPin className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                       <Input id="outsideBicolAddress" className="pl-9"
@@ -1834,40 +2006,56 @@ export default function Booking() {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="guestCount">Estimated Guests <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Input id="guestCount" type="number" min={0} placeholder="e.g. 80"
+                  <Label htmlFor="guestCount" className="flex items-center gap-1.5">
+                    <Users className="w-3 h-3 text-muted-foreground/70" /> Estimated Guests <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input id="guestCount" type="number" min={0} placeholder="Approximate number of attendees, e.g. 80"
                     className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     value={guestCount}
                     onChange={(e) => setGuestCount(e.target.value === "" ? "" : String(Math.max(0, Number(e.target.value))))} />
                 </div>
 
-                <div className="pt-2 border-t border-border">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Contact Information</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              </div>
+
+              <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 animate-fade-up space-y-5">
+                <div>
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <UserRound className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <h4 className="font-heading font-semibold text-sm">Contact Information</h4>
+                      <p className="text-xs text-muted-foreground">How can the photographer reach you?</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div className="space-y-2">
-                      <Label htmlFor="contactName">Full Name *</Label>
+                      <Label htmlFor="contactName" className="flex items-center gap-1.5">Full Name <span className="text-destructive">*</span></Label>
                       <Input id="contactName" placeholder="Juan Dela Cruz"
                         value={contactName} onChange={(e) => setContactName(e.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contactPhone">Phone Number *</Label>
+                      <Label htmlFor="contactPhone" className="flex items-center gap-1.5"><Phone className="w-3 h-3 text-muted-foreground/70" /> Phone Number <span className="text-destructive">*</span></Label>
                       <Input id="contactPhone" placeholder="09XX XXX XXXX"
                         value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
                     </div>
                   </div>
-                  <div className="space-y-2 mt-4">
-                    <Label htmlFor="contactEmail">Email Address *</Label>
+                  <div className="space-y-2 mt-5">
+                    <Label htmlFor="contactEmail" className="flex items-center gap-1.5"><Mail className="w-3 h-3 text-muted-foreground/70" /> Email Address <span className="text-destructive">*</span></Label>
                     <Input id="contactEmail" type="email" placeholder="juan@email.com"
                       value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Special Requests / Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Textarea id="notes" rows={3} placeholder="Themes, must-have shots, accessibility, etc."
+                  <Label htmlFor="notes" className="flex items-center gap-1.5">
+                    <MessageSquare className="w-3 h-3 text-muted-foreground/70" /> Special Requests / Notes <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Textarea id="notes" rows={3} placeholder="Share any preferences or special instructions…"
                     value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </div>
               </div>
+              </>
             )}
 
             {/* ===== Step 2: Package ===== */}
@@ -2100,7 +2288,14 @@ export default function Booking() {
                       </div>
                     )}
 
-                    {rates.hourlyRate == null && tierGroups.map(([tierName, groupExtras]) => (
+                    {tierGroups.map(([tierName, allGroupExtras]) => {
+                      // With hourly / per-day / per-person pricing the client sets the length
+                      // elsewhere, so coverage-duration options are left out of the tier.
+                      const groupExtras = (rates.hourlyRate != null || isUnitModel)
+                        ? allGroupExtras!.filter((e) => (e as any).durationMinutes == null)
+                        : allGroupExtras;
+                      if (!groupExtras || groupExtras.length === 0) return null;
+                      return (
                       <div key={tierName} className="space-y-2">
                         <p className="text-sm font-heading font-semibold">{tierName}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2127,10 +2322,12 @@ export default function Booking() {
                           })}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {flatExtras.length > 0 && (
                       <div className="space-y-2">
+                        <p className="text-sm font-heading font-semibold">Extras</p>
                         {flatExtras.map((extra) => (
                           <div key={extra.id} className="flex items-center justify-between p-4 rounded-xl border border-border">
                             <div>
@@ -2155,63 +2352,7 @@ export default function Booking() {
                       </div>
                     )}
 
-                    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Wand2 className="w-4 h-4 text-primary" />
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Live Price Breakdown</p>
-                      </div>
-                      <div className="space-y-1.5 text-sm">
-                        {rates.hourlyRate == null && !isUnitModel && (
-                          <div className="flex justify-between"><span className="text-muted-foreground">Base fee</span><span>{formatPrice(rates.baseFee)}</span></div>
-                        )}
-                        {isUnitModel && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">
-                              {rates.pricingModel === "per_day"
-                                ? `${unitQuantity} day${unitQuantity === 1 ? "" : "s"} × ${formatPrice(unitRate)}`
-                                : `${unitQuantity} ${unitQuantity === 1 ? "person" : "people"} × ${formatPrice(unitRate)}`}
-                            </span>
-                            <span>{formatPrice(unitRate * unitQuantity)}</span>
-                          </div>
-                        )}
-                        {rates.hourlyRate != null && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">
-                              {rates.baseHours != null
-                                ? `Base fee (first ${rates.baseHours} hr${rates.baseHours === 1 ? "" : "s"}) + extra hours`
-                                : `${customHours ?? rates.minHours ?? 1} hr × ${formatPrice(rates.hourlyRate)}`}
-                            </span>
-                            <span>{formatPrice(slidingSessionCharges[0] ?? 0)}</span>
-                          </div>
-                        )}
 
-                        {rates.hourlyRate != null && additionalSchedules.map((s, idx) => {
-                          const h = sessionCustomHours[s.key] ?? extraSessionMinHours;
-                          return (
-                            <div key={s.key} className="flex justify-between">
-                              <span className="text-muted-foreground">Session {idx + 2} · {h} hr{h === 1 ? "" : "s"}</span>
-                              <span>{formatPrice(slidingSessionCharges[idx + 1] ?? 0)}</span>
-                            </div>
-                          );
-                        })}
-                        {rates.hourlyRate != null && additionalSchedules.length > 0 && rates.baseFeeMode && (
-                          <p className="text-[11px] text-muted-foreground pt-1">
-                            {rates.baseFeeMode === "once"
-                              ? "The base fee is charged once for the whole booking; other hours across all sessions are billed hourly."
-                              : "Each session is charged the base fee plus the hourly rate for hours beyond the base hours."}
-                          </p>
-                        )}
-                        {(rates.extras ?? [])
-                          .filter((e) => customBuild.selectedExtraIds.includes(e.id))
-                          .map((e) => (
-                            <div key={e.id} className="flex justify-between"><span className="text-muted-foreground">{e.label}</span><span>+{formatPrice(e.price)}</span></div>
-                          ))}
-                      </div>
-                      <div className="border-t border-primary/20 mt-3 pt-3 flex items-center justify-between">
-                        <span className="font-heading font-semibold">Custom Package Total</span>
-                        <span className="text-2xl font-heading font-bold text-primary">{formatPrice(customPrice)}</span>
-                      </div>
-                    </div>
                   </div>
                 )}
               </div>
@@ -2325,7 +2466,7 @@ export default function Booking() {
                       )}
 
                       <ReviewField label={`Setting${allScheduleEntries.length > 1 ? " (main location)" : ""}`}>{locationType}</ReviewField>
-                      {locationType !== "Studio" && (
+                      {needsPsgcLocation && (
                         <ReviewField label="Location">
                           {[
                             barangays.find((b) => b.id === barangayId)?.name,
@@ -2334,46 +2475,37 @@ export default function Booking() {
                           ].filter(Boolean).join(", ")}
                         </ReviewField>
                       )}
-                      {eventAddress && <ReviewField label="Address / Venue" className="col-span-2">{eventAddress}</ReviewField>}
+                      {locationType !== "Studio" && eventAddress && <ReviewField label="Address / Venue" className="col-span-2">{eventAddress}</ReviewField>}
                       {guestCount && <ReviewField label="Guests">~{guestCount}</ReviewField>}
                     </div>
 
                     {packageMode === "custom" && rates.hourlyRate != null && (
-                      <div className="mt-3 p-2.5 rounded-lg bg-muted/50 border border-border/50 text-[11px] leading-snug text-muted-foreground space-y-1">
-                        <p className="font-semibold text-foreground">Photography Coverage Terms</p>
-                        <p>
-                          The selected coverage hours are the agreed photography coverage period. If the event
-                          ends earlier, the booking price is not automatically reduced or refunded.
-                        </p>
-                        <p>
-                          If your event runs longer than your booked coverage, you may request additional coverage
-                          from the photographer. Additional coverage requires photographer approval and may incur
-                          an additional hourly charge — it is not automatically granted or charged.
-                        </p>
+                      <div className="mt-3 p-3 rounded-lg bg-muted/50 border border-border/50 flex items-start gap-2">
+                        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <div className="text-[11px] leading-snug text-muted-foreground">
+                          <p className="font-semibold text-foreground text-xs">About Your Coverage</p>
+                          <p className="mt-0.5">
+                            Your selected coverage is an initial estimate. Final arrangements, including any additional time or charges, can be discussed directly with your photographer.
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Package + contact side by side on desktop */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-4 rounded-xl border border-border">
-                      <div className="flex justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-medium">{packageName}{packageMode === "custom" && <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">Custom</span>}</p>
-                          <p className="text-xs text-muted-foreground">{packagePhotos === 999 ? "Unlimited" : packagePhotos} photos</p>
-                        </div>
-                        <p className="font-heading font-bold text-primary shrink-0">{formatPrice(packagePrice)}</p>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="p-4 rounded-xl border border-border space-y-3">
+                      <p className="font-medium">
+                        What you selected
+                        {packageMode === "custom" && (
+                          <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">Custom</span>
+                        )}
+                      </p>
+                      <PriceBreakdown lines={priceBreakdown} />
+                      <div className="flex justify-between items-center pt-3 border-t border-border">
+                        <span className="font-heading font-semibold">Total</span>
+                        <span className="font-heading font-bold text-primary">{formatPrice(subtotal)}</span>
                       </div>
-                      {packageMode === "fixed" && selectedAddOns.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-border space-y-1">
-                          {selectedAddOns.map((i) => (
-                            <div key={i} className="flex justify-between text-xs">
-                              <span className="text-muted-foreground">+ {photographerAddOns[i].name}</span>
-                              <span>{formatPrice(photographerAddOns[i].price)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
                     <div className="p-4 rounded-xl border border-border space-y-2">
@@ -2383,19 +2515,14 @@ export default function Booking() {
                     </div>
                   </div>
 
-                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-start gap-2">
-                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <p className="text-xs text-primary/90 leading-snug">
-                      <strong>Note:</strong> By confirming, the photographer has up to 48 hours to review your request. Your time is only reserved once your request is accepted and your payment is confirmed. You won't be charged until it is approved.
-                    </p>
-                  </div>
+
                 </div>
               </div>
             )}
           </div>
 
           {/* Sidebar summary */}
-          <div>
+          <div className="min-w-0">
             <div className="bg-card rounded-xl card-shadow border border-border/50 p-6 sticky top-24">
               <h3 className="font-heading font-semibold mb-4">Booking Summary</h3>
               <div className="space-y-3 text-sm">
@@ -2417,17 +2544,24 @@ export default function Booking() {
                     )}
                   </div>
                 ))}
-                {eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium text-right">{Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}</span></div>}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">{packageMode === "fixed" ? (pkg ? `${pkg.name} Package` : "No package selected") : "Custom Package"}</span>
-                  <span className="font-medium">{formatPrice(packagePrice)}</span>
-                </div>
-                {packageMode === "fixed" && selectedAddOns.map((i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="text-muted-foreground">{photographerAddOns[i].name}</span>
-                    <span className="font-medium">{formatPrice(photographerAddOns[i].price)}</span>
+                {locationType && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Location</span>
+                    <span className="font-medium text-right min-w-0 break-words">
+                      {[locationType, mainLocationText, locationType !== "Studio" ? eventAddress.trim() : ""].filter(Boolean).join(" · ")}
+                    </span>
                   </div>
-                ))}
+                )}{eventType && <div className="flex justify-between"><span className="text-muted-foreground">Event</span><span className="font-medium text-right min-w-0 break-words">{Array.from(new Set(allScheduleEntries.map((s) => s.label))).join(" + ")}</span></div>}{!!guestCount.trim() && <div className="flex justify-between"><span className="text-muted-foreground">Est. guests</span><span className="font-medium">{guestCount.trim()}</span></div>}
+                {priceBreakdown.length > 0 ? (
+                  <div className="pt-3 mt-1 border-t border-border/50">
+                    <PriceBreakdown lines={priceBreakdown} />
+                  </div>
+                ) : (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">No package selected</span>
+                    <span className="font-medium">{formatPrice(0)}</span>
+                  </div>
+                )}
               </div>
               <div className="border-t border-border mt-4 pt-4 space-y-2">
                 <div className="flex justify-between text-sm">
@@ -2459,9 +2593,7 @@ export default function Booking() {
                   </Button>
                 )}
               </div>
-              {!isLastStep && !currentValidation.ok && !isCheckingAvailability && currentValidation.reason && (
-                <p className="text-xs text-destructive text-center mt-3">{currentValidation.reason}</p>
-              )}
+
               <p className="text-xs text-muted-foreground text-center mt-3">
                 No payment is required right now.
               </p>

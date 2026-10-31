@@ -276,7 +276,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       const res = await api.get("/auth/me");
       const raw = res.data?.data ?? res.data;
       const verified = Boolean(raw?.email_verified_at);
-      setUser((prev) => (prev ? { ...prev, emailVerified: verified } : prev));
+      setUser((prev) => (prev ? { ...prev, emailVerified: verified, email: raw?.email ?? prev.email } : prev));
       return verified;
     } catch {
       return false;

@@ -11,21 +11,27 @@ import api, { getApiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
 import {
   User, Lock, Key,
-  AlertTriangle, Camera, CheckCircle2
+  AlertTriangle, Camera, CheckCircle2, Mail, Phone, Clock,
+  CalendarClock, CalendarCheck, ChevronRight
 } from "lucide-react";
+
+// Route of the client "My Bookings" page (set to your real path).
+const BOOKINGS_PATH = "/bookings";
 
 
 
 export default function Profile() {
   const { user, refreshProfilePhoto } = useRole();
   const navigate = useNavigate();
-  const { data: bookings = [] } = useBookings(user?.email);
+  const { data: bookings = [], isLoading: bookingsLoading } = useBookings(user?.email);
 
   // Real counts, derived from actual bookings — used to (pre-)block deactivation
   // the same way the backend's DeactivateAccountAction already enforces server-side.
   const upcomingBookings = bookings.filter((b) =>
     ["pending", "accepted", "confirmed"].includes(b.status)
   ).length;
+  // Counts for the Booking Overview card — same bookings already loaded above, no extra request.
+  const completedBookings = bookings.filter((b) => b.status === "completed").length;
   const pendingPayments = bookings.filter((b) => b.paymentStatus === "pending_verification").length;
 
   // ==========================================
@@ -50,6 +56,17 @@ export default function Profile() {
   const [isDirty, setIsDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deactivateAvailableOn, setDeactivateAvailableOn] = useState<string | null>(null);
+  const [memberSince, setMemberSince] = useState<string | null>(null);
+  const [accountStatus, setAccountStatus] = useState<string>("");
+  const memberSinceLabel = memberSince
+    ? new Date(memberSince).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : "—";
+  const accountTypeLabel = user?.accountType
+    ? user.accountType.charAt(0).toUpperCase() + user.accountType.slice(1)
+    : "Client";
+  const accountStatusLabel = accountStatus
+    ? accountStatus.charAt(0).toUpperCase() + accountStatus.slice(1)
+    : "—";
   const deactivateCooldownActive = !!deactivateAvailableOn && new Date(deactivateAvailableOn) > new Date();
   const deactivateAvailableLabel = deactivateAvailableOn
     ? new Date(deactivateAvailableOn).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
@@ -57,6 +74,151 @@ export default function Profile() {
   const deactivateDaysLeft = deactivateAvailableOn
     ? Math.max(1, Math.ceil((new Date(deactivateAvailableOn).getTime() - Date.now()) / 86400000))
     : 0;
+
+  // ==========================================
+  // EMAIL / CONTACT NUMBER SELF-SERVICE CHANGE
+  // ==========================================
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailChange, setEmailChange] = useState({ email: "", password: "" });
+  const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
+  const [isRequestingEmail, setIsRequestingEmail] = useState(false);
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [isCancellingEmail, setIsCancellingEmail] = useState(false);
+
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [phoneChange, setPhoneChange] = useState({ phone: "", password: "" });
+  const [phoneChangeError, setPhoneChangeError] = useState<string | null>(null);
+  const [isChangingPhone, setIsChangingPhone] = useState(false);
+
+  // Refreshes ONLY the email / phone / pending-email fields so unsaved edits to the
+  // rest of the form are never overwritten. Returns the fresh profile (or null).
+  const refreshContact = async (opts?: { announceVerified?: boolean }) => {
+    try {
+      const res = await api.get("/client/profile");
+      const p = res.data?.data ?? res.data;
+      const email = p.email ?? "";
+      const phone = p.phone_number ?? "";
+      const pending: string | null = p.pending_email ?? null;
+
+      if (opts?.announceVerified && pendingEmail && !pending && email.toLowerCase() === pendingEmail.toLowerCase()) {
+        toast.success("Your new email address is verified and now active.", { id: "email-change-verified" });
+      }
+      setInitialData((d) => ({ ...d, email, phone }));
+      setFormData((d) => ({ ...d, email, phone }));
+      setPendingEmail(pending);
+      return p;
+    } catch {
+      return null;
+    }
+  };
+
+  // While a change is pending, re-check when the client returns to this tab
+  // (e.g. after clicking the link in their new inbox) so the status updates by itself.
+  useEffect(() => {
+    if (!pendingEmail) return;
+    const check = () => {
+      if (document.visibilityState === "visible") refreshContact({ announceVerified: true });
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    const timer = setInterval(check, 10000);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEmail]);
+
+  const closeEmailModal = () => {
+    setShowEmailModal(false);
+    setEmailChange({ email: "", password: "" });
+    setEmailChangeError(null);
+  };
+
+  const handleRequestEmailChange = async () => {
+    if (!emailChange.email.trim()) {
+      setEmailChangeError("Enter your new email address.");
+      return;
+    }
+    if (!emailChange.password) {
+      setEmailChangeError("Enter your current password to continue.");
+      return;
+    }
+    setIsRequestingEmail(true);
+    setEmailChangeError(null);
+    try {
+      await api.post("/client/change-email", {
+        email: emailChange.email.trim(),
+        current_password: emailChange.password,
+      });
+      toast.success("Verification link sent. Your current email stays active until you verify the new one.");
+      closeEmailModal();
+      await refreshContact();
+    } catch (err) {
+      setEmailChangeError(getApiErrorMessage(err, "Could not start the email change. Please try again."));
+    } finally {
+      setIsRequestingEmail(false);
+    }
+  };
+
+  const handleResendEmailChange = async () => {
+    setIsResendingEmail(true);
+    try {
+      await api.post("/client/change-email/resend");
+      toast.success(`Verification link re-sent to ${pendingEmail}.`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Could not resend the verification email."));
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
+  const handleCancelEmailChange = async () => {
+    setIsCancellingEmail(true);
+    try {
+      await api.post("/client/change-email/cancel");
+      setPendingEmail(null);
+      toast.success("Email change cancelled.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Could not cancel the email change."));
+    } finally {
+      setIsCancellingEmail(false);
+    }
+  };
+
+  const closePhoneModal = () => {
+    setShowPhoneModal(false);
+    setPhoneChange({ phone: "", password: "" });
+    setPhoneChangeError(null);
+  };
+
+  const handleChangePhone = async () => {
+    if (!phoneChange.phone.trim()) {
+      setPhoneChangeError("Enter your new mobile number.");
+      return;
+    }
+    if (!phoneChange.password) {
+      setPhoneChangeError("Enter your current password to continue.");
+      return;
+    }
+    setIsChangingPhone(true);
+    setPhoneChangeError(null);
+    try {
+      await api.post("/client/change-contact-number", {
+        phone_number: phoneChange.phone.trim(),
+        current_password: phoneChange.password,
+      });
+      toast.success("Contact number updated successfully!");
+      closePhoneModal();
+      await refreshContact();
+    } catch (err) {
+      setPhoneChangeError(getApiErrorMessage(err, "Could not update your contact number."));
+    } finally {
+      setIsChangingPhone(false);
+    }
+  };
 
   const fetchProfile = async () => {
     setIsLoadingProfile(true);
@@ -75,6 +237,9 @@ export default function Profile() {
       setFormData(loaded);
       setAvatarUrl(p.profile_photo_url ?? null);
       setDeactivateAvailableOn(p.deactivate_available_on ?? null);
+      setPendingEmail(p.pending_email ?? null);
+      setMemberSince(p.member_since ?? null);
+      setAccountStatus(p.account_status ?? "");
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Unable to load your profile."));
     } finally {
@@ -143,6 +308,7 @@ export default function Profile() {
       setAvatarUrl(p.profile_photo_url ?? null);
       setAvatarFile(null);
       setAvatarPreview(null);
+      setPendingEmail(p.pending_email ?? null);
       refreshProfilePhoto(p.profile_photo_url ?? null); // updates the header immediately
       toast.success("Profile updated successfully!");
     } catch (err) {
@@ -258,7 +424,8 @@ export default function Profile() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
 
           {/* IDENTITY — photo upload */}
-          <section className="bg-card rounded-xl card-shadow border border-border/50 p-4 flex flex-row lg:flex-col items-center gap-4 lg:text-center lg:sticky lg:top-6">
+          <div className="space-y-4 lg:sticky lg:top-6">
+          <section className="bg-card rounded-xl card-shadow border border-border/50 p-4 flex flex-row lg:flex-col items-center gap-4 lg:text-center">
             <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 overflow-hidden shrink-0">
               {(avatarPreview || avatarUrl) ? (
                 <img src={avatarPreview ?? avatarUrl ?? ""} alt={formData.name} className="w-full h-full object-cover" />
@@ -280,10 +447,68 @@ export default function Profile() {
                   </Button>
                 </label>
                 <input id="avatar-input" type="file" accept="image/png, image/jpeg" className="hidden" onChange={handleAvatarChange} />
-                <p className="text-[11px] text-muted-foreground mt-1.5">PNG or JPG, up to 2MB.</p>
+
               </div>
             </div>
           </section>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+            {/* ACCOUNT OVERVIEW */}
+            <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+              <div className="bg-muted/30 px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                <User className="w-4 h-4 text-primary" />
+                <h3 className="font-heading font-semibold text-sm">Account Overview</h3>
+              </div>
+              <dl className="p-4 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Account type</dt>
+                  <dd className="font-medium text-foreground">{accountTypeLabel}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd className="font-medium text-foreground inline-flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${accountStatus.toLowerCase() === "active" ? "bg-emerald-500" : "bg-amber-500"}`} />
+                    {accountStatusLabel}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Member since</dt>
+                  <dd className="font-medium text-foreground text-right">{memberSinceLabel}</dd>
+                </div>
+              </dl>
+            </section>
+
+            {/* BOOKING OVERVIEW */}
+            <section className="bg-card rounded-xl card-shadow border border-border/50 overflow-hidden">
+              <div className="bg-muted/30 px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-primary" />
+                <h3 className="font-heading font-semibold text-sm">Booking Overview</h3>
+              </div>
+              <div className="p-2">
+                <Link to={BOOKINGS_PATH} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/40 transition-colors">
+                  <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <CalendarClock className="w-4 h-4" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-semibold leading-tight">{bookingsLoading ? "–" : upcomingBookings}</span>
+                    <span className="block text-[11px] text-muted-foreground">Upcoming bookings</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </Link>
+                <Link to={BOOKINGS_PATH} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/40 transition-colors">
+                  <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+                    <CalendarCheck className="w-4 h-4" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-semibold leading-tight">{bookingsLoading ? "–" : completedBookings}</span>
+                    <span className="block text-[11px] text-muted-foreground">Completed bookings</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </Link>
+              </div>
+            </section>
+          </div>
+          </div>
 
           <div className="lg:col-span-2 space-y-4">
 
@@ -320,11 +545,11 @@ export default function Profile() {
                   <Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
                 </div>
 
-                {/* Read-only contact details */}
+                {/* Contact details — clients manage these themselves */}
                 <div className="space-y-1.5 md:border-t md:border-border/50 md:pt-3 md:col-span-2 md:grid md:grid-cols-2 md:gap-x-4 md:space-y-0">
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="text-xs">Email Address (Read-Only)</Label>
+                      <Label className="text-xs">Email Address</Label>
                       <EmailVerifiedBadge verified={user?.emailVerified} />
                     </div>
                     <Input type="email" disabled value={formData.email} className="bg-muted/50 cursor-not-allowed" />
@@ -333,30 +558,41 @@ export default function Profile() {
                         Check your inbox (or spam) for the verification link.
                       </p>
                     )}
-                    <p className="text-[11px] text-muted-foreground">
-                      To update your email address,{" "}
-                      <Link to="/report-problem?change=email" className="text-primary hover:underline">
-                        contact support
-                      </Link>
-                      .
-                    </p>
+                    {pendingEmail ? (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-1.5">
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+                          <Clock className="w-3.5 h-3.5 shrink-0 mt-px" />
+                          <span>
+                            Pending verification: <strong className="break-all">{pendingEmail}</strong>. Open the link we sent
+                            there to finish. Your current email stays active until then.
+                          </span>
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={handleResendEmailChange} disabled={isResendingEmail || isCancellingEmail}>
+                            {isResendingEmail ? "Sending…" : "Resend link"}
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={handleCancelEmailChange} disabled={isCancellingEmail || isResendingEmail}>
+                            {isCancellingEmail ? "Cancelling…" : "Cancel change"}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <Button type="button" variant="outline" size="sm" className="mt-1 h-8 text-xs" onClick={() => setShowEmailModal(true)}>
+                      <Mail className="w-3.5 h-3.5 mr-1.5" /> {pendingEmail ? "Use a different email" : "Change Email"}
+                    </Button>
                   </div>
                   <div className="space-y-1.5 mt-3 md:mt-0">
-                    <Label className="text-xs">Contact Number (Read-Only)</Label>
+                    <Label className="text-xs">Contact Number</Label>
                     <Input
                       disabled
                       value={formData.phone}
                       placeholder="No number on file"
                       className="bg-muted/50 cursor-not-allowed"
                     />
-                    <p className="text-[11px] text-muted-foreground">
-                      Your registered number can't be changed here. Contact support if it needs updating.
-                    </p>
-                    <Link to="/report-problem?change=phone">
-                      <Button type="button" variant="outline" size="sm" className="mt-1 h-8 text-xs">
-                        Request Contact Number Change
-                      </Button>
-                    </Link>
+
+                    <Button type="button" variant="outline" size="sm" className="mt-1 h-8 text-xs" onClick={() => setShowPhoneModal(true)}>
+                      <Phone className="w-3.5 h-3.5 mr-1.5" /> Change Contact Number
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -412,6 +648,77 @@ export default function Profile() {
                   {isSaving ? "Saving…" : "Save Changes"}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Email Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-2 text-primary p-6 pb-4 shrink-0">
+              <Mail className="w-5 h-5" />
+              <h3 className="text-base font-heading font-bold">Change Email</h3>
+            </div>
+            <div className="space-y-3 px-6 overflow-y-auto">
+              <p className="text-xs text-muted-foreground">
+                We'll send a verification link to the new address. Your current email ({formData.email}) stays active until you open it.
+              </p>
+              <div className="space-y-1">
+                <Label className="text-xs">New Email Address</Label>
+                <Input type="email" autoComplete="off" value={emailChange.email} onChange={(e) => setEmailChange({ ...emailChange, email: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Current Password</Label>
+                <Input type="password" autoComplete="current-password" value={emailChange.password} onChange={(e) => setEmailChange({ ...emailChange, password: e.target.value })} />
+              </div>
+              {emailChangeError && (
+                <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{emailChangeError}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end p-6 pt-4 shrink-0">
+              <Button variant="outline" size="sm" disabled={isRequestingEmail} onClick={closeEmailModal}>Cancel</Button>
+              <Button size="sm" onClick={handleRequestEmailChange} disabled={isRequestingEmail}>
+                {isRequestingEmail ? "Sending…" : "Send Verification Link"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Contact Number Modal */}
+      {showPhoneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-card w-full max-w-sm rounded-xl shadow-2xl border border-border/50 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-2 text-primary p-6 pb-4 shrink-0">
+              <Phone className="w-5 h-5" />
+              <h3 className="text-base font-heading font-bold">Change Contact Number</h3>
+            </div>
+            <div className="space-y-3 px-6 overflow-y-auto">
+              <div className="space-y-1">
+                <Label className="text-xs">New Mobile Number</Label>
+                <Input type="tel" inputMode="tel" placeholder="0917 123 4567" autoComplete="off" value={phoneChange.phone} onChange={(e) => setPhoneChange({ ...phoneChange, phone: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Current Password</Label>
+                <Input type="password" autoComplete="current-password" value={phoneChange.password} onChange={(e) => setPhoneChange({ ...phoneChange, password: e.target.value })} />
+              </div>
+              {phoneChangeError && (
+                <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{phoneChangeError}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end p-6 pt-4 shrink-0">
+              <Button variant="outline" size="sm" disabled={isChangingPhone} onClick={closePhoneModal}>Cancel</Button>
+              <Button size="sm" onClick={handleChangePhone} disabled={isChangingPhone}>
+                {isChangingPhone ? "Saving…" : "Save Number"}
+              </Button>
             </div>
           </div>
         </div>
