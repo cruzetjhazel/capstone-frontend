@@ -4,25 +4,25 @@ export interface AdminAnalytics {
   kpis: {
     total_users: number;
     new_users_this_month: number;
-    active_professionals: number;
+    active_photographers: number;
     verified_this_month: number;
     bookings_this_month: number;
     bookings_change_pct: number | null;
     open_reports: number;
     reports_opened_this_week: number;
   };
-  growth: { month: string; clients: number; professionals: number }[];
-  registrations: { month: string; new_clients: number; new_professionals: number }[];
+  growth: { month: string; clients: number; photographers: number }[];
+  registrations: { month: string; new_clients: number; new_photographers: number }[];
   user_distribution: {
     clients: number;
-    verified_professionals: number;
-    pending_professionals: number;
+    verified_photographers: number;
+    pending_photographers: number;
     admins: number;
   };
   reports_by_type: { type: string; count: number }[];
   booking_status: { status: string; count: number; percentage: number }[];
   verification_pipeline: { pending: number; approved: number; rejected: number };
-  top_professionals: { name: string; bookings: number; completed: number; rating: number | null }[];
+  top_photographers: { name: string; bookings: number; completed: number; rating: number | null }[];
   health: { verified_pct: number | null; completion_rate: number | null; avg_rating: number | null };
   reports_resolution: { resolved_pct: number | null; avg_resolution_hours: number | null; open: number };
   marketplace: { profile_views_this_month: number; profile_views_last_month: number };

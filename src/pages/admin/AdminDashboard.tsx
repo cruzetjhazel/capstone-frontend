@@ -48,13 +48,13 @@ type DashboardBooking = { id: string; client: string; professional: string; even
 type DashboardStats = {
   total_users: number;
   active_clients: number;
-  professionals: number;
+  photographers: number;
   total_bookings: number;
   pending_reviews: number;
   analytics?: {
     completed_bookings_change_pct?: number | null;
     new_clients_change_pct?: number | null;
-    verified_professionals_change_pct?: number | null;
+    verified_photographers_change_pct?: number | null;
   };
 };
 type ActivityFeedItem = { id: string | number; text: string; time: string; icon: typeof Terminal; color: string };
@@ -62,7 +62,7 @@ type ActivityFeedItem = { id: string | number; text: string; time: string; icon:
 const defaultStats: DashboardStats = {
   total_users: 0,
   active_clients: 0,
-  professionals: 0,
+  photographers: 0,
   total_bookings: 0,
   pending_reviews: 0,
 };
@@ -121,7 +121,7 @@ export default function AdminDashboard() {
         setStats({
           total_users: s.total_users ?? 0,
           active_clients: s.active_clients ?? 0,
-          professionals: s.professionals ?? 0,
+          photographers: s.photographers ?? 0,
           total_bookings: s.total_bookings ?? 0,
           pending_reviews: s.pending_reviews ?? 0,
           analytics: s.analytics ?? {},
@@ -182,13 +182,13 @@ export default function AdminDashboard() {
     const analyticsPreview = [
     { metric: "Completed Bookings", desc: "vs last month", ...formatDelta(stats.analytics?.completed_bookings_change_pct) },
     { metric: "New Clients", desc: "vs last week", ...formatDelta(stats.analytics?.new_clients_change_pct) },
-    { metric: "Verified Professionals", desc: "MoM growth", ...formatDelta(stats.analytics?.verified_professionals_change_pct) },
+    { metric: "Verified Photographers", desc: "MoM growth", ...formatDelta(stats.analytics?.verified_photographers_change_pct) },
   ];
 
   const statCards = [
-    { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Professionals", icon: Users, color: "bg-primary/10 text-primary" },
+    { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Photographers", icon: Users, color: "bg-primary/10 text-primary" },
     { label: "Active Clients", value: String(stats.active_clients), subtext: "Registered consumers", icon: UserCheck, color: "bg-blue-500/10 text-blue-600" },
-    { label: "Professionals", value: String(stats.professionals), subtext: "Freelancers & Studios", icon: Aperture, color: "bg-secondary/10 text-secondary" },
+    { label: "Photographers", value: String(stats.photographers), subtext: "Freelancers & Studios", icon: Aperture, color: "bg-secondary/10 text-secondary" },
     { label: "Total Bookings", value: String(stats.total_bookings), subtext: "Platform-wide transactions", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
     { label: "Pending Reviews", value: String(pendingApplications.length), subtext: "Applications waiting", icon: ShieldAlert, color: "bg-amber-500/10 text-amber-600" },
   ];

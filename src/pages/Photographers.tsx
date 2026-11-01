@@ -50,7 +50,7 @@ export default function Photographers() {
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-8 animate-fade-up">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-heading font-bold">Discover Professionals</h1>
+          <h1 className="text-3xl font-heading font-bold">Discover Photographers</h1>
           <p className="text-muted-foreground">Find and book the perfect photography service in Bulan, Sorsogon.</p>
         </div>
 
@@ -190,7 +190,7 @@ export default function Photographers() {
           
           {filteredPhotographers.length === 0 && (
              <div className="col-span-full py-12 text-center bg-card rounded-2xl border border-dashed border-border/60">
-                <p className="text-muted-foreground">No professionals match your current filters.</p>
+                <p className="text-muted-foreground">No photographer match your current filters.</p>
                 <Button variant="link" onClick={() => { setActiveType("All"); setActiveService(""); }}>Clear Filters</Button>
              </div>
           )}

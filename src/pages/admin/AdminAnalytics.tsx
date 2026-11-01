@@ -68,8 +68,8 @@ export default function AdminAnalytics() {
 
   const userDistribution = [
     { name: "Clients", value: user_distribution.clients, color: "hsl(25, 55%, 35%)" },
-    { name: "Verified Professionals", value: user_distribution.verified_professionals, color: "hsl(25, 40%, 50%)" },
-    { name: "Pending Professionals", value: user_distribution.pending_professionals, color: "hsl(35, 80%, 56%)" },
+    { name: "Verified Photographers", value: user_distribution.verified_photographers, color: "hsl(25, 40%, 50%)" },
+    { name: "Pending Photographers", value: user_distribution.pending_photographers, color: "hsl(35, 80%, 56%)" },
     { name: "Admins", value: user_distribution.admins, color: "hsl(199, 89%, 48%)" },
   ];
 
@@ -89,7 +89,7 @@ export default function AdminAnalytics() {
   const bookingChange = formatChange(kpis.bookings_change_pct, "vs last month");
   const kpiCards = [
     { label: "Total Users", value: kpis.total_users.toLocaleString(), change: `+${kpis.new_users_this_month} this month`, up: true, icon: Users },
-    { label: "Active Professionals", value: kpis.active_professionals.toLocaleString(), change: `+${kpis.verified_this_month} verified this month`, up: true, icon: Camera },
+    { label: "Active Photographers", value: kpis.active_photographers.toLocaleString(), change: `+${kpis.verified_this_month} verified this month`, up: true, icon: Camera },
     { label: "Bookings This Month", value: kpis.bookings_this_month.toLocaleString(), change: bookingChange.text, up: bookingChange.up, icon: CalendarDays },
     { label: "Open Reports", value: kpis.open_reports.toLocaleString(), change: `${kpis.reports_opened_this_week} opened in the last 7 days`, up: kpis.open_reports === 0, icon: ShieldAlert },
   ];
@@ -142,7 +142,7 @@ export default function AdminAnalytics() {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
                 <Line type="monotone" name="Clients" dataKey="clients" stroke="hsl(25, 55%, 35%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                <Line type="monotone" name="Professionals" dataKey="professionals" stroke="hsl(35, 80%, 56%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" name="Photographers" dataKey="photographers" stroke="hsl(35, 80%, 56%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -259,7 +259,7 @@ export default function AdminAnalytics() {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "5px" }} />
                 <Line type="monotone" name="New Clients" dataKey="new_clients" stroke="hsl(25, 55%, 35%)" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" name="New Professionals" dataKey="new_professionals" stroke="hsl(35, 80%, 56%)" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" name="New Photographers" dataKey="new_photographers" stroke="hsl(35, 80%, 56%)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -268,10 +268,10 @@ export default function AdminAnalytics() {
         {/* ROW 5: MOST ACTIVE PROFESSIONALS */}
         <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
           <div className="px-6 py-5 border-b border-border/50 flex justify-between items-center bg-muted/20">
-            <h3 className="font-heading font-semibold">Most Active Professionals</h3>
+            <h3 className="font-heading font-semibold">Most Active Photographers</h3>
             <span className="text-xs font-medium text-muted-foreground bg-background px-2.5 py-1 rounded-md border border-border/50">Top 5 Performers</span>
           </div>
-          {data.top_professionals.length === 0 ? (
+          {data.top_photographers.length === 0 ? (
             <p className="text-sm text-muted-foreground py-10 text-center">No confirmed or completed bookings yet.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -285,7 +285,7 @@ export default function AdminAnalytics() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {data.top_professionals.map((pro, i) => (
+                  {data.top_photographers.map((pro, i) => (
                     <tr key={`${pro.name}-${i}`} className="hover:bg-muted/30 transition-colors">
                       <td className="px-6 py-4 font-medium">
                         <div className="flex items-center gap-3">
@@ -354,7 +354,7 @@ export default function AdminAnalytics() {
           <div className="bg-card rounded-xl shadow-sm border border-border/50 p-6 space-y-4">
             <h3 className="font-heading font-semibold border-b border-border/50 pb-3">Platform Health</h3>
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Verified Professionals</span>
+              <span className="text-muted-foreground">Verified Photographers</span>
               <span className="font-bold text-emerald-600">{health.verified_pct === null ? "—" : `${health.verified_pct}%`}</span>
             </div>
             <div className="flex justify-between items-center text-sm">

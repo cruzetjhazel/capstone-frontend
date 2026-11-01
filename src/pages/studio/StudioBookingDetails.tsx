@@ -200,7 +200,7 @@ export default function StudioBookingDetail() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
         <AlertTriangle className="h-10 w-10 text-destructive" />
         <h2 className="text-xl font-bold">Access Restricted</h2>
-        <p className="text-muted-foreground text-sm">Only photography professionals can access studio booking details.</p>
+        <p className="text-muted-foreground text-sm">Only photography photographers can access studio booking details.</p>
         <Button variant="outline" onClick={() => navigate("/")}>Return Home</Button>
       </div>
     );

@@ -159,7 +159,7 @@ export default function AdminArchive() {
           >
             <option value="All">All Types</option>
             <option value="client">Clients</option>
-            <option value="photographer">Professionals</option>
+            <option value="photographer">Photographers</option>
           </select>
         </div>
 
