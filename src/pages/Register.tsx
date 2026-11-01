@@ -917,7 +917,7 @@ export default function Register() {
     let data: any;
 
     try {
-      response = await fetch("http://127.0.0.1:8000/api/auth/register-client", {
+      response = await fetch(`${API_BASE}/auth/register-client`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
