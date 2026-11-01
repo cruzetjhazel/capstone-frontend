@@ -13,6 +13,7 @@ import { useRole, type Role } from "@/contexts/RoleContext";
 import { getAuthToken } from "@/lib/tokenStorage";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
+import { prepareImageForUpload } from "@/lib/prepareImage";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
 
 /* ============================================================
@@ -808,10 +809,17 @@ export default function Register() {
     setPortfolioPreviews(updatedPreviews);
   };
 
-  const handleCoverPhotoChange = (file: File | null) => {
-    setCoverPhoto(file);
-    if (coverPreview) URL.revokeObjectURL(coverPreview);
-    setCoverPreview(file ? URL.createObjectURL(file) : null);
+  const handleCoverPhotoChange = async (file: File | null) => {
+    if (!file) return;
+    try {
+      // Any size/shape is accepted. Only shrink if over 3 MB; the server crops it to the banner.
+      const { file: prepared } = await prepareImageForUpload(file, { maxBytes: 3 * 1024 * 1024 });
+      setCoverPhoto(prepared);
+      if (coverPreview?.startsWith("blob:")) URL.revokeObjectURL(coverPreview);
+      setCoverPreview(URL.createObjectURL(prepared));
+    } catch {
+      toast.error("Couldn't process that image. Please try a different JPG, PNG or WebP.");
+    }
   };
 
   /* ---------- Gating ---------- */
@@ -1964,7 +1972,7 @@ export default function Register() {
                       </div>
                     </Field>
 
-                    <Field label="Cover Banner" hint="Wide format cover preview, max 5MB">
+                    <Field label="Cover Banner" hint="Any photo, max 3MB. We resize and crop it to a wide banner.">
                       <div className="flex items-center gap-3">
                         <div className="w-16 h-10 rounded-md bg-muted border border-border overflow-hidden flex items-center justify-center shrink-0">
                           {coverPreview ? (
@@ -1979,7 +1987,7 @@ export default function Register() {
                             type="file"
                             accept="image/jpeg,image/png,image/webp"
                             className="hidden"
-                            onChange={(e) => handleCoverPhotoChange(e.target.files?.[0] ?? null)}
+                            onChange={(e) => { handleCoverPhotoChange(e.target.files?.[0] ?? null); e.target.value = ""; }}
                           />
                         </label>
                       </div>

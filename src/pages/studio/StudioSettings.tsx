@@ -24,8 +24,7 @@ import {
   FileText, Check, X, Upload, Key, QrCode, MapPin, Layers, Plus
 } from "lucide-react";
 
-const COVER_MIN_WIDTH = 1000;         // below this a cover can't look sharp, so it is rejected
-const COVER_RECOMMENDED_WIDTH = 1600; // below this we warn the studio
+const COVER_MAX_BYTES = 3 * 1024 * 1024; // 3 MB. Any dimensions are accepted; the server crops to a 4:1 banner.
 
 const SERVICE_OPTIONS = [
   "Wedding", "Debut", "Birthday", "Engagement", "Pre-Nuptial", "Graduation",
@@ -303,17 +302,8 @@ export default function StudioSettings() {
   const handleCoverSelect = async (file: File | null) => {
     if (!file) return;
     try {
-      const { file: prepared, originalWidth, originalHeight } = await prepareImageForUpload(file);
-      if (originalWidth < COVER_MIN_WIDTH) {
-        toast.error(`This image is only ${originalWidth}px wide and would look blurry. Use at least ${COVER_RECOMMENDED_WIDTH}px wide (2400×600 is ideal).`);
-        return;
-      }
-      if (originalWidth < COVER_RECOMMENDED_WIDTH) {
-        toast(`This cover is ${originalWidth}×${originalHeight}px. It may look soft on large screens. 2400×600 is ideal.`, {
-          icon: <AlertTriangle className="w-5 h-5 text-amber-500" />,
-          duration: 6000,
-        });
-      }
+      // Any size/shape is fine. Only shrink if over 3 MB; the server resizes and crops to the banner.
+      const { file: prepared } = await prepareImageForUpload(file, { maxBytes: COVER_MAX_BYTES });
       setCoverPhotoFile(prepared);
       setCoverPhotoPreview(URL.createObjectURL(prepared));
     } catch {
@@ -645,7 +635,7 @@ export default function StudioSettings() {
               <div className="space-y-2 flex-1 w-full">
                 <Label>Cover Banner</Label>
                 <p className="text-[11px] text-muted-foreground -mt-1">
-                  Best at 2400×600 px (4:1). Large photos are accepted. We only shrink them if they're over 2 MB.
+                  Any photo works, max 3 MB. We automatically resize and crop it to a wide banner (4:1), so keep your subject near the center.
                 </p>
                 <label htmlFor="cover-input"
                   className="aspect-[4/1] w-full rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center hover:bg-muted/80 transition-colors cursor-pointer overflow-hidden">
