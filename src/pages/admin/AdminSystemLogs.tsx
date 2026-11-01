@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { PillTabs } from "@/components/ListPagination";
 import { Search, Filter, Activity, Eye, X, Calendar, Archive, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -161,13 +162,10 @@ export default function AdminSystemLogs() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto space-y-6 animate-fade-up">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <Activity className="w-6 h-6 text-primary" />
-              System Activity Logs
-            </h1>
+<h1 className="text-2xl font-heading font-bold">System Activity Logs</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Every recorded action on the platform, from all users and the system.
             </p>
@@ -180,25 +178,33 @@ export default function AdminSystemLogs() {
           )}
         </div>
 
+        <PillTabs
+          value={showArchived ? "archived" : "active"}
+          onChange={(k) => setShowArchived(k === "archived")}
+          tabs={[
+            { key: "active", label: "Active" },
+            { key: "archived", label: "Archived" },
+          ]}
+        />
+
         {/* Filters */}
-        <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col lg:flex-row gap-4 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search activity or user..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9 h-10"
+              className="pl-9 h-10 rounded-xl bg-card"
             />
           </div>
 
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-10 w-full sm:w-auto rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
               >
                 <option value="">All Roles</option>
                 <option value="administrator">Administrator</option>
@@ -211,7 +217,7 @@ export default function AdminSystemLogs() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-10 w-full sm:w-auto rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
             >
               <option value="">All Categories</option>
               <option value="bookings">Bookings</option>
@@ -222,25 +228,18 @@ export default function AdminSystemLogs() {
               <option value="reviews">Reviews</option>
             </select>
 
-            <select
-              value={showArchived ? "archived" : "active"}
-              onChange={(e) => setShowArchived(e.target.value === "archived")}
-              className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="active">Active logs</option>
-              <option value="archived">Archived logs</option>
-            </select>
+
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-2 border-t lg:border-t-0 lg:border-l border-border/50 pt-4 lg:pt-0 lg:pl-4">
+          <div className="flex flex-col sm:flex-row items-center gap-2">
             <div className="relative w-full sm:w-auto">
               <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="pl-9 h-10 w-full" title="Start Date" />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="pl-9 h-10 w-full rounded-xl bg-card" title="Start Date" />
             </div>
             <span className="text-muted-foreground hidden sm:block">-</span>
             <div className="relative w-full sm:w-auto">
               <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="pl-9 h-10 w-full" title="End Date" />
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="pl-9 h-10 w-full rounded-xl bg-card" title="End Date" />
             </div>
           </div>
         </div>
@@ -251,13 +250,13 @@ export default function AdminSystemLogs() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-muted/50 border-b border-border/50">
-                  <th className="px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Date & Time</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground">Performed By</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground">Role</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground">Category</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground">Affected Target</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground">Activity</th>
-                  <th className="px-4 py-3 font-semibold text-muted-foreground text-center">Action</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Date & Time</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Performed By</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Category</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Affected Target</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Activity</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">

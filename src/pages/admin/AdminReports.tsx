@@ -297,10 +297,7 @@ export default function AdminReports() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <ShieldAlert className="w-6 h-6 text-destructive" />
-              Platform Reports & Disputes
-            </h1>
+<h1 className="text-2xl font-heading font-bold">Reports</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Manage and resolve trust & safety issues, user disputes, and platform bug reports.
             </p>
@@ -315,7 +312,7 @@ export default function AdminReports() {
             { label: "Resolved", value: stats.resolved, icon: CheckCircle2, color: "bg-emerald-500/10 text-emerald-600" },
             { label: "Closed", value: stats.closed, icon: AlertCircle, color: "bg-muted text-muted-foreground" },
           ].map((s) => (
-            <div key={s.label} className="bg-card rounded-xl p-4 border border-border/50 card-shadow">
+            <div key={s.label} className="bg-card rounded-xl p-4 border border-border/50 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-medium text-muted-foreground tracking-wide">{s.label}</p>
@@ -330,23 +327,22 @@ export default function AdminReports() {
         </div>
 
         {/* Filters */}
-        <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Search by Report ID, Reporter, or Reference..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-10 bg-background"
+              className="pl-9 h-10 rounded-xl bg-card"
             />
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
               <select
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                className="h-10 w-full sm:w-auto rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
               >
                 <option value="all">All Statuses</option>
                 <option value="submitted">Submitted</option>
@@ -360,7 +356,7 @@ export default function AdminReports() {
               <select
                 value={severityFilter}
                 onChange={(e) => { setSeverityFilter(e.target.value); setCurrentPage(1); }}
-                className="h-10 w-full sm:w-auto rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                className="h-10 w-full sm:w-auto rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
               >
                 <option value="all">All Severities</option>
                 <option value="low">Low</option>
@@ -378,13 +374,13 @@ export default function AdminReports() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-muted/50 border-b border-border/50">
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Report ID / Date</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Reporter</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Report Type / Reference</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Reason</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Severity</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground">Status</th>
-                  <th className="px-4 py-3.5 font-semibold text-muted-foreground text-center">Action</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Report ID / Date</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reporter</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Report Type / Reference</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reason</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Severity</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">

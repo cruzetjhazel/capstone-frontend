@@ -4,7 +4,7 @@ import {
   Settings, BarChart3, FolderOpen, LogOut, Search, ImageIcon, 
   ShieldCheck, Sparkles, Star, Heart, Users, Trash2, ShieldAlert,
   AlertTriangle, ClipboardList, Compass, HelpCircle, ChevronDown, X,
-  Scale
+  Scale, Archive
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { cn, getInitials } from "@/lib/utils";
@@ -105,21 +105,21 @@ const adminNav: NavCategory[] = [
       { label: "Dashboard", icon: LayoutDashboard, to: "/admin" },
       { label: "Users", icon: Users, to: "/admin/users" },
       { label: "Verifications", icon: ShieldCheck, to: "/admin/verifications" },
-      { label: "Reports & Disputes", icon: AlertTriangle, to: "/admin/reports" },
-      { label: "Suspension Appeals", icon: Scale, to: "/admin/appeals" },
+      { label: "Reports", icon: AlertTriangle, to: "/admin/reports" },
+      { label: "Appeals", icon: Scale, to: "/admin/appeals" },
     ]
   },
   {
     title: "TRANSACTIONS & AUDITS",
     items: [
       { label: "All Bookings", icon: CalendarDays, to: "/admin/bookings" },
-      { label: "Payments", icon: CreditCard, to: "/admin/payments" },
+      { label: "All Payments", icon: CreditCard, to: "/admin/payments" },
     ]
   },
   {
     title: "SYSTEM & UTILITIES",
     items: [
-      { label: "Global Archive", icon: Trash2, to: "/admin/archive" },
+      { label: "Archive", icon: Archive, to: "/admin/archive" },
       { label: "System Logs", icon: ShieldAlert, to: "/admin/logs" },
     ]
   },

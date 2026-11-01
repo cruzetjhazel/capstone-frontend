@@ -103,10 +103,10 @@ export default function AdminAnalytics() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto space-y-8 animate-fade-up pb-10">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up pb-10">
         <div>
           <h1 className="text-2xl font-heading font-bold">Platform Analytics</h1>
-          <p className="text-muted-foreground mt-1">Monitor platform health, user growth, and moderation metrics.</p>
+          <p className="text-sm text-muted-foreground mt-1">Monitor platform health, user growth, and moderation metrics.</p>
         </div>
 
         {/* ROW 1: KPI CARDS */}

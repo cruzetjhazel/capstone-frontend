@@ -192,10 +192,7 @@ export default function AdminPayments() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
-              <DollarSign className="w-6 h-6 text-primary" />
-              Payments Overview
-            </h1>
+<h1 className="text-2xl font-heading font-bold">Payments Overview</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Monitor platform payment submissions and their reference-matching status.
             </p>
@@ -223,22 +220,21 @@ export default function AdminPayments() {
           </div>
         </div>
 
-        <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search by Payment ID, Reference, Client, or Payer..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-10 bg-background"
+              className="pl-9 h-10 rounded-xl bg-card"
             />
           </div>
           <div className="w-full md:w-56 shrink-0 flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+              className="h-10 w-full rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
             >
               <option value="All">All Statuses</option>
               {Object.entries(MATCHING_STATUS_LABELS).map(([value, label]) => (
@@ -253,12 +249,12 @@ export default function AdminPayments() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-muted/50 border-b border-border/50">
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Payment ID / Date</th>
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Client</th>
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs hidden md:table-cell">Plan & Method</th>
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Amount</th>
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Matching Status</th>
-                  <th className="px-5 py-3.5 font-semibold text-muted-foreground uppercase tracking-wider text-xs text-center">Action</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Payment ID / Date</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Client</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider. hidden md:table-cell">Plan & Method</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Amount</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Matching Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider. text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -284,32 +280,32 @@ export default function AdminPayments() {
                   const StatusIcon = style.icon;
                   return (
                     <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-mono font-bold text-primary">{paymentDisplayId(p.id)}</div>
                         <div className="text-xs text-muted-foreground mt-0.5">{p.paymentDate}</div>
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <div className="font-medium text-foreground">{p.client.name}</div>
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {bookingDisplayId(p.bookingId)}
                         </div>
                       </td>
-                      <td className="px-5 py-4 hidden md:table-cell">
+                      <td className="px-4 py-3 hidden md:table-cell">
                         <div className="font-medium">{p.plan === "full" ? "Full Payment" : "Half Payment"}</div>
                         <div className="text-xs text-muted-foreground font-mono mt-0.5 border border-border/60 bg-muted px-1.5 py-0.5 rounded w-max">
                           {p.type === "online" ? (p.method || "Online") : "Onsite"}
                         </div>
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-semibold text-base">₱{p.amount.toLocaleString()}</div>
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1.5 w-max ${style.color}`}>
                           <StatusIcon className="w-3.5 h-3.5" />
                           {MATCHING_STATUS_LABELS[p.matchingStatus]}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-4 py-3 text-center">
                         <Button
                           variant="ghost"
                           size="sm"

@@ -8,6 +8,7 @@ import {
   X, Check, Filter, Loader2
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { PillTabs } from "@/components/ListPagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -201,13 +202,13 @@ export default function AdminVerification() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto animate-fade-up pb-12">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up pb-12">
 
         {/* Header Section */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-heading font-bold text-foreground">Professional Applications</h1>
-            <p className="text-muted-foreground mt-1">Review, verify, and approve Freelancer and Studio registrations.</p>
+            <h1 className="text-2xl font-heading font-bold">Professional Applications</h1>
+            <p className="text-sm text-muted-foreground mt-1">Review, verify, and approve Freelancer and Studio registrations.</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 text-sm px-3 py-1">
@@ -216,46 +217,44 @@ export default function AdminVerification() {
           </div>
         </div>
 
-        {/* Search, Filter Bar & Table */}
-        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-border bg-muted/20 flex flex-col sm:flex-row gap-4 justify-between items-center">
-
-            <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by business name, email, owner..."
-                className="pl-9 bg-background h-10 rounded-xl"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
-              <select
-                className="bg-background border border-border rounded-lg text-sm px-3 py-2 focus:ring-1 focus:ring-primary outline-none w-full sm:w-auto"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All Application Statuses</option>
-                <option value="pending_review">Pending Review</option>
-                <option value="revision_requested">Revision Requested</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
+        {/* Tabs + Search */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <PillTabs
+            value={statusFilter}
+            onChange={setStatusFilter}
+            tabs={[
+              { key: "all", label: "All" },
+              { key: "pending_review", label: "Pending Review" },
+              { key: "revision_requested", label: "Revision Requested" },
+              { key: "approved", label: "Approved" },
+              { key: "rejected", label: "Rejected" },
+            ]}
+            className="self-start"
+          />
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by business name, email, owner..."
+              className="pl-9 h-10 rounded-xl bg-card"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-card border border-border/50 rounded-xl shadow-sm overflow-hidden">
 
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border bg-muted/10 uppercase text-xs tracking-wider">
-                  <TableHead className="font-semibold px-5 py-3.5">Applicant / Business</TableHead>
-                  <TableHead className="font-semibold px-5 py-3.5">Type</TableHead>
-                  <TableHead className="font-semibold px-5 py-3.5">Application Status</TableHead>
-                  <TableHead className="font-semibold px-5 py-3.5">Account Status</TableHead>
-                  <TableHead className="font-semibold px-5 py-3.5">Submitted On</TableHead>
-                  <TableHead className="font-semibold px-5 py-3.5 text-right">Action</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Applicant / Business</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Type</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Application Status</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Account Status</TableHead>
+                  <TableHead className="font-semibold px-4 py-3">Submitted On</TableHead>
+                  <TableHead className="font-semibold px-4 py-3 text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -277,35 +276,35 @@ export default function AdminVerification() {
 
                 {!isLoading && !loadError && filteredApps.map((app) => (
                   <TableRow key={app.id} className="hover:bg-muted/30 transition-colors">
-                    <TableCell className="px-5 py-3.5">
+                    <TableCell className="px-4 py-3">
                       <div>
                         <p className="font-semibold text-foreground">{app.businessName || "—"}</p>
                         <p className="text-xs text-muted-foreground">{app.applicant?.name} • {app.applicant?.email}</p>
                       </div>
                     </TableCell>
 
-                    <TableCell className="px-5 py-3.5">
+                    <TableCell className="px-4 py-3">
                       <Badge variant="outline" className={`capitalize ${app.photographerType === "studio" ? "bg-indigo-500/10 text-indigo-600 border-indigo-200" : "bg-emerald-500/10 text-emerald-600 border-emerald-200"}`}>
                         {app.photographerType}
                       </Badge>
                     </TableCell>
 
-                    <TableCell className="px-5 py-3.5">{statusBadge(app.status)}</TableCell>
+                    <TableCell className="px-4 py-3">{statusBadge(app.status)}</TableCell>
 
-                    <TableCell className="px-5 py-3.5">
+                    <TableCell className="px-4 py-3">
                       <span className="text-xs font-medium px-2 py-1 rounded-md bg-muted text-muted-foreground border border-border uppercase tracking-wider">
                         {app.applicant?.accountStatus ?? "—"}
                       </span>
                     </TableCell>
 
-                    <TableCell className="px-5 py-3.5 text-muted-foreground">
+                    <TableCell className="px-4 py-3 text-muted-foreground">
                       <div className="flex items-center gap-1.5 text-xs">
                         <Clock className="w-3.5 h-3.5" />
                         {app.submittedAt ? new Date(app.submittedAt).toLocaleDateString() : "—"}
                       </div>
                     </TableCell>
 
-                    <TableCell className="px-5 py-3.5 text-right">
+                    <TableCell className="px-4 py-3 text-right">
                       <Button size="sm" onClick={() => setViewApp(app)} className="h-8 rounded-lg">
                         Review Details <ArrowRight className="w-4 h-4 ml-1" />
                       </Button>

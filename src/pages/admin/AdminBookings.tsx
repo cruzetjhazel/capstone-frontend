@@ -292,6 +292,13 @@ export default function AdminBookings() {
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
         
+        <div>
+          <h1 className="text-2xl font-heading font-bold">All Bookings</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor every booking on the platform, its payment status and any no-show reports.
+          </p>
+        </div>
+
         {/* Dashboard Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
           {stats.map((stat) => (
@@ -311,12 +318,12 @@ export default function AdminBookings() {
         </div>
 
         {/* Filters Section */}
-        <div className="bg-card rounded-xl border border-border/50 p-5 card-shadow space-y-4">
+        <div className="space-y-3">
           <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search booking ID, client, studio, or event..."
-              className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50"
+              className="pl-9 h-10 rounded-xl bg-card"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -324,7 +331,7 @@ export default function AdminBookings() {
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-10 rounded-xl bg-muted/50">
+              <SelectTrigger className="h-10 rounded-xl bg-card">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -341,7 +348,7 @@ export default function AdminBookings() {
             </Select>
 
             <Select value={paymentFilter} onValueChange={(v) => { setPaymentFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-10 rounded-xl bg-muted/50">
+              <SelectTrigger className="h-10 rounded-xl bg-card">
                 <SelectValue placeholder="Payment" />
               </SelectTrigger>
               <SelectContent>
@@ -356,7 +363,7 @@ export default function AdminBookings() {
             </Select>
 
             <Select value={studioFilter} onValueChange={(v) => { setStudioFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-10 rounded-xl bg-muted/50">
+              <SelectTrigger className="h-10 rounded-xl bg-card">
                 <SelectValue placeholder="Studio" />
               </SelectTrigger>
               <SelectContent>
@@ -368,7 +375,7 @@ export default function AdminBookings() {
             </Select>
 
             <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="h-10 rounded-xl bg-muted/50">
+              <SelectTrigger className="h-10 rounded-xl bg-card">
                 <SelectValue placeholder="Booking Date" />
               </SelectTrigger>
               <SelectContent>
@@ -379,7 +386,7 @@ export default function AdminBookings() {
               </SelectContent>
             </Select>
 
-            <Button variant="outline" onClick={resetFilters} className="h-10 rounded-xl gap-2 border-border/50">
+            <Button variant="outline" onClick={resetFilters} className="h-10 rounded-xl gap-2 bg-card">
               <RotateCcw className="w-4 h-4" />
               Reset Filters
             </Button>
@@ -391,19 +398,19 @@ export default function AdminBookings() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
-                <tr className="border-b border-border/40 text-xs font-semibold text-muted-foreground uppercase tracking-widest bg-muted/20">
-                  <th className="px-5 py-3.5 font-semibold">Booking ID</th>
-                  <th className="px-5 py-3.5 font-semibold">Client</th>
-                  <th className="px-5 py-3.5 font-semibold">Studio</th>
-                  <th className="px-5 py-3.5 font-semibold">Event</th>
-                  <th className="px-5 py-3.5 font-semibold">Booking Date</th>
-                  <th className="px-5 py-3.5 font-semibold">Event Date</th>
-                  <th className="px-5 py-3.5 font-semibold">Payment Status</th>
-                  <th className="px-5 py-3.5 font-semibold">Booking Status</th>
-                  <th className="px-5 py-3.5 font-semibold text-center">Actions</th>
+                <tr className="bg-muted/50 border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <th className="px-4 py-3 font-semibold">Booking ID</th>
+                  <th className="px-4 py-3 font-semibold">Client</th>
+                  <th className="px-4 py-3 font-semibold">Studio</th>
+                  <th className="px-4 py-3 font-semibold">Event</th>
+                  <th className="px-4 py-3 font-semibold">Booking Date</th>
+                  <th className="px-4 py-3 font-semibold">Event Date</th>
+                  <th className="px-4 py-3 font-semibold">Payment Status</th>
+                  <th className="px-4 py-3 font-semibold">Booking Status</th>
+                  <th className="px-4 py-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/40">
+              <tbody className="divide-y divide-border/50">
                 {isLoading && (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-muted-foreground">
@@ -420,28 +427,28 @@ export default function AdminBookings() {
 
                 {!isLoading && !loadError && bookings.map((b) => (
                   <tr key={b.rawId} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3.5 text-sm font-medium">{b.id}</td>
-                    <td className="px-5 py-3.5 text-sm font-medium">{b.client}</td>
-                    <td className="px-5 py-3.5 text-sm">{b.photographer}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{b.event}</td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3 text-sm font-medium">{b.id}</td>
+                    <td className="px-4 py-3 text-sm font-medium">{b.client}</td>
+                    <td className="px-4 py-3 text-sm">{b.photographer}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{b.event}</td>
+                    <td className="px-4 py-3">
                       <div className="flex flex-col">
                         <span className="text-sm">{b.bookingDate ? new Date(b.bookingDate).toLocaleDateString() : "—"}</span>
                         <span className="text-xs text-muted-foreground mt-0.5">{b.bookingDate ? new Date(b.bookingDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <div className="flex flex-col">
                         <span className="text-sm">{b.eventDate ? new Date(b.eventDate).toLocaleDateString() : "—"}</span>
                         <span className="text-xs text-muted-foreground mt-0.5">{b.startingTime ?? ""}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${paymentStatusConfig[b.paymentStatus] ?? "bg-muted text-muted-foreground"}`}>
                         {b.paymentStatus}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${bookingStatusConfig[b.status] ?? "bg-muted text-muted-foreground"}`}>
                         {b.status}
                       </span>
@@ -449,7 +456,7 @@ export default function AdminBookings() {
                         <p className="mt-1 text-xs text-muted-foreground">{reasonLabel(b.noShow.reason)}</p>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 align-middle">
+                    <td className="px-4 py-3 align-middle">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => setViewBooking(b)}
@@ -492,7 +499,7 @@ export default function AdminBookings() {
 
           {/* Pagination */}
           {totalCount > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-3.5 border-t border-border/40 bg-muted/20">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-border/40 bg-muted/20">
               <span className="text-xs text-muted-foreground font-medium">
                 Showing {startItem}–{endItem} of {totalCount} bookings
               </span>

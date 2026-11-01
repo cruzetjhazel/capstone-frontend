@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { PillTabs } from "@/components/ListPagination";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, ShieldAlert, CheckCircle2, XCircle, Clock, FileText } from "lucide-react";
@@ -78,17 +79,15 @@ export default function AdminAppeals() {
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-6 pb-12">
         <div>
-          <h1 className="text-2xl font-heading font-bold">Suspension Appeals</h1>
-          <p className="text-sm text-muted-foreground mt-1">Review appeals from suspended accounts. Approving reactivates the account.</p>
+          <h1 className="text-2xl font-heading font-bold">Appeals</h1>
+          <p className="text-sm text-muted-foreground mt-1">Review appeals from users. Approving an appeal reactivates the account.</p>
         </div>
 
-        <div className="flex gap-2">
-          {FILTERS.map((f) => (
-            <Button key={f.label} size="sm" variant={filter === f.id ? "default" : "outline"} onClick={() => setFilter(f.id)}>
-              {f.label}
-            </Button>
-          ))}
-        </div>
+        <PillTabs
+          value={filter}
+          onChange={setFilter}
+          tabs={FILTERS.map((f) => ({ key: f.id, label: f.label }))}
+        />
 
         {loading ? (
           <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
@@ -99,7 +98,7 @@ export default function AdminAppeals() {
         ) : (
           <div className="space-y-4">
             {appeals.map((a) => (
-              <div key={a.id} className="bg-card border border-border rounded-xl p-5 space-y-4">
+              <div key={a.id} className="bg-card border border-border/50 rounded-xl shadow-sm p-5 space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-semibold">{a.user.name}</p>

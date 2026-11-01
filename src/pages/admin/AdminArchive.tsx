@@ -131,34 +131,31 @@ export default function AdminArchive() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-6 animate-fade-up">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
 
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
-            <ArchiveRestore className="w-6 h-6 text-primary" />
-            Global Archive
-          </h1>
+<h1 className="text-2xl font-heading font-bold">Archive</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Deactivated accounts. Restoring one reactivates the account and its login access immediately.
           </p>
         </div>
 
         {/* Filters */}
-        <div className="bg-card border border-border/50 rounded-xl p-4 flex flex-col sm:flex-row gap-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search by name or email..."
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-              className="pl-9 h-10"
+              className="pl-9 h-10 rounded-xl bg-card"
             />
           </div>
           <select
             value={typeFilter}
             onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
-            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
+            className="h-10 rounded-xl border border-input bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer sm:w-48"
           >
             <option value="All">All Types</option>
             <option value="client">Clients</option>

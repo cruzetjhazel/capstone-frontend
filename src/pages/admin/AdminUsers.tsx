@@ -11,6 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { PillTabs } from "@/components/ListPagination";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
@@ -288,68 +289,58 @@ export default function AdminUsers() {
           </div>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border/50 p-5 card-shadow space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name or email address..."
-                className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50"
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              />
-            </div>
+                <PillTabs
+          value={activeTab}
+          onChange={(tab) => { setActiveTab(tab); setCurrentPage(1); }}
+          tabs={tabs.map((t) => ({ key: t, label: t }))}
+        />
 
-            <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-full sm:w-[150px] h-11 rounded-xl bg-muted/50 border-border/50">
-                <SelectValue placeholder="All Roles" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="client">Client</SelectItem>
-                <SelectItem value="freelancer">Freelancer</SelectItem>
-                <SelectItem value="studio">Studio</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-full sm:w-[150px] h-11 rounded-xl bg-muted/50 border-border/50">
-                <SelectValue placeholder="All Statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="suspended">Suspended</SelectItem>
-                <SelectItem value="deactivated">Deactivated</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button variant="outline" onClick={resetFilters} className="h-11 rounded-xl gap-2 border-border/50">
-              <RotateCcw className="w-4 h-4" />
-              Reset
-            </Button>
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or email address..."
+              className="pl-9 h-10 rounded-xl bg-card"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            />
           </div>
 
-          <div className="flex gap-2 flex-wrap pt-2 border-t border-border/30">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => { setActiveTab(tab); setCurrentPage(1); }}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  activeTab === tab
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
+          <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
+            <SelectTrigger className="w-full md:w-[150px] h-10 rounded-xl bg-card">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="client">Client</SelectItem>
+              <SelectItem value="freelancer">Freelancer</SelectItem>
+              <SelectItem value="studio">Studio</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+            <SelectTrigger className="w-full md:w-[150px] h-10 rounded-xl bg-card">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="suspended">Suspended</SelectItem>
+              <SelectItem value="deactivated">Deactivated</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button variant="outline" onClick={resetFilters} className="h-10 rounded-xl gap-2 bg-card">
+            <RotateCcw className="w-4 h-4" />
+            Reset
+          </Button>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border/40 card-shadow overflow-hidden flex flex-col">
-          <div className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-widest border-b border-border/30">
+
+
+        <div className="bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden flex flex-col">
+          <div className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-4 py-3 bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/50">
             <span>User</span>
             <span>Role / Type</span>
             <span>Email</span>
@@ -364,12 +355,12 @@ export default function AdminUsers() {
           ) : loadError ? (
             <div className="p-12 text-center text-destructive text-sm">{loadError}</div>
           ) : (
-            <div className="flex-1 divide-y divide-border/20">
+            <div className="flex-1 divide-y divide-border/50">
               {paginatedUsers.map((u) => {
                 const rc = roleConfig[u.role];
                 const AppStatusIcon = appStatusConfig[u.applicationStatus].icon;
                 return (
-                  <div key={u.id} className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-6 py-4 items-center transition-colors hover:bg-muted/30">
+                  <div key={u.id} className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-4 py-3 items-center transition-colors hover:bg-muted/30">
                     <div className="flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${u.avatarColor} relative`}>
                         {getInitials(u.name)}
