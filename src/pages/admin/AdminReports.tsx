@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
+import { AdminStatCard } from "@/components/AdminStatCard";
 
 // --- Types aligned with the real backend (Report / ReportNote models) ---
 type ReportStatus = "submitted" | "under_review" | "resolved" | "closed";
@@ -305,24 +306,14 @@ export default function AdminReports() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: "Submitted", value: stats.submitted, icon: Clock, color: "bg-amber-500/10 text-amber-600" },
             { label: "Under Review", value: stats.under_review, icon: Search, color: "bg-blue-500/10 text-blue-600" },
             { label: "Resolved", value: stats.resolved, icon: CheckCircle2, color: "bg-emerald-500/10 text-emerald-600" },
             { label: "Closed", value: stats.closed, icon: AlertCircle, color: "bg-muted text-muted-foreground" },
           ].map((s) => (
-            <div key={s.label} className="bg-card rounded-xl p-4 border border-border/50 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground tracking-wide">{s.label}</p>
-                  <p className="text-xl font-heading font-bold mt-1">{s.value.toLocaleString()}</p>
-                </div>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${s.color}`}>
-                  <s.icon className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
+            <AdminStatCard key={s.label} label={s.label} value={s.value.toLocaleString()} icon={s.icon} color={s.color} />
           ))}
         </div>
 

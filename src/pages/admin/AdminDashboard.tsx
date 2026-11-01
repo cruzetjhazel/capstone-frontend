@@ -2,12 +2,15 @@ import { useState, useEffect } from "react";
 import { 
   Users, UserCheck, Aperture, CalendarDays, ShieldAlert, ArrowRight,
   ShieldCheck, UserCog, Terminal, Archive, CheckCircle2, XCircle, 
-  RefreshCw, Package, ArrowUpRight, BarChart3, Check
+  RefreshCw, Package, ArrowUpRight, BarChart3, Check,
+  AlertTriangle, Scale, ReceiptText, CalendarX2
 } from "lucide-react";
+import { useAdminPayments } from "@/hooks/useAdminPayments";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
+import { AdminStatCard } from "@/components/AdminStatCard";
 
 const formatDelta = (v: number | null | undefined) =>
   v == null
@@ -43,7 +46,19 @@ function unwrapObject(payload: any): any {
   return cur && typeof cur === "object" ? cur : {};
 }
 
-type DashboardPendingApp = { id: string; name: string; type: "Studio" | "Freelancer" };
+type DashboardPendingApp = { id: string; name: string; type: "Studio" | "Freelancer"; submittedAt: string | null };
+type ActionItem = {
+  key: string;
+  tag: string;
+  title: string;
+  subtitle: string;
+  to: string;
+  icon: typeof Terminal;
+  color: string;
+  priority: number; // no longer used for sorting
+  action: string; // button label
+  at: number; // when it was submitted/reported (ms), used for sorting
+};
 type DashboardBooking = { id: string; client: string; professional: string; event: string; date: string; status: string };
 type DashboardStats = {
   total_users: number;
@@ -54,7 +69,7 @@ type DashboardStats = {
   analytics?: {
     completed_bookings_change_pct?: number | null;
     new_clients_change_pct?: number | null;
-    verified_photographers_change_pct?: number | null;
+    verified_professionals_change_pct?: number | null;
   };
 };
 type ActivityFeedItem = { id: string | number; text: string; time: string; icon: typeof Terminal; color: string };
@@ -98,6 +113,10 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats>(defaultStats);
   const [recentBookings, setRecentBookings] = useState<DashboardBooking[]>([]);
   const [platformActivities, setPlatformActivities] = useState<ActivityFeedItem[]>([]);
+  const [reportItems, setReportItems] = useState<ActionItem[]>([]);
+  const [appealItems, setAppealItems] = useState<ActionItem[]>([]);
+  const [noShowItems, setNoShowItems] = useState<ActionItem[]>([]);
+  const { data: payments = [] } = useAdminPayments();
 
   useEffect(() => {
     api.get("/admin/photographer-applications", { params: { status: "pending_review" } })
@@ -108,6 +127,7 @@ export default function AdminDashboard() {
             id: String(app.id),
             name: app.business_name || app.applicant?.name || "Unnamed applicant",
             type: app.photographer_type === "studio" ? "Studio" : "Freelancer",
+            submittedAt: app.submitted_at ?? null,
           }))
         );
       })
@@ -121,7 +141,7 @@ export default function AdminDashboard() {
         setStats({
           total_users: s.total_users ?? 0,
           active_clients: s.active_clients ?? 0,
-          photographers: s.photographers ?? 0,
+          photographers: s.professionals ?? 0,
           total_bookings: s.total_bookings ?? 0,
           pending_reviews: s.pending_reviews ?? 0,
           analytics: s.analytics ?? {},
@@ -153,6 +173,81 @@ export default function AdminDashboard() {
         toast.error(getApiErrorMessage(err, "Failed to load recent bookings."));
       });
 
+  }, []);
+
+  // To-do sources load a moment later so the dashboard doesn't fire ~9 requests at once.
+  useEffect(() => {
+    const t = setTimeout(() => {
+    api.get("/admin/reports", { params: { per_page: 30 } })
+      .then((res) => {
+        const items: ActionItem[] = [res].flatMap((res) => {
+          const env = unwrapObject(res.data);
+          return unwrapList(env.reports ?? env)
+            .filter((r: any) => r.status === "submitted" || r.status === "under_review")
+            .map((r: any) => ({
+            key: `report-${r.raw_id ?? r.id}`,
+            tag: r.severityLabel ?? "Report",
+            title: r.reason,
+            subtitle: `${r.id} · from ${r.reporterName}${r.status === "under_review" ? " · under review" : ""}`,
+            to: "/admin/reports",
+            icon: AlertTriangle,
+            color: r.severity === "urgent" || r.severity === "high"
+              ? "bg-destructive/10 text-destructive"
+              : "bg-blue-500/10 text-blue-600",
+                        priority: r.severity === "urgent" || r.severity === "high" ? 0 : 3,
+            action: "Review",
+            at: r.date ? new Date(r.date).getTime() : 0,
+          }));
+        });
+        setReportItems(items);
+      })
+      .catch(() => {});
+
+    api.get("/admin/appeals", { params: { status: "pending" } })
+      .then((res) => {
+        const list: any[] = res.data?.data ?? [];
+        setAppealItems(
+          list.map((a) => ({
+            key: `appeal-${a.id}`,
+            tag: "Appeal",
+            title: `${a.user?.name ?? "A user"} appealed a suspension`,
+            subtitle: a.message,
+            to: "/admin/appeals",
+            icon: Scale,
+            color: "bg-purple-500/10 text-purple-600",
+            at: a.created_at ? new Date(a.created_at).getTime() : 0,
+                  priority: 2,
+      action: "Review",
+          }))
+        );
+      })
+      .catch(() => {});
+
+    api.get("/admin/bookings", { params: { status: "no_show_review", per_page: 5 } })
+      .then((res) => {
+        const env = unwrapObject(res.data);
+        const list = unwrapList(env.bookings ?? env);
+        setNoShowItems(
+          list.map((b: any) => ({
+            key: `noshow-${b.raw_id ?? b.id}`,
+            tag: "No-show",
+            title: `No-show review · ${b.id}`,
+            subtitle: `${b.client} → ${b.photographer}`,
+            to: "/admin/bookings",
+            icon: CalendarX2,
+            color: "bg-orange-500/10 text-orange-600",
+            at: b.noShow?.reportedAt ? new Date(b.noShow.reportedAt).getTime() : 0,
+                        priority: 1,
+            action: "Decide",
+          }))
+        );
+      })
+      .catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
     api.get("/admin/activity-logs", { params: { per_page: 4 } })
       .then((res) => {
         const list = unwrapList(res.data);
@@ -182,8 +277,42 @@ export default function AdminDashboard() {
     const analyticsPreview = [
     { metric: "Completed Bookings", desc: "vs last month", ...formatDelta(stats.analytics?.completed_bookings_change_pct) },
     { metric: "New Clients", desc: "vs last week", ...formatDelta(stats.analytics?.new_clients_change_pct) },
-    { metric: "Verified Photographers", desc: "MoM growth", ...formatDelta(stats.analytics?.verified_photographers_change_pct) },
+    { metric: "Verified Photographers", desc: "MoM growth", ...formatDelta(stats.analytics?.verified_professionals_change_pct) },
   ];
+
+  const actionItems: ActionItem[] = [
+    ...reportItems,
+    ...noShowItems,
+    ...appealItems,
+    ...pendingApplications.map((app) => ({
+      key: `app-${app.id}`,
+      tag: "Verification",
+      at: app.submittedAt ? new Date(app.submittedAt).getTime() : 0,
+      title: app.name,
+      subtitle: `${app.type} application waiting for review`,
+      to: "/admin/verifications",
+      icon: ShieldCheck,
+      color: "bg-amber-500/10 text-amber-600",
+            priority: 2,
+      action: "Review",
+    })),
+    ...payments
+      .filter((p) => p.refundStatus === "pending")
+      .map((p) => ({
+        key: `refund-${p.id}`,
+        tag: "Refund",
+        at: new Date(p.paymentDate).getTime() || 0,
+        title: `Refund request · PAY-${String(p.id).padStart(4, "0")}`,
+        subtitle: `${p.client.name} · ₱${p.amount.toLocaleString()}`,
+        to: "/admin/payments",
+        icon: ReceiptText,
+        color: "bg-emerald-500/10 text-emerald-600",
+                priority: 4,
+        action: "Record",
+      })),
+  ].sort((a, b) => b.at - a.at);
+
+  const topActionItems = actionItems.slice(0, 5);
 
   const statCards = [
     { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Photographers", icon: Users, color: "bg-primary/10 text-primary" },
@@ -246,58 +375,58 @@ export default function AdminDashboard() {
         {/* Compact Stats Row */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {statCards.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-card rounded-xl border border-border/50 hover:border-border transition-colors px-3.5 py-3 flex items-center gap-3 min-w-0"
-            >
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${stat.color}`}>
-                <stat.icon className="w-4 h-4" />
-              </div>
-              <p className="text-xs font-medium text-muted-foreground truncate flex-1" title={stat.subtext}>{stat.label}</p>
-              <p className="text-lg font-bold tracking-tight tabular-nums">{stat.value}</p>
-            </div>
+            <AdminStatCard key={stat.label} {...stat} />
           ))}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
-          {/* Pending Applications Panel */}
+          {/* Needs Your Action: the most recent items waiting on the admin */}
           <div className="bg-card rounded-xl shadow-sm border border-border/50 flex flex-col">
             <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-              <h3 className="text-sm font-semibold tracking-tight">Pending Photographer Review</h3>
-              <Link to="/admin/verifications" className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1">
-                View All <ArrowUpRight className="w-3 h-3" />
-              </Link>
+              <h3 className="text-sm font-semibold tracking-tight">Needs Your Action</h3>
+              {actionItems.length > 0 && (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700">
+                  Latest {topActionItems.length} of {actionItems.length}
+                </span>
+              )}
             </div>
             <div className="divide-y divide-border/40 flex-1">
-              {pendingApplications.length === 0 ? (
+              {actionItems.length === 0 ? (
                 <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-                  No pending applications.
+                  You're all caught up. Nothing is waiting on you.
                 </div>
               ) : (
-                pendingApplications.map((app) => (
-                  <div key={app.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm hover:bg-muted/30 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                        {app.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                      </div>
-                      <div className="min-w-0 flex items-center gap-2">
-                        <p className="font-semibold truncate">{app.name}</p>
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${
-                          app.type === "Studio" ? "bg-secondary/10 text-secondary" : "bg-blue-500/10 text-blue-600"
-                        }`}>
-                          {app.type}
-                        </span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => setAppToApprove({ id: app.id, name: app.name })}
-                      className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors shrink-0 shadow-sm"
+                topActionItems.map((item) => {
+                  const ItemIcon = item.icon;
+                  return (
+                    <div
+                      key={item.key}
+                      className="px-5 py-3 flex items-center justify-between gap-4 text-sm hover:bg-muted/30 transition-colors"
                     >
-                      Approve
-                    </button>
-                  </div>
-                ))
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${item.color}`}>
+                          <ItemIcon className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold truncate">{item.title}</p>
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${item.color}`}>
+                              {item.tag}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{item.subtitle}</p>
+                        </div>
+                      </div>
+                      <Link
+                        to={item.to}
+                        className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors shrink-0 shadow-sm"
+                      >
+                        {item.action}
+                      </Link>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>

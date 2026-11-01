@@ -77,7 +77,7 @@ export default function AdminAppeals() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-6 pb-12">
+      <div className="max-w-7xl mx-auto space-y-6 animate-fade-up pb-12">
         <div>
           <h1 className="text-2xl font-heading font-bold">Appeals</h1>
           <p className="text-sm text-muted-foreground mt-1">Review appeals from users. Approving an appeal reactivates the account.</p>
@@ -96,7 +96,7 @@ export default function AdminAppeals() {
         ) : appeals.length === 0 ? (
           <p className="text-sm text-muted-foreground italic text-center py-12">No appeals here.</p>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
             {appeals.map((a) => (
               <div key={a.id} className="bg-card border border-border/50 rounded-xl shadow-sm p-5 space-y-4">
                 <div className="flex items-start justify-between gap-3">

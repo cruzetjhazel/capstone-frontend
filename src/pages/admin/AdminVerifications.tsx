@@ -248,7 +248,7 @@ export default function AdminVerification() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/10 uppercase text-xs tracking-wider">
+                <TableRow className="bg-muted/50 border-b border-border/50 uppercase text-xs tracking-wider">
                   <TableHead className="font-semibold px-4 py-3">Applicant / Business</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Type</TableHead>
                   <TableHead className="font-semibold px-4 py-3">Application Status</TableHead>

@@ -5,6 +5,7 @@ import {
   Eye, X, AlertTriangle, CheckCircle2,
   CreditCard, FileText, Ban, ShieldCheck, Loader2, ReceiptText,
 } from "lucide-react";
+import { AdminStatCard } from "@/components/AdminStatCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PaymentTrail } from "@/components/PaymentTrail";
@@ -199,25 +200,9 @@ export default function AdminPayments() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-card rounded-xl shadow-sm border border-border/50 p-5 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0">
-              <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-500" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Verified Revenue</p>
-              <p className="text-2xl font-heading font-bold">₱{verifiedRevenue.toLocaleString()}</p>
-            </div>
-          </div>
-          <div className="bg-card rounded-xl shadow-sm border border-border/50 p-5 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-              <Clock className="w-6 h-6 text-amber-600 dark:text-amber-500" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Awaiting Match / Review</p>
-              <p className="text-2xl font-heading font-bold">₱{pendingReviewAmount.toLocaleString()}</p>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <AdminStatCard label="Verified Revenue" value={`₱${verifiedRevenue.toLocaleString()}`} icon={DollarSign} color="bg-emerald-500/10 text-emerald-600" />
+          <AdminStatCard label="Awaiting Match / Review" value={`₱${pendingReviewAmount.toLocaleString()}`} icon={Clock} color="bg-amber-500/10 text-amber-600" />
         </div>
 
         <div className="flex flex-col md:flex-row md:items-center gap-3">
@@ -249,12 +234,12 @@ export default function AdminPayments() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-muted/50 border-b border-border/50">
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Payment ID / Date</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Client</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider. hidden md:table-cell">Plan & Method</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Amount</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider.">Matching Status</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider. text-center">Action</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payment ID / Date</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Client</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Plan & Method</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Matching Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">

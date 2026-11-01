@@ -71,7 +71,6 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminVerifications from "./pages/admin/AdminVerifications";
 import AdminReviewApplication from "./pages/admin/AdminReviewApplication";
 import AdminSystemLogs from "./pages/admin/AdminSystemLogs"; 
-import AdminArchive from "./pages/admin/AdminArchive"; 
 import AdminReports from "./pages/admin/AdminReports";
 import AdminAppeals from "./pages/admin/AdminAppeals";
 
@@ -214,7 +213,6 @@ const App = () => (
               <Route path="/admin/settings" element={<ProtectedRoute allowedRole="admin"><AdminSettings /></ProtectedRoute>} />
               <Route path="/admin/review/:id" element={<ProtectedRoute allowedRole="admin"><AdminReviewApplication /></ProtectedRoute>} />
               <Route path="/admin/logs" element={<ProtectedRoute allowedRole="admin"><AdminSystemLogs /></ProtectedRoute>} /> 
-              <Route path="/admin/archive" element={<ProtectedRoute allowedRole="admin"><AdminArchive /></ProtectedRoute>} /> 
               <Route path="/admin/reports" element={<ProtectedRoute allowedRole="admin"><AdminReports /></ProtectedRoute>} /> 
               <Route path="/admin/notifications" element={<ProtectedRoute allowedRole="admin"><Notifications /></ProtectedRoute>} /> 
               <Route path="/admin/appeals" element={<ProtectedRoute allowedRole="admin"><AdminAppeals /></ProtectedRoute>} />

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
+import { AdminStatCard } from "@/components/AdminStatCard";
 
 // --- Types Aligned with System Requirements ---
 type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Declined" | "Cancelled" | "Completed" | "Expired" | "Not Completed" | "No Show";
@@ -300,20 +301,9 @@ export default function AdminBookings() {
         </div>
 
         {/* Dashboard Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {stats.map((stat) => (
-            <div key={stat.label} className="bg-card rounded-xl p-4 border border-border/50 card-shadow hover:card-shadow-hover transition-shadow duration-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground tracking-wide">{stat.label}</p>
-                  <p className="text-xl font-heading font-bold mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${stat.color}`}>
-                  <stat.icon className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2 font-medium">{stat.subtext}</p>
-            </div>
+            <AdminStatCard key={stat.label} {...stat} />
           ))}
         </div>
 
@@ -394,7 +384,7 @@ export default function AdminBookings() {
         </div>
 
         {/* Table View */}
-        <div className="bg-card rounded-xl border border-border/50 card-shadow overflow-hidden flex flex-col">
+        <div className="bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden flex flex-col">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>

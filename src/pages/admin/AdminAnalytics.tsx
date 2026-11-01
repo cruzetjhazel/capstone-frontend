@@ -10,10 +10,11 @@ import {
 } from "recharts";
 import { adminAnalyticsService } from "@/services/adminAnalyticsService";
 import { getApiErrorMessage } from "@/lib/api";
+import { AdminStatCard } from "@/components/AdminStatCard";
 
 const REPORT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   client: { label: "Client Complaints", color: "hsl(199, 89%, 48%)" },
-  studio: { label: "Professional Complaints", color: "hsl(25, 40%, 50%)" },
+  studio: { label: "Photographer Complaints", color: "hsl(25, 40%, 50%)" },
   booking: { label: "Booking Disputes", color: "hsl(25, 80%, 56%)" },
   payment: { label: "Payment Issues", color: "hsl(348, 83%, 47%)" },
   bug: { label: "Platform Issues", color: "hsl(220, 10%, 40%)" },
@@ -68,8 +69,8 @@ export default function AdminAnalytics() {
 
   const userDistribution = [
     { name: "Clients", value: user_distribution.clients, color: "hsl(25, 55%, 35%)" },
-    { name: "Verified Photographers", value: user_distribution.verified_photographers, color: "hsl(25, 40%, 50%)" },
-    { name: "Pending Photographers", value: user_distribution.pending_photographers, color: "hsl(35, 80%, 56%)" },
+    { name: "Verified Photographers", value: user_distribution.verified_professionals, color: "hsl(25, 40%, 50%)" },
+    { name: "Pending Photographers", value: user_distribution.pending_professionals, color: "hsl(35, 80%, 56%)" },
     { name: "Admins", value: user_distribution.admins, color: "hsl(199, 89%, 48%)" },
   ];
 
@@ -89,7 +90,7 @@ export default function AdminAnalytics() {
   const bookingChange = formatChange(kpis.bookings_change_pct, "vs last month");
   const kpiCards = [
     { label: "Total Users", value: kpis.total_users.toLocaleString(), change: `+${kpis.new_users_this_month} this month`, up: true, icon: Users },
-    { label: "Active Photographers", value: kpis.active_photographers.toLocaleString(), change: `+${kpis.verified_this_month} verified this month`, up: true, icon: Camera },
+    { label: "Active Photographers", value: kpis.active_professionals.toLocaleString(), change: `+${kpis.verified_this_month} verified this month`, up: true, icon: Camera },
     { label: "Bookings This Month", value: kpis.bookings_this_month.toLocaleString(), change: bookingChange.text, up: bookingChange.up, icon: CalendarDays },
     { label: "Open Reports", value: kpis.open_reports.toLocaleString(), change: `${kpis.reports_opened_this_week} opened in the last 7 days`, up: kpis.open_reports === 0, icon: ShieldAlert },
   ];
@@ -110,23 +111,16 @@ export default function AdminAnalytics() {
         </div>
 
         {/* ROW 1: KPI CARDS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {kpiCards.map((kpi) => (
-            <div key={kpi.label} className="bg-card rounded-xl p-5 shadow-sm border border-border/50">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{kpi.label}</p>
-                  <p className="text-2xl font-heading font-bold mt-1">{kpi.value}</p>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <kpi.icon className="w-5 h-5 text-primary" />
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-3 text-xs font-medium">
-                <TrendingUp className={`w-3.5 h-3.5 ${kpi.up ? "text-emerald-500" : "text-red-500 rotate-180"}`} />
-                <span className={kpi.up ? "text-emerald-500" : "text-red-500"}>{kpi.change}</span>
-              </div>
-            </div>
+            <AdminStatCard
+              key={kpi.label}
+              label={kpi.label}
+              value={kpi.value}
+              icon={kpi.icon}
+              color="bg-primary/10 text-primary"
+              change={{ text: kpi.change, up: kpi.up }}
+            />
           ))}
         </div>
 
@@ -142,7 +136,7 @@ export default function AdminAnalytics() {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
                 <Line type="monotone" name="Clients" dataKey="clients" stroke="hsl(25, 55%, 35%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                <Line type="monotone" name="Photographers" dataKey="photographers" stroke="hsl(35, 80%, 56%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" name="Photographers" dataKey="professionals" stroke="hsl(35, 80%, 56%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -197,7 +191,7 @@ export default function AdminAnalytics() {
           <div className="bg-card rounded-xl shadow-sm border border-border/50 p-6 flex flex-col justify-between">
             <div>
               <h3 className="font-heading font-semibold mb-2">Verification Pipeline</h3>
-              <p className="text-sm text-muted-foreground mb-6">Current professional onboarding statuses.</p>
+              <p className="text-sm text-muted-foreground mb-6">Current Photographer onboarding statuses.</p>
             </div>
             <div className="grid grid-cols-3 gap-4 mb-2">
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 text-center">
@@ -259,7 +253,7 @@ export default function AdminAnalytics() {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: "12px", paddingTop: "5px" }} />
                 <Line type="monotone" name="New Clients" dataKey="new_clients" stroke="hsl(25, 55%, 35%)" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" name="New Photographers" dataKey="new_photographers" stroke="hsl(35, 80%, 56%)" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" name="New Photographers" dataKey="new_professionals" stroke="hsl(35, 80%, 56%)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -271,35 +265,35 @@ export default function AdminAnalytics() {
             <h3 className="font-heading font-semibold">Most Active Photographers</h3>
             <span className="text-xs font-medium text-muted-foreground bg-background px-2.5 py-1 rounded-md border border-border/50">Top 5 Performers</span>
           </div>
-          {data.top_photographers.length === 0 ? (
+          {data.top_professionals.length === 0 ? (
             <p className="text-sm text-muted-foreground py-10 text-center">No confirmed or completed bookings yet.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-border/50 text-muted-foreground bg-muted/10">
-                    <th className="px-6 py-3 font-semibold">Professional</th>
-                    <th className="px-6 py-3 font-semibold">Platform Bookings</th>
-                    <th className="px-6 py-3 font-semibold">Completed Jobs</th>
-                    <th className="px-6 py-3 font-semibold">Average Rating</th>
+                  <tr className="bg-muted/50 border-b border-border/50 text-xs text-muted-foreground uppercase tracking-wider">
+                    <th className="px-4 py-3 font-semibold">Photographer</th>
+                    <th className="px-4 py-3 font-semibold">Platform Bookings</th>
+                    <th className="px-4 py-3 font-semibold">Completed Jobs</th>
+                    <th className="px-4 py-3 font-semibold">Average Rating</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {data.top_photographers.map((pro, i) => (
+                  {data.top_professionals.map((pro, i) => (
                     <tr key={`${pro.name}-${i}`} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-6 py-4 font-medium">
+                      <td className="px-4 py-3 font-medium">
                         <div className="flex items-center gap-3">
                           <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{i + 1}</span>
                           {pro.name}
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-semibold">{pro.bookings}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 font-semibold">{pro.bookings}</td>
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 text-emerald-600 font-medium">
                           <CheckCircle2 className="w-4 h-4" /> {pro.completed}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         {pro.rating === null ? (
                           <span className="text-muted-foreground">No reviews</span>
                         ) : (

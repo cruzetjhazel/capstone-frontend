@@ -41,7 +41,7 @@ type RawUser = {
   phone_number: string | null;
   account_type: "client" | "photographer" | "administrator";
   account_status: AccountStatus;
-  created_at: string;
+  joined_at: string | null;
   application_status: string | null;
   photographer_type: "freelancer" | "studio" | null;
 };
@@ -76,7 +76,7 @@ function toUserRecord(raw: RawUser, colorIdx: number): UserRecord {
     email: raw.email,
     phone: raw.phone_number ?? "—",
     role: mapRole(raw.account_type, raw.photographer_type),
-    joined: new Date(raw.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    joined: raw.joined_at ? new Date(raw.joined_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—",
     status: raw.account_status,
     applicationStatus: raw.application_status ? (APP_STATUS_MAP[raw.application_status] ?? "N/A") : "N/A",
     avatarColor: avatarColors[colorIdx % avatarColors.length],
@@ -284,8 +284,8 @@ export default function AdminUsers() {
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold font-heading text-foreground">User Management</h1>
-            <p className="text-sm text-muted-foreground">Monitor and manage platform accounts, roles, and security statuses.</p>
+            <h1 className="text-2xl font-heading font-bold">User Management</h1>
+            <p className="text-sm text-muted-foreground mt-1">Monitor and manage platform accounts, roles, and security statuses.</p>
           </div>
         </div>
 
@@ -340,7 +340,7 @@ export default function AdminUsers() {
 
 
         <div className="bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden flex flex-col">
-          <div className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-4 py-3 bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/50">
+          <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_80px] gap-4 px-4 py-3 bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/50">
             <span>User</span>
             <span>Role / Type</span>
             <span>Email</span>
@@ -360,7 +360,7 @@ export default function AdminUsers() {
                 const rc = roleConfig[u.role];
                 const AppStatusIcon = appStatusConfig[u.applicationStatus].icon;
                 return (
-                  <div key={u.id} className="grid grid-cols-[2fr_1fr_1.5fr_1fr_1.2fr_1fr_80px] gap-4 px-4 py-3 items-center transition-colors hover:bg-muted/30">
+                  <div key={u.id} className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_80px] gap-4 px-4 py-3 items-center transition-colors hover:bg-muted/30">
                     <div className="flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${u.avatarColor} relative`}>
                         {getInitials(u.name)}
@@ -443,7 +443,7 @@ export default function AdminUsers() {
           )}
 
           {!isLoading && !loadError && totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border/30 bg-muted/10">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-border/50 bg-muted/20">
               <span className="text-xs text-muted-foreground">
                 Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} users
               </span>

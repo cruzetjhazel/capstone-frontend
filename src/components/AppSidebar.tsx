@@ -4,7 +4,7 @@ import {
   Settings, BarChart3, FolderOpen, LogOut, Search, ImageIcon, 
   ShieldCheck, Sparkles, Star, Heart, Users, Trash2, ShieldAlert,
   AlertTriangle, ClipboardList, Compass, HelpCircle, ChevronDown, X,
-  Scale, Archive
+  Scale
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { cn, getInitials } from "@/lib/utils";
@@ -114,17 +114,11 @@ const adminNav: NavCategory[] = [
     items: [
       { label: "All Bookings", icon: CalendarDays, to: "/admin/bookings" },
       { label: "All Payments", icon: CreditCard, to: "/admin/payments" },
-    ]
-  },
-  {
-    title: "SYSTEM & UTILITIES",
-    items: [
-      { label: "Archive", icon: Archive, to: "/admin/archive" },
       { label: "System Logs", icon: ShieldAlert, to: "/admin/logs" },
     ]
   },
   {
-    title: "SETTINGS & ANALYTICS",
+    title: "SYSTEM & UTILITIES",
     items: [
       { label: "Analytics", icon: BarChart3, to: "/admin/analytics" },
       { label: "Settings", icon: Settings, to: "/admin/settings" },
