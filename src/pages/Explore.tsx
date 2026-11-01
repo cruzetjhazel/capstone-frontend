@@ -601,7 +601,7 @@ export default function Explore() {
             </Link>
           </Reveal>
           <div className="mt-4 pt-3 border-t border-white/10">
-            <p className="text-[11px] text-white/45">© 2026 LensBook. All rights reserved.</p>
+            <p className="text-[11px] text-white/45">© 2026 SnapBulan. All rights reserved.</p>
           </div>
         </div>
       </footer>

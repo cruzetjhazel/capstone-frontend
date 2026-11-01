@@ -82,7 +82,7 @@ export default function About() {
                   <span className="text-xs uppercase tracking-[0.2em]">About</span>
                 </div>
                 <h1 className="text-3xl sm:text-4xl font-heading font-bold tracking-tight leading-tight text-white">
-                  About LensBook
+                  About SnapBulan
                   </h1>
               </Reveal>
 
@@ -91,7 +91,7 @@ export default function About() {
                   A simpler way to discover, compare, and book local photographers.
                 </p>
                 <p className="text-sm sm:text-base text-white/70 leading-relaxed max-w-xl">
-                  LensBook is a web-based platform designed to connect clients with
+                  SnapBulan is a web-based platform designed to connect clients with
                   photographers and photography studios in Bulan, Sorsogon through a centralized
                   booking experience.
                 </p>
@@ -143,7 +143,7 @@ export default function About() {
                 and schedules across different studios.
               </p>
               <p className="text-sm sm:text-base text-white/70 leading-relaxed max-w-xl">
-                LensBook brings photographer discovery, service comparison,
+                SnapBulan brings photographer discovery, service comparison,
                 booking customization, availability, and booking management into one platform —
                 so clients and photographers in Bulan don't have to piece it together themselves.
               </p>
@@ -328,7 +328,7 @@ export default function About() {
           <div>
             <h4 className="font-heading font-semibold text-sm mb-3">About</h4>
             <ul className="space-y-2 text-xs text-muted-foreground">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About LensBook</Link></li>
+              <li><Link to="/about" className="hover:text-foreground transition-colors">About SnapBulan</Link></li>
               <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms and Conditions</Link></li>
             </ul>
           </div>
@@ -341,7 +341,7 @@ export default function About() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-10 pt-6 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground">© 2026 LensBook. All rights reserved.</p>
+          <p className="text-xs text-muted-foreground">© 2026 SnapBulan. All rights reserved.</p>
         </div>
       </footer>
     </div>
