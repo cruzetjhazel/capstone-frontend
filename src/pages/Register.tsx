@@ -126,9 +126,9 @@ function isValidPhilippinePhone(canonical: string): boolean {
 // Mirrors the backend rule (Password::min(8)->letters()->numbers()) so the
 // red messages here always match what the server will accept.
 const PASSWORD_RULES = [
-  { key: "len", label: "At least 8 characters", test: (v: string) => v.length >= 8 },
-  { key: "letter", label: "At least one letter", test: (v: string) => /\p{L}/u.test(v) },
-  { key: "number", label: "At least one number", test: (v: string) => /\d/.test(v) },
+  { key: "len", label: "8+ characters", test: (v: string) => v.length >= 8 },
+  { key: "letter", label: "A letter", test: (v: string) => /\p{L}/u.test(v) },
+  { key: "number", label: "A number", test: (v: string) => /\d/.test(v) },
 ];
 const passwordMeetsRules = (v: string) => PASSWORD_RULES.every((r) => r.test(v));
 
@@ -395,6 +395,8 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
+  // Who owns a taken email (from /auth/check-email): decides which message is shown.
+  const [emailTakenInfo, setEmailTakenInfo] = useState<{ accountType: string | null; applicationStatus: string | null } | null>(null);
 
   useEffect(() => {
     // Resuming an application: the email belongs to the logged-in account, skip the check
@@ -421,6 +423,11 @@ export default function Register() {
           setEmailStatus("error");
           return;
         }
+        setEmailTakenInfo(
+          !data.available && data.reason === "taken"
+            ? { accountType: data.account_type ?? null, applicationStatus: data.application_status ?? null }
+            : null
+        );
         setEmailStatus(
           data.available ? "available" : data.reason === "invalid_format" ? "invalid" : "taken"
         );
@@ -957,12 +964,29 @@ export default function Register() {
     if (!email.trim()) req("email", "Email address is required.");
     else if (!isValidEmail(email) || (!isResumingApplication && emailStatus === "invalid")) bad("email", "Enter a valid email address.");
     else if (!isResumingApplication && emailStatus === "taken") {
-      bad("email", (
-        <>
-          This email is already registered.{" "}
-          <Link to="/login" className="font-semibold underline">Sign in to continue your application</Link>
-        </>
-      ));
+      const signIn = (text: string) => <Link to="/login" className="font-semibold underline">{text}</Link>;
+      let takenMsg: React.ReactNode;
+      if (emailTakenInfo?.accountType === "photographer") {
+        switch (emailTakenInfo.applicationStatus) {
+          case "pending_review":
+            takenMsg = <>An account with this email already exists. Its photographer application has already been submitted and is awaiting review. {signIn("Sign in to check its status")}.</>;
+            break;
+          case "approved":
+            takenMsg = <>An account with this email already exists and its photographer account is already approved. Please {signIn("sign in")}.</>;
+            break;
+          case "rejected":
+            takenMsg = <>An account with this email already exists, but its photographer application was not approved. {signIn("Sign in to view the feedback")}.</>;
+            break;
+          case "revision_requested":
+            takenMsg = <>An account with this email already exists. The admin requested changes to its photographer application. {signIn("Sign in to update and resubmit it")}.</>;
+            break;
+          default: // "draft" (including a photographer with no saved application yet)
+            takenMsg = <>An account with this email already exists. You have an unfinished photographer application. {signIn("Sign in to continue your application")}.</>;
+        }
+      } else {
+        takenMsg = <>This email is already registered. Please {signIn("sign in")} or use another email address.</>;
+      }
+      bad("email", takenMsg);
     } else if (!isResumingApplication && emailStatus === "error") bad("email", "Couldn't verify this email. Please try again.");
 
     if (!phone.trim()) req("phone", "Phone number is required.");
@@ -1459,14 +1483,16 @@ export default function Register() {
 
                 <Field label="Password" required error={errs.password}>
                   <PasswordInput value={password} onChange={setPassword} onBlur={() => touch("password")} show={showPassword} setShow={setShowPassword} placeholder="Min. 8 characters" />
-                  {PASSWORD_RULES.map((r) => (
-                    <ValidationHint
-                      key={r.key}
-                      text={r.label}
-                      valid={r.test(password)}
-                      invalid={!r.test(password) && (password.length > 0 || !!errs.password)}
-                    />
-                  ))}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {PASSWORD_RULES.map((r) => (
+                      <ValidationHint
+                        key={r.key}
+                        text={r.label}
+                        valid={r.test(password)}
+                        invalid={!r.test(password) && (password.length > 0 || !!errs.password)}
+                      />
+                    ))}
+                  </div>
                 </Field>
                 <Field label="Confirm password" required error={errs.confirmPassword}>
                   <PasswordInput value={confirmPassword} onChange={setConfirmPassword} onBlur={() => touch("confirmPassword")} show={showConfirm} setShow={setShowConfirm} placeholder="Re-enter password" />
