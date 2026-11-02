@@ -17,6 +17,9 @@ import {
   useFavoritePackages, useAddFavoritePackage, useRemoveFavoritePackage,
 } from "@/hooks/useFavorites";
 import { useRole } from "@/contexts/RoleContext";
+import { Ban, ClipboardCheck } from "lucide-react";
+import { useProfileCompleteness } from "@/hooks/useProfileCompleteness";
+import { ProfileCompletenessModal } from "@/components/ProfileCompletenessModal";
 
 
 // Shared style tokens so every section card and chip looks consistent.
@@ -73,6 +76,11 @@ export default function PhotographerProfile() {
   const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
   const { user, role } = useRole();
 
+  // A photographer previewing their own page sees what is blocking bookings.
+  const isOwnProfile = role === "studio" && !!user && user.id === id;
+  const { data: ownCompleteness } = useProfileCompleteness(isOwnProfile);
+  const [ownChecklistOpen, setOwnChecklistOpen] = useState(false);
+
   const { data: favoritePackages = [] } = useFavoritePackages(!!user && role === "client");
   const addFavoritePackage = useAddFavoritePackage();
   const removeFavoritePackage = useRemoveFavoritePackage();
@@ -95,6 +103,12 @@ export default function PhotographerProfile() {
   };
 
   const handleBookClick = (e: React.MouseEvent) => {
+    // Backend enforces this too (CreateBookingAction); this keeps old links from reaching the form.
+    if (photographer && photographer.isBookable === false) {
+      e.preventDefault();
+      toast.error("This photographer is not currently accepting bookings.");
+      return;
+    }
     if (!user) {
       e.preventDefault();
       toast.error("Please log in as a client to book this photographer.");
@@ -170,6 +184,8 @@ export default function PhotographerProfile() {
   }
 
   const p = photographer;
+  const canBook = p.isBookable !== false;
+  const ownMissingItems = (ownCompleteness?.items ?? []).filter((i) => !i.complete);
   const isFav = isFavorite(p.id);
   const popularPackageIndex = getPopularPackageIndex(p.packages);
   const socialLinks = [
@@ -271,13 +287,61 @@ export default function PhotographerProfile() {
               />
             </Button>
             <Link to={`/booking/${p.id}`} onClick={handleBookClick}>
-              <Button size="sm" className="font-medium">Book Now</Button>
+              <Button size="sm" className="font-medium" disabled={!canBook} title={canBook ? undefined : "Not currently accepting bookings"}>Book Now</Button>
             </Link>
           </div>
         </div>
       </header>
 
       <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5 animate-fade-up">
+        {/* Not bookable: subtle notice for visitors, checklist for the owner */}
+        {!canBook && !isOwnProfile && (
+          <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
+            <Ban className="w-3.5 h-3.5 shrink-0" />
+            This photographer is not currently accepting bookings.
+          </div>
+        )}
+        {isOwnProfile && !canBook && (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <ClipboardCheck className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Preview: clients can't book you yet
+                </p>
+                {ownCompleteness ? (
+                  ownMissingItems.length > 0 ? (
+                    <>
+                      <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                        {ownCompleteness.completedCount}/{ownCompleteness.totalCount} completed. Still missing:
+                      </p>
+                      <ul className="mt-1.5 space-y-0.5 text-xs text-amber-800 dark:text-amber-300 list-disc pl-4">
+                        {ownMissingItems.map((item) => (
+                          <li key={item.key}>{item.label}{item.detail ? ` (${item.detail})` : ""}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                      Your checklist is complete, but you're still not bookable. Make sure your email is verified and your account is active.
+                    </p>
+                  )
+                ) : (
+                  <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">Loading your checklist…</p>
+                )}
+              </div>
+              {ownMissingItems.length > 0 && (
+                <Button size="sm" variant="outline" className="text-xs shrink-0 border-amber-300 dark:border-amber-800" onClick={() => setOwnChecklistOpen(true)}>
+                  Fix these
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {isOwnProfile && ownCompleteness && (
+          <ProfileCompletenessModal open={ownChecklistOpen} onClose={() => setOwnChecklistOpen(false)} data={ownCompleteness} />
+        )}
+
         {/* Profile header */}
         <div className={cn(sectionCard, "overflow-hidden")}>
           <div className="relative overflow-hidden aspect-[5/2] sm:aspect-[4/1] bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/25">
@@ -515,7 +579,7 @@ export default function PhotographerProfile() {
                 </div>
               </div>
               <Link to={`/booking/${p.id}?custom=true`} onClick={handleBookClick} className="shrink-0">
-                <Button variant="outline" size="sm" className="w-full sm:w-auto">Build Your Own</Button>
+                <Button variant="outline" size="sm" className="w-full sm:w-auto" disabled={!canBook}>Build Your Own</Button>
               </Link>
             </div>
 
@@ -614,7 +678,7 @@ export default function PhotographerProfile() {
 
                     <div className="mt-8">
                       <Link to={`/booking/${p.id}?package=${i}`} className="block" onClick={handleBookClick}>
-                        <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="default">
+                        <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="default" disabled={!canBook}>
                           Select Package
                         </Button>
                       </Link>
@@ -644,7 +708,7 @@ export default function PhotographerProfile() {
               </div>
 
               <Link to={`/booking/${p.id}?custom=true`} className="shrink-0" onClick={handleBookClick}>
-                <Button size="lg" className="w-full md:w-auto px-8">Customize Package</Button>
+                <Button size="lg" className="w-full md:w-auto px-8" disabled={!canBook}>Customize Package</Button>
               </Link>
             </div>
 
@@ -739,7 +803,7 @@ export default function PhotographerProfile() {
             <p className="text-sm text-muted-foreground mt-1">Choose a fixed package or build a custom package, then pick your preferred date.</p>
           </div>
           <Link to={`/booking/${p.id}`} onClick={handleBookClick} className="shrink-0">
-            <Button size="lg" className="font-medium w-full sm:w-auto">Book Now</Button>
+            <Button size="lg" className="font-medium w-full sm:w-auto" disabled={!canBook}>Book Now</Button>
           </Link>
         </div>
         </Reveal>

@@ -54,7 +54,22 @@ function buildFormData(payload: ProfileFormPayload): FormData {
   return fd;
 }
 
+export type CompletenessKey =
+  | "verified_email" | "bio" | "style" | "social_link" | "profile_photo" | "cover_photo"
+  | "gcash_account_name" | "gcash_account_number" | "active_package" | "portfolio_photos";
+
+export interface CompletenessItem {
+  key: CompletenessKey;
+  label: string;
+  complete: boolean;
+  detail: string | null;
+}
+
 export interface ProfileCompleteness {
+  items: CompletenessItem[];
+  completedCount: number;
+  totalCount: number;
+  percentage: number;
   profileComplete: boolean;
   activePortfolioCount: number;
   portfolioMinimumMet: boolean;
@@ -65,6 +80,10 @@ export interface ProfileCompleteness {
 }
 
 type RawCompleteness = {
+  items: CompletenessItem[];
+  completed_count: number;
+  total_count: number;
+  percentage: number;
   profile_complete: boolean;
   active_portfolio_count: number;
   portfolio_minimum_met: boolean;
@@ -76,6 +95,10 @@ type RawCompleteness = {
 
 function toCompleteness(raw: RawCompleteness): ProfileCompleteness {
   return {
+    items: raw.items ?? [],
+    completedCount: raw.completed_count ?? 0,
+    totalCount: raw.total_count ?? 0,
+    percentage: raw.percentage ?? 0,
     profileComplete: raw.profile_complete,
     activePortfolioCount: raw.active_portfolio_count,
     portfolioMinimumMet: raw.portfolio_minimum_met,

@@ -157,6 +157,8 @@ export interface Photographer {
   yearsActive?: number | null;
   shootingTypes?: string[];
   email?: string;
+  // From the API's is_bookable (BookabilityService). undefined (mock data) is treated as bookable.
+  isBookable?: boolean;
   gcashQR?: string;   // mock QR identifier used by payment auto-verify
   gcashName?: string;
   gcashNumber?: string;

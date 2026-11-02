@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import {
   FileText, Check, X, Upload, Key, QrCode, MapPin, Layers, Plus
 } from "lucide-react";
 
+const MAX_STYLES = 6; // photography style tags (also enforced by the API)
 const COVER_MAX_BYTES = 3 * 1024 * 1024; // 3 MB. Any dimensions are accepted; the server crops to a 4:1 banner.
 
 const SERVICE_OPTIONS = [
@@ -88,6 +90,7 @@ type GcashSnapshot = { name: string; number: string };
 
 export default function StudioSettings() {
   const { user, refreshProfilePhoto, logout } = useRole();
+  const queryClient = useQueryClient();
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -272,14 +275,23 @@ export default function StudioSettings() {
     setShootingTypes((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
   };
 
-  const toggleStyle = (style: string) =>
+  const toggleStyle = (style: string) => {
+    if (!styles.includes(style) && styles.length >= MAX_STYLES) {
+      toast.error(`You can select up to ${MAX_STYLES} style tags.`);
+      return;
+    }
     setStyles((prev) => (prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]));
+  };
 
   const handleAddCustomStyle = () => {
     const value = customStyleInput.trim();
     if (!value) return;
     if (styles.some((s) => s.toLowerCase() === value.toLowerCase())) {
       toast.error("That style is already added.");
+      return;
+    }
+    if (styles.length >= MAX_STYLES) {
+      toast.error(`You can select up to ${MAX_STYLES} style tags.`);
       return;
     }
     setStyles((prev) => [...prev, value]);
@@ -505,6 +517,7 @@ export default function StudioSettings() {
     }
 
     setIsSaving(false);
+    queryClient.invalidateQueries({ queryKey: ["photographer-completeness"] });
     if (failures.length > 0) {
       setSaveError(failures.join(" "));
     } else {
@@ -570,6 +583,17 @@ export default function StudioSettings() {
     }
   };
 
+  // Deep links from the profile checklist modal (e.g. /studio/settings#gcash).
+  useEffect(() => {
+    if (isLoading) return;
+    const id = window.location.hash.replace("#", "");
+    if (!id) return;
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, [isLoading]);
+
   if (isLoading) {
     return (
       <DashboardLayout>
@@ -612,7 +636,7 @@ export default function StudioSettings() {
           <div className="p-6 space-y-6">
 
             <div className="flex flex-col sm:flex-row gap-6 items-start">
-              <div className="space-y-2">
+              <div id="profile-photo" className="space-y-2 scroll-mt-24">
                 <Label>Profile Avatar</Label>
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 overflow-hidden">
@@ -632,7 +656,7 @@ export default function StudioSettings() {
                 </div>
               </div>
 
-              <div className="space-y-2 flex-1 w-full">
+              <div id="cover-photo" className="space-y-2 flex-1 w-full scroll-mt-24">
                 <Label>Cover Banner</Label>
                 <p className="text-[11px] text-muted-foreground -mt-1">
                   Any photo works, max 3 MB. We automatically resize and crop it to a wide banner (4:1), so keep your subject near the center.
@@ -654,7 +678,7 @@ export default function StudioSettings() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+              <div id="account-email" className="space-y-2 scroll-mt-24">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Account Email (Read-Only)</Label>
                   <EmailVerifiedBadge verified={user?.emailVerified} />
@@ -673,17 +697,17 @@ export default function StudioSettings() {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div id="bio" className="space-y-2 scroll-mt-24">
               <Label>Brand Bio / About Us <span className="text-xs text-muted-foreground font-normal">(min. 20 characters)</span></Label>
               <Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} />
             </div>
 
-            <div className="space-y-2">
-              <Label>Photography Aesthetic Styles</Label>
+            <div id="styles" className="space-y-2 scroll-mt-24">
+              <Label>Photography Aesthetic Styles <span className="text-xs text-muted-foreground font-normal">({styles.length}/{MAX_STYLES} selected)</span></Label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {PHOTOGRAPHY_STYLES.map((style) => (
                   <label key={style} className="flex items-center gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 cursor-pointer hover:bg-muted/50 text-xs font-medium">
-                    <input type="checkbox" checked={styles.includes(style)} onChange={() => toggleStyle(style)}
+                    <input type="checkbox" checked={styles.includes(style)} onChange={() => toggleStyle(style)} disabled={!styles.includes(style) && styles.length >= MAX_STYLES}
                       className="rounded border-input text-primary focus:ring-primary h-4 w-4" />
                     {style}
                   </label>
@@ -717,7 +741,7 @@ export default function StudioSettings() {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-border/50 space-y-2">
+            <div id="social-links" className="pt-4 border-t border-border/50 space-y-2 scroll-mt-24">
               <Label className="flex items-center gap-1.5"><Link2 className="w-4 h-4 text-primary" /> Social & Web Links <span className="text-xs text-muted-foreground font-normal">(At least 1 link required)</span></Label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input placeholder="facebook.com/yourpage" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
@@ -856,7 +880,7 @@ export default function StudioSettings() {
             <h3 className="font-heading font-semibold">Payment & GCash Account Details</h3>
           </div>
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-3">
+            <div id="gcash" className="space-y-3 scroll-mt-24">
               <div className="space-y-2">
                 <Label>GCash Account Name</Label>
                 <Input

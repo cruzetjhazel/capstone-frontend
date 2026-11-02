@@ -1,6 +1,6 @@
 import {
   CalendarDays, DollarSign, Clock, CheckCircle,
-  Check, X, AlertCircle, Loader2, Activity, Wallet, Package as PackageIcon,
+  Check, X, AlertCircle, Loader2, Activity, ClipboardCheck,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -19,8 +19,8 @@ import {
 } from "@/hooks/usePhotographerBookings";
 import { usePayments } from "@/hooks/usePayments";
 import type { StudioBookingRecord } from "@/services/photographerBookingService";
-import { photographerProfileService, type ProfileCompleteness } from "@/services/photographerProfileService";
-import { useState, useEffect } from "react";
+import { useProfileCompleteness, openProfileCompleteness } from "@/hooks/useProfileCompleteness";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 // A "pending" booking's 24h review window (set by CreateBookingAction) may
@@ -41,15 +41,8 @@ export default function StudioDashboard() {
   const acceptMutation = useAcceptBooking();
   const rejectMutation = useRejectBooking();
 
-  const [completeness, setCompleteness] = useState<ProfileCompleteness | null>(null);
-  const [completenessLoaded, setCompletenessLoaded] = useState(false);
-
-  useEffect(() => {
-    photographerProfileService.getCompleteness()
-      .then(setCompleteness)
-      .catch(() => setCompleteness(null))
-      .finally(() => setCompletenessLoaded(true));
-  }, []);
+  // Same cached query the layout uses for the setup modal.
+  const { data: completeness } = useProfileCompleteness(true);
 
   const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -110,7 +103,7 @@ export default function StudioDashboard() {
   // Only show the setup banner once we've actually heard back, and only
   // when something is genuinely missing — avoids a flash of "incomplete"
   // before the request resolves, and never nags a fully-set-up photographer.
-  const showSetupBanner = completenessLoaded && completeness !== null && !completeness.fullyBookable;
+  const showSetupBanner = !!completeness && completeness.completedCount < completeness.totalCount;
 
   const handleOpenAccept = (booking: StudioBookingRecord) => {
     setSelectedBooking(booking);
@@ -163,55 +156,26 @@ export default function StudioDashboard() {
           <p className="text-sm text-muted-foreground mt-1">Here's your studio at a glance.</p>
         </div>
 
-        {/* Setup reminder — clients can't see or book this photographer until
-            these are done, so it's surfaced prominently until resolved. */}
+        {/* Setup reminder: compact progress bar. The full checklist opens in the modal. */}
         {showSetupBanner && completeness && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
-              <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              <ClipboardCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                Finish setting up your studio to start receiving bookings
+                Profile {completeness.completedCount}/{completeness.totalCount} complete
               </p>
               <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
-                You won't appear in Explore and clients can't book you until this is complete:
+                You won't appear in Explore and clients can't book you until every item is done.
               </p>
-              <ul className="mt-2 space-y-1">
-                {!completeness.hasActivePackage && (
-                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <PackageIcon className="w-3.5 h-3.5 shrink-0" /> Publish at least one service package
-                  </li>
-                )}
-                {!completeness.gcashConfigured && (
-                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <Wallet className="w-3.5 h-3.5 shrink-0" /> Add your GCash account details for payments
-                  </li>
-                )}
-                {!completeness.profileComplete && (
-                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Complete your public profile (bio, style, socials)
-                  </li>
-                )}
-                {!completeness.portfolioMinimumMet && (
-                  <li className="text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Upload at least {completeness.portfolioMinimumRequired} portfolio photos
-                  </li>
-                )}
-              </ul>
+              <div className="mt-2 h-1.5 rounded-full bg-amber-200/70 dark:bg-amber-900/50 overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${completeness.percentage}%` }} />
+              </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              {!completeness.hasActivePackage && (
-                <Button asChild size="sm" variant="outline" className="text-xs border-amber-300 dark:border-amber-800">
-                  <Link to="/studio/packages">Set Up Packages</Link>
-                </Button>
-              )}
-              {!completeness.gcashConfigured && (
-                <Button asChild size="sm" variant="outline" className="text-xs border-amber-300 dark:border-amber-800">
-                  <Link to="/studio/settings">Add GCash Info</Link>
-                </Button>
-              )}
-            </div>
+            <Button size="sm" variant="outline" className="text-xs border-amber-300 dark:border-amber-800 shrink-0" onClick={openProfileCompleteness}>
+              See what's missing
+            </Button>
           </div>
         )}
 

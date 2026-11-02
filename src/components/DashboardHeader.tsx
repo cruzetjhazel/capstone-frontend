@@ -1,5 +1,5 @@
 import { useState } from "react";
-import {Menu, Home, LogOut, User, Loader2 } from "lucide-react";
+import {Menu, Home, LogOut, User, Loader2, ClipboardCheck } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { useRole } from "@/contexts/RoleContext";
@@ -45,9 +45,12 @@ const pageTitles: Record<string, string> = {
 
 interface DashboardHeaderProps {
   onMenuClick?: () => void;
+  /** Photographer setup progress; only passed while something is still missing. */
+  completeness?: { completed: number; total: number };
+  onOpenCompleteness?: () => void;
 }
 
-export function DashboardHeader({ onMenuClick }: DashboardHeaderProps) {
+export function DashboardHeader({ onMenuClick, completeness, onOpenCompleteness }: DashboardHeaderProps) {
   const { user, role, logout } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -103,6 +106,18 @@ export function DashboardHeader({ onMenuClick }: DashboardHeaderProps) {
             </span>
           )}
           
+          {completeness && (
+            <button
+              type="button"
+              onClick={onOpenCompleteness}
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors"
+              aria-label={`Profile setup ${completeness.completed} of ${completeness.total} complete. Open checklist`}
+            >
+              <ClipboardCheck className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Profile</span> {completeness.completed}/{completeness.total}
+            </button>
+          )}
+
           <ThemeToggleCompact />
           
           <NotificationBell />
