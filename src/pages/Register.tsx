@@ -1,7 +1,7 @@
-import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users } from "lucide-react";
+import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users, ChevronDown } from "lucide-react";
 import Logo from "@/components/Logo";
 import toast from "react-hot-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { getAuthToken } from "@/lib/tokenStorage";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
 import { prepareImageForUpload } from "@/lib/prepareImage";
-import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail, isStrongPassword } from "@/lib/sanitize";
+import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail } from "@/lib/sanitize";
 
 /* ============================================================
    Constants
@@ -123,6 +123,24 @@ function isValidPhilippinePhone(canonical: string): boolean {
   return /^\+639\d{9}$/.test(canonical);
 }
 
+// Mirrors the backend rule (Password::min(8)->letters()->numbers()) so the
+// red messages here always match what the server will accept.
+const PASSWORD_RULES = [
+  { key: "len", label: "At least 8 characters", test: (v: string) => v.length >= 8 },
+  { key: "letter", label: "At least one letter", test: (v: string) => /\p{L}/u.test(v) },
+  { key: "number", label: "At least one number", test: (v: string) => /\d/.test(v) },
+];
+const passwordMeetsRules = (v: string) => PASSWORD_RULES.every((r) => r.test(v));
+
+// Whole number between min and max (inclusive). Empty string is not valid.
+const isIntInRange = (v: string, min: number, max: number) =>
+  v.trim() !== "" && Number.isInteger(Number(v)) && Number(v) >= min && Number(v) <= max;
+
+// Applied to a Field wrapper when it has an error: every input / select /
+// textarea / combobox inside gets a red border.
+const FIELD_INVALID_CLASSES =
+  "[&_input]:border-red-500 [&_select]:border-red-500 [&_textarea]:border-red-500 [&_[role=combobox]]:border-red-500";
+
 function authHeaders(json = true): HeadersInit {
   const token = getAuthToken();
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -213,9 +231,25 @@ export default function Register() {
   const { setUserFromRegistration, refreshApplication } = useRole();
   const navigate = useNavigate();
 
+  // Field-level validation display. "Missing" errors only appear once the field
+  // was left (touched) or the user pressed Continue (showErrors).
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [showErrors, setShowErrors] = useState(false);
+  const touch = (key: string) => setTouched((t) => (t[key] ? t : { ...t, [key]: true }));
+  const revealErrors = () => {
+    setShowErrors(true);
+    setTimeout(() => {
+      document
+        .querySelector<HTMLElement>('[data-field-error="true"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  };
+
   // Smooth scroll helper for step transitions
   const handleStepChange = (newStep: number) => {
     setStep(newStep);
+    setShowErrors(false);
+    setTouched({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -332,7 +366,7 @@ export default function Register() {
             const profilePayload = await profileResponse.json();
             const profile = profilePayload.data ?? profilePayload;
             setBio(profile.bio ?? "");
-            setPhotographyStyles(profile.style ?? []);
+            setPhotographyStyles((profile.style ?? []).slice(0, MAX_STYLES));
             setFacebook(profile.facebook ?? "");
             setInstagram(profile.instagram ?? "");
             setWebsite(profile.website ?? "");
@@ -404,6 +438,45 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [phoneTouched, setPhoneTouched] = useState(false);
+  const [phoneStatus, setPhoneStatus] = useState<"idle" | "checking" | "available" | "taken" | "error">("idle");
+
+  // Reject a phone number that already belongs to another account (all roles).
+  useEffect(() => {
+    // Resuming an application: the number belongs to the logged-in account, skip the check
+    if (isResuming || isResumingApplication) return;
+
+    const canonical = normalizePhilippinePhone(phone);
+    if (!isValidPhilippinePhone(canonical)) {
+      setPhoneStatus("idle");
+      return;
+    }
+
+    setPhoneStatus("checking");
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/check-phone`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ phone_number: canonical }),
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setPhoneStatus("error");
+          return;
+        }
+        setPhoneStatus(data.available ? "available" : "taken");
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setPhoneStatus("error");
+      }
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [phone, isResuming, isResumingApplication]);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Client — about you
@@ -461,7 +534,8 @@ export default function Register() {
 
   const handleStep4Submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canStep4 || isLoading) return;
+    if (isLoading) return;
+    if (!canStep4) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -501,7 +575,8 @@ export default function Register() {
 
   const handleStep6Submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canStep6Portfolio || isLoading) return;
+    if (isLoading) return;
+    if (!canStep6Portfolio) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -598,14 +673,14 @@ export default function Register() {
   // --- Photographers: default to Sorsogon > Bulan ---
   const isProAccount = accountType === "freelancer" || accountType === "studio";
   useEffect(() => {
-    if (!isProAccount || provinceId != null) return;
+    if (!isProAccount) return;
     const sorsogon = provinces.find((p) => /sorsogon/i.test(p.name));
-    if (sorsogon) setProvinceId(sorsogon.id);
+    if (sorsogon && provinceId !== sorsogon.id) setProvinceId(sorsogon.id);
   }, [isProAccount, provinces, provinceId]);
   useEffect(() => {
-    if (!isProAccount || cityMunicipalityId != null) return;
+    if (!isProAccount) return;
     const bulan = citiesMunicipalities.find((c) => /^bulan\b/i.test(c.name.trim()));
-    if (bulan) setCityMunicipalityId(bulan.id);
+    if (bulan && cityMunicipalityId !== bulan.id) setCityMunicipalityId(bulan.id);
   }, [isProAccount, citiesMunicipalities, cityMunicipalityId]);
 
   // Re-select a saved barangay when resuming an application
@@ -648,7 +723,8 @@ export default function Register() {
 
   const handleStep3Submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canProStep3 || isLoading) return;
+    if (isLoading) return;
+    if (!canProStep3) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -687,7 +763,8 @@ export default function Register() {
 
   const handleStep5Submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canStep5Verify || isLoading) return;
+    if (isLoading) return;
+    if (!canStep5Verify) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -829,7 +906,8 @@ export default function Register() {
     isValidEmail(email) &&
     (isResumingApplication || emailStatus === "available") &&
     isValidPhilippinePhone(normalizePhilippinePhone(phone)) &&
-    (isResumingApplication || (isStrongPassword(password) && password === confirmPassword)) &&
+    (isResumingApplication || (phoneStatus !== "taken" && phoneStatus !== "checking")) &&
+    (isResumingApplication || (passwordMeetsRules(password) && password === confirmPassword)) &&
     (isResumingApplication || termsAccepted);
 
   const canClientStep3 =
@@ -840,29 +918,120 @@ export default function Register() {
 
   const canProStep3 =
     accountType === "studio"
-            ? !!(businessName.trim() && barangayId && yearsOperating && teamSize)
-            : !!(businessName.trim() && barangayId && yearsExp);
+            ? !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsOperating, 0, 80) && isIntInRange(teamSize, 1, 500))
+            : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80));
 
   const canStep4 =
     services.length > 0 &&
     !!areaCoverage &&
     shootingTypes.length > 0 &&
-    !!priceMin &&
-    !!priceMax &&
+    priceMin !== "" &&
+    priceMax !== "" &&
+    Number(priceMin) >= 0 &&
     Number(priceMax) >= Number(priceMin);
 
   const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 5;
   const hasAdequateAdditionalProof = additionalProofValid || existingDocs.additionalDocuments >= 2;
   const canStep5Verify =
     accountType === "studio"
-      ? !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && (businessPermit || existingDocs.businessPermit) && hasAdequateAdditionalProof)
+      ? !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof) // business permit / DTI is optional
       : !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof);
 
   const portfolioFilesWithinLimits = portfolioFiles.length >= 6 && portfolioFiles.length <= 12;
   const portfolioFilesValidSizes = portfolioFiles.every((f) => f.size <= 5 * 1024 * 1024);
   const canStep6Portfolio = (portfolioFilesWithinLimits || existingPortfolioCount >= 6) && portfolioFilesValidSizes;
 
-  const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && (facebook.trim() || instagram.trim() || website.trim());
+  const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && photographyStyles.length <= MAX_STYLES && !!(facebook.trim() || instagram.trim() || website.trim());
+
+  /* ---------- Field errors (red message + red border, same rules as the gates above) ---------- */
+  type FieldErr = { msg: React.ReactNode; gated?: boolean };
+  const raw: Record<string, FieldErr> = {};
+  // req: a missing value. Only shown after the field was left or Continue was pressed.
+  const req = (key: string, msg: string) => { raw[key] = { msg, gated: true }; };
+  // bad: a value that is present but wrong. Shown immediately.
+  const bad = (key: string, msg: React.ReactNode) => { raw[key] = { msg }; };
+
+  if (step === 2) {
+    if (!name.trim()) req("name", "Full name is required.");
+
+    if (!email.trim()) req("email", "Email address is required.");
+    else if (!isValidEmail(email) || (!isResumingApplication && emailStatus === "invalid")) bad("email", "Enter a valid email address.");
+    else if (!isResumingApplication && emailStatus === "taken") {
+      bad("email", (
+        <>
+          This email is already registered.{" "}
+          <Link to="/login" className="font-semibold underline">Sign in to continue your application</Link>
+        </>
+      ));
+    } else if (!isResumingApplication && emailStatus === "error") bad("email", "Couldn't verify this email. Please try again.");
+
+    if (!phone.trim()) req("phone", "Phone number is required.");
+    else if (!isValidPhilippinePhone(normalizePhilippinePhone(phone))) bad("phone", "Enter a valid Philippine mobile number (e.g. 0917 123 4567).");
+    else if (!isResumingApplication && phoneStatus === "taken") bad("phone", "Invalid phone number. This number is already registered.");
+
+    if (!isResumingApplication) {
+      if (!password) req("password", "Password is required.");
+      else if (!passwordMeetsRules(password)) bad("password", "Password does not meet the requirements below.");
+
+      if (!confirmPassword) req("confirmPassword", "Please confirm your password.");
+      else if (password !== confirmPassword) bad("confirmPassword", "Passwords do not match.");
+
+      if (!termsAccepted) req("terms", "You must accept the Terms & Conditions to continue.");
+    }
+  } else if (step === 3 && accountType === "client") {
+    if (!region) req("region", "Please select your region.");
+    if (isBicol) {
+      if (!provinceId) req("province", "Please select your province.");
+      if (!cityMunicipalityId) req("city", "Please select your city / municipality.");
+      if (!barangayId) req("barangay", "Please select your barangay from the list.");
+    } else if (region) {
+      if (!manualProvince.trim()) req("manualProvince", "Province is required.");
+      if (!manualCity.trim()) req("manualCity", "City / municipality is required.");
+      if (!manualBarangay.trim()) req("manualBarangay", "Barangay is required.");
+    }
+  } else if (step === 3 && accountType !== "client") {
+    if (!businessName.trim()) req("businessName", accountType === "studio" ? "Studio / business name is required." : "Photography brand name is required.");
+    if (!provinceId) req("province", "Province could not be loaded. Please refresh the page.");
+    if (!cityMunicipalityId) req("city", "City / municipality could not be loaded. Please refresh the page.");
+    if (!barangayId) req("barangay", "Please select your barangay from the list.");
+    if (accountType === "studio") {
+      if (yearsOperating.trim() === "") req("years", "Years operating is required.");
+      else if (!isIntInRange(yearsOperating, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
+      if (teamSize.trim() === "") req("team", "Number of team members is required.");
+      else if (!isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
+    } else {
+      if (yearsExp.trim() === "") req("years", "Years of experience is required.");
+      else if (!isIntInRange(yearsExp, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
+    }
+  } else if (step === 4 && accountType !== "client") {
+    if (services.length === 0) req("services", "Select at least one service.");
+    if (!areaCoverage) req("area", "Select the area you cover.");
+    if (shootingTypes.length === 0) req("shooting", "Select at least one shooting type.");
+    if (priceMin === "") req("priceMin", "Minimum price is required.");
+    else if (Number(priceMin) < 0) bad("priceMin", "Price can't be negative.");
+    if (priceMax === "") req("priceMax", "Maximum price is required.");
+    else if (Number(priceMax) < 0) bad("priceMax", "Price can't be negative.");
+    else if (priceMin !== "" && Number(priceMax) < Number(priceMin)) bad("priceMax", "Maximum price must be the same as or higher than the minimum.");
+  } else if (step === 5 && accountType !== "client") {
+    if (!(govId || existingDocs.governmentId)) req("govId", "Upload your government ID (front).");
+    if (!(selfieId || existingDocs.selfieWithId)) req("selfie", "Upload a selfie of you holding your ID.");
+    if (!hasAdequateAdditionalProof) req("additional", `Upload at least 2 additional proof files (${additionalProof.length} selected).`);
+  } else if (step === 6 && accountType !== "client") {
+    if (!portfolioFilesValidSizes) bad("portfolio", "One or more images are over 5MB. Remove them to continue.");
+    else if (!(portfolioFilesWithinLimits || existingPortfolioCount >= 6)) req("portfolio", `Upload at least 6 portfolio images (${portfolioFiles.length} selected).`);
+  } else if (step === 7 && accountType !== "client") {
+    if (!bio.trim()) req("bio", "Brand bio is required.");
+    else if (bio.trim().length < 20) req("bio", `Bio must be at least 20 characters (${bio.trim().length}/20).`);
+    if (photographyStyles.length === 0) req("styles", "Select at least one photography style.");
+    else if (photographyStyles.length > MAX_STYLES) bad("styles", `You can select up to ${MAX_STYLES} style tags.`);
+    if (!(facebook.trim() || instagram.trim() || website.trim())) req("social", "Add at least one social profile or website link.");
+  }
+
+  const errs: Record<string, React.ReactNode> = {};
+  Object.entries(raw).forEach(([key, e]) => {
+    if (!e.gated || showErrors || touched[key]) errs[key] = e.msg;
+  });
+  const hasVisibleErrors = Object.keys(errs).length > 0;
 
   /* ---------- Submit Handlers ---------- */
   const handleFinalSubmit = async (e?: React.FormEvent) => {
@@ -916,7 +1085,8 @@ export default function Register() {
 
   const handleClientSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canClientStep3 || isLoading) return;
+    if (isLoading) return;
+    if (!canClientStep3) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -953,6 +1123,12 @@ export default function Register() {
 
     if (!response.ok) {
       if (response.status === 422 && data.errors) {
+        if (/invalid phone number/i.test([].concat(data.errors.phone_number ?? []).join(" "))) {
+          setPhoneStatus("taken");
+          setIsLoading(false);
+          handleStepChange(2);
+          return;
+        }
         const messages = Object.values(data.errors as Record<string, string[]>).flat().join(" ");
         setApiError(messages || data.message || "Validation failed. Please check your inputs.");
       } else {
@@ -971,7 +1147,8 @@ export default function Register() {
   };
 
   const handlePhotographerAccountSubmit = async () => {
-    if (!canStep2 || isLoading || !accountType || accountType === "client") return;
+    if (isLoading || !accountType || accountType === "client") return;
+    if (!canStep2) { revealErrors(); return; }
 
     setIsLoading(true);
     setApiError(null);
@@ -997,7 +1174,9 @@ export default function Register() {
       setIsLoading(false);
       handleStepChange(3);
     } catch (err: unknown) {
-      setApiError(err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.");
+      const message = err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.";
+      if (/invalid phone number/i.test(message)) setPhoneStatus("taken");
+      setApiError(message);
       setIsLoading(false);
     }
   };
@@ -1230,95 +1409,90 @@ export default function Register() {
 
               <form className="space-y-4" onSubmit={(e) => {
                 e.preventDefault();
-                if (!canStep2) return;
+                if (isLoading) return;
+                if (!canStep2) { revealErrors(); return; }
                 if (accountType === "client" || isResumingApplication) {
                   handleStepChange(3);
                 } else {
                   handlePhotographerAccountSubmit();
                 }
               }}>
-                <Field label={accountType === "studio" ? "Full name (owner)" : "Full name"} required>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" maxLength={100} />
+                <Field label={accountType === "studio" ? "Full name (owner)" : "Full name"} required error={errs.name}>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => touch("name")} placeholder="Your name" maxLength={100} />
                 </Field>
-                <Field label="Email address" required>
+                <Field label="Email address" required error={errs.email}>
                   <Input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    onBlur={() => setEmailTouched(true)}
+                    onBlur={() => { setEmailTouched(true); touch("email"); }}
                     placeholder="you@example.com"
                     maxLength={254}
                   />
-                  {email.trim() && (
+                  {email.trim() && !errs.email && (
                     isResumingApplication ? (
                       <ValidationHint text="Valid email address" valid />
-                    ) : !isValidEmail(email) ? (
-                      <p className="text-xs text-destructive">Enter a valid email address.</p>
                     ) : emailStatus === "checking" ? (
                       <ValidationHint text="Checking availability..." valid={false} />
-                    ) : emailStatus === "invalid" ? (
-                      <p className="text-xs text-destructive">Enter a valid email address.</p>
-                    ) : emailStatus === "taken" ? (
-                      <p className="text-xs text-destructive">
-                        This email is already registered.{" "}
-                        <Link to="/login" className="font-medium underline">
-                          Sign in to continue your application
-                        </Link>
-                      </p>
-                    ) : emailStatus === "error" ? (
-                      <p className="text-xs text-destructive">Couldn't verify this email. Please try again.</p>
                     ) : emailStatus === "available" ? (
                       <ValidationHint text="Email is available" valid />
                     ) : null
                   )}
                 </Field>
-                <Field label="Phone number" required>
+                <Field label="Phone number" required error={errs.phone}>
                   <Input
                     type="tel"
                     inputMode="tel"
                     autoComplete="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    onBlur={() => setPhoneTouched(true)}
+                    onBlur={() => { setPhoneTouched(true); touch("phone"); }}
                     placeholder="0917 123 4567"
                     maxLength={20}
                   />
-                  {phone.trim() && (
-                    isValidPhilippinePhone(normalizePhilippinePhone(phone))
-                      ? <ValidationHint text="Valid phone number" valid />
-                      : <p className="text-xs text-destructive">Enter a valid Philippine mobile number.</p>
+                  {phone.trim() && !errs.phone && (
+                    phoneStatus === "checking"
+                      ? <ValidationHint text="Checking phone number..." valid={false} />
+                      : <ValidationHint text="Valid phone number" valid />
                   )}
                 </Field>
 
-                <Field label="Password" required>
-                <PasswordInput value={password} onChange={setPassword} show={showPassword} setShow={setShowPassword} placeholder="Min. 8 characters" />
-                <ValidationHint text="At least 8 characters" valid={password.length >= 8} />
-                <ValidationHint text="Contains at least one number" valid={/\d/.test(password)} />
-              </Field>
-                <Field label="Confirm password" required>
-                  <PasswordInput value={confirmPassword} onChange={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} placeholder="Re-enter password" />
-                  {confirmPassword && (
-                    password === confirmPassword
-                      ? <ValidationHint text="Passwords match" valid />
-                      : <p className="text-xs text-destructive">Passwords do not match</p>
-                  )}
+                <Field label="Password" required error={errs.password}>
+                  <PasswordInput value={password} onChange={setPassword} onBlur={() => touch("password")} show={showPassword} setShow={setShowPassword} placeholder="Min. 8 characters" />
+                  {PASSWORD_RULES.map((r) => (
+                    <ValidationHint
+                      key={r.key}
+                      text={r.label}
+                      valid={r.test(password)}
+                      invalid={!r.test(password) && (password.length > 0 || !!errs.password)}
+                    />
+                  ))}
+                </Field>
+                <Field label="Confirm password" required error={errs.confirmPassword}>
+                  <PasswordInput value={confirmPassword} onChange={setConfirmPassword} onBlur={() => touch("confirmPassword")} show={showConfirm} setShow={setShowConfirm} placeholder="Re-enter password" />
+                  {confirmPassword && !errs.confirmPassword && <ValidationHint text="Passwords match" valid />}
                 </Field>
 
                 {!isResumingApplication && (
-                  <label className="flex items-start gap-2.5 text-sm cursor-pointer">
-                    <Checkbox
-                      checked={termsAccepted}
-                      onCheckedChange={(v) => setTermsAccepted(v === true)}
-                      className="mt-0.5"
-                    />
-                    <span className="text-muted-foreground leading-relaxed">
-                      I agree to Bulan's{" "}
-                      <Link to="/terms" target="_blank" className="text-primary font-medium hover:underline">
-                        Terms &amp; Conditions
-                      </Link>
-                      .
-                    </span>
-                  </label>
+                  <div className="space-y-1.5">
+                    <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={termsAccepted}
+                        onCheckedChange={(v) => { setTermsAccepted(v === true); touch("terms"); }}
+                        className={cn("mt-0.5", errs.terms && "border-red-500")}
+                      />
+                      <span className="text-muted-foreground leading-relaxed">
+                        I agree to Bulan's{" "}
+                        <Link to="/terms" target="_blank" className="text-primary font-medium hover:underline">
+                          Terms &amp; Conditions
+                        </Link>
+                        . <span className="text-red-600" aria-hidden="true">*</span>
+                      </span>
+                    </label>
+                    {errs.terms && (
+                      <p role="alert" data-field-error="true" className="text-xs font-medium text-red-600">{errs.terms}</p>
+                    )}
+                  </div>
                 )}
 
                 {apiError && accountType !== "client" && (
@@ -1331,7 +1505,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={!canStep2 || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={hasVisibleErrors || emailStatus === "checking" || phoneStatus === "checking" || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1386,8 +1560,9 @@ export default function Register() {
                   </Select>
                 </Field>
 
-                <Field label="Region" required>
+                <Field label="Region" required error={errs.region}>
                   <select
+                    onBlur={() => touch("region")}
                     value={region}
                     onChange={(e) => {
                       setRegion(e.target.value);
@@ -1409,8 +1584,9 @@ export default function Register() {
 
                 {isBicol ? (
                   <>
-                    <Field label="Province" required>
+                    <Field label="Province" required error={errs.province}>
                       <select
+                        onBlur={() => touch("province")}
                         value={provinceId ?? ""}
                         onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1421,8 +1597,9 @@ export default function Register() {
                     </Field>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <Field label="City / Municipality" required>
+                      <Field label="City / Municipality" required error={errs.city}>
                         <select
+                          onBlur={() => touch("city")}
                           value={cityMunicipalityId ?? ""}
                           disabled={!provinceId}
                           onChange={(e) => setCityMunicipalityId(e.target.value ? Number(e.target.value) : null)}
@@ -1432,30 +1609,29 @@ export default function Register() {
                           {citiesMunicipalities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </Field>
-                      <Field label="Barangay" required>
-                        <select
-                          value={barangayId ?? ""}
-                          disabled={!cityMunicipalityId}
-                          onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
-                        >
-                          <option value="">Select barangay…</option>
-                          {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
+                      <Field label="Barangay" required error={errs.barangay}>
+                        <BarangayCombobox
+                          options={barangays}
+                          value={barangayId}
+                          onChange={setBarangayId}
+                          onBlur={() => touch("barangay")}
+                          disabled={!cityMunicipalityId || barangays.length === 0}
+                          placeholder={!cityMunicipalityId ? "Select city first" : barangays.length === 0 ? "Loading barangays…" : "Type to search barangay…"}
+                        />
                       </Field>
                     </div>
                   </>
                 ) : region ? (
                   <>
-                    <Field label="Province" required>
-                      <Input value={manualProvince} onChange={(e) => setManualProvince(e.target.value)} placeholder="e.g. Cebu" maxLength={100} />
+                    <Field label="Province" required error={errs.manualProvince}>
+                      <Input value={manualProvince} onChange={(e) => setManualProvince(e.target.value)} onBlur={() => touch("manualProvince")} placeholder="e.g. Cebu" maxLength={100} />
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
-                      <Field label="City / Municipality" required>
-                        <Input value={manualCity} onChange={(e) => setManualCity(e.target.value)} placeholder="e.g. Cebu City" maxLength={100} />
+                      <Field label="City / Municipality" required error={errs.manualCity}>
+                        <Input value={manualCity} onChange={(e) => setManualCity(e.target.value)} onBlur={() => touch("manualCity")} placeholder="e.g. Cebu City" maxLength={100} />
                       </Field>
-                      <Field label="Barangay" required>
-                        <Input value={manualBarangay} onChange={(e) => setManualBarangay(e.target.value)} placeholder="e.g. Lahug" maxLength={100} />
+                      <Field label="Barangay" required error={errs.manualBarangay}>
+                        <Input value={manualBarangay} onChange={(e) => setManualBarangay(e.target.value)} onBlur={() => touch("manualBarangay")} placeholder="e.g. Lahug" maxLength={100} />
                       </Field>
                     </div>
                   </>
@@ -1478,7 +1654,7 @@ export default function Register() {
                 <StepNav
                   onBack={() => handleStepChange(2)}
                   nextLabel="Create account"
-                  disabled={!canClientStep3 || isLoading}
+                  disabled={hasVisibleErrors || isLoading}
                   isLoading={isLoading}
                 />
               </form>
@@ -1496,30 +1672,33 @@ export default function Register() {
               </p>
 
               <form className="space-y-4" onSubmit={handleStep3Submit}>
-                <Field label={accountType === "studio" ? "Studio / Business name" : "Photography brand name"} required>
-                  <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)}
+                <Field label={accountType === "studio" ? "Studio / Business name" : "Photography brand name"} required error={errs.businessName}>
+                  <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} onBlur={() => touch("businessName")}
                     placeholder={accountType === "studio" ? "e.g. Rivera Studio" : "e.g. Juan dela Cruz Photography"} maxLength={120} />
                 </Field>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Province" required>
+                  <Field label="Province" required error={errs.province}>
                     <Input value={provinces.find((p) => p.id === provinceId)?.name ?? "Sorsogon"} readOnly disabled />
                   </Field>
-                  <Field label="City / Municipality" required>
+                  <Field label="City / Municipality" required error={errs.city}>
                     <Input value={citiesMunicipalities.find((c) => c.id === cityMunicipalityId)?.name ?? "Bulan"} readOnly disabled />
                   </Field>
                 </div>
 
-                <Field label="Barangay" required>
-                  <select
-                    value={barangayId ?? ""}
-                    disabled={!cityMunicipalityId}
-                    onChange={(e) => setBarangayId(e.target.value ? Number(e.target.value) : null)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
-                  >
-                    <option value="">Select barangay…</option>
-                    {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Default: Bulan, Sorsogon — this is for Bulan photographers only.
+                </p>
+
+                <Field label="Barangay" required error={errs.barangay} hint="Type to search, then pick your barangay from the list.">
+                  <BarangayCombobox
+                    options={barangays}
+                    value={barangayId}
+                    onChange={setBarangayId}
+                    onBlur={() => touch("barangay")}
+                    disabled={!cityMunicipalityId || barangays.length === 0}
+                    placeholder={barangays.length === 0 ? "Loading barangays…" : "Type to search barangay…"}
+                  />
                 </Field>
 
                 <Field label={accountType === "studio" ? "Street / building (optional)" : "Street / purok (optional)"}>
@@ -1531,16 +1710,16 @@ export default function Register() {
 
                 {accountType === "studio" ? (
                   <>
-                    <Field label="Years operating" required>
-                      <Input type="number" min={0} value={yearsOperating} onChange={(e) => setYearsOperating(e.target.value)} placeholder="e.g. 4" />
+                    <Field label="Years operating" required error={errs.years}>
+                      <Input type="number" min={0} max={80} value={yearsOperating} onChange={(e) => setYearsOperating(e.target.value)} onBlur={() => touch("years")} placeholder="e.g. 4" />
                     </Field>
-                    <Field label="Number of team members" required>
-                      <Input type="number" min={1} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} placeholder="e.g. 5" />
+                    <Field label="Number of team members" required error={errs.team}>
+                      <Input type="number" min={1} max={500} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} onBlur={() => touch("team")} placeholder="e.g. 5" />
                     </Field>
                   </>
                 ) : (
-                  <Field label="Years of experience" required>
-                    <Input type="number" min={0} value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} placeholder="e.g. 3" />
+                  <Field label="Years of experience" required error={errs.years}>
+                    <Input type="number" min={0} max={80} value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} onBlur={() => touch("years")} placeholder="e.g. 3" />
                   </Field>
                 )}
 
@@ -1554,7 +1733,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={!canProStep3 || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1566,8 +1745,8 @@ export default function Register() {
               <p className="text-muted-foreground mb-6">What you offer, where you cover, and pricing options.</p>
 
               <form className="space-y-5" onSubmit={handleStep4Submit}>
-                <Field label="Services you offer" required>
-                  <div className="grid grid-cols-2 gap-2 p-3 rounded-xl border border-border bg-card">
+                <Field label="Services you offer" required error={errs.services}>
+                  <div className={cn("grid grid-cols-2 gap-2 p-3 rounded-xl border bg-card", errs.services ? "border-red-500" : "border-border")}>
                     {SERVICE_OPTIONS.map((s) => (
                       <label key={s} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/60 rounded-md p-1.5 transition-colors">
                         <Checkbox checked={services.includes(s)} onCheckedChange={() => toggleServices(s)} />
@@ -1578,12 +1757,12 @@ export default function Register() {
                   <Input value={otherService} onChange={(e) => setOtherService(e.target.value)} placeholder="Others (comma-separated)" className="mt-2" maxLength={200} />
                 </Field>
 
-                <Field label="Areas you cover" required>
+                <Field label="Areas you cover" required error={errs.area}>
                   <div className="grid gap-2">
                     {AREA_PRESETS.map((a) => (
                       <label key={a} className={cn(
                         "flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition-colors",
-                        areaCoverage === a ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                        areaCoverage === a ? "border-primary bg-primary/5" : errs.area ? "border-red-500 hover:bg-muted/50" : "border-border hover:bg-muted/50",
                       )}>
                         <input type="radio" name="area" className="accent-primary" checked={areaCoverage === a} onChange={() => setAreaCoverage(a)} />
                         {a}
@@ -1592,7 +1771,7 @@ export default function Register() {
                   </div>
                 </Field>
 
-                <Field label="Shooting type" required hint="Choosing Hybrid auto-selects Indoor + Outdoor">
+                <Field label="Shooting type" required error={errs.shooting} hint="Choosing Hybrid auto-selects Indoor + Outdoor">
                   <div className="flex flex-wrap gap-2">
                     {SHOOTING_TYPES.map((s) => {
                       const active = shootingTypes.includes(s);
@@ -1605,7 +1784,7 @@ export default function Register() {
                           disabled={isLocked}
                           className={cn(
                             "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-                            active ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted",
+                            active ? "bg-primary text-primary-foreground border-primary" : errs.shooting ? "border-red-500 text-muted-foreground hover:bg-muted" : "border-border text-muted-foreground hover:bg-muted",
                             isLocked && "opacity-70 cursor-not-allowed",
                           )}
                         >
@@ -1617,9 +1796,15 @@ export default function Register() {
                 </Field>
 
                 <Field label="General base pricing rate limits (₱)" required>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Input type="number" min={0} value={priceMin} onChange={(e) => setPriceMin(e.target.value)} placeholder="Min Price" />
-                    <Input type="number" min={0} value={priceMax} onChange={(e) => setPriceMax(e.target.value)} placeholder="Max Price" />
+                  <div className="grid grid-cols-2 gap-3 items-start">
+                    <div className="space-y-1.5">
+                      <Input type="number" min={0} value={priceMin} onChange={(e) => setPriceMin(e.target.value)} onBlur={() => touch("priceMin")} placeholder="Min Price" className={cn(errs.priceMin && "border-red-500")} />
+                      {errs.priceMin && <p role="alert" data-field-error="true" className="text-xs font-medium text-red-600">{errs.priceMin}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Input type="number" min={0} value={priceMax} onChange={(e) => setPriceMax(e.target.value)} onBlur={() => touch("priceMax")} placeholder="Max Price" className={cn(errs.priceMax && "border-red-500")} />
+                      {errs.priceMax && <p role="alert" data-field-error="true" className="text-xs font-medium text-red-600">{errs.priceMax}</p>}
+                    </div>
                   </div>
                   <div className="mt-2 text-xs bg-muted/40 p-3 rounded-lg flex items-start gap-2 text-muted-foreground border">
                     <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
@@ -1637,7 +1822,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(3)} nextLabel="Continue" disabled={!canStep4 || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(3)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1657,6 +1842,7 @@ export default function Register() {
                   label="Government ID (front)"
                   required
                   hint="Any valid gov-issued ID (Passport, Driver's License, National ID, PhilSys, UMID…)"
+                  error={errs.govId}
                   file={govId}
                   onChange={setGovId}
                   accept="image/*,application/pdf"
@@ -1667,6 +1853,7 @@ export default function Register() {
                   label="Selfie holding your ID"
                   required
                   hint="A clear photo of you holding the same ID next to your face"
+                  error={errs.selfie}
                   file={selfieId}
                   onChange={setSelfieId}
                   accept="image/*"
@@ -1675,9 +1862,8 @@ export default function Register() {
 
                 {accountType === "studio" && (
                   <FileField
-                    label="Business permit / DTI registration"
-                    required
-                    hint="Upload your registered business permit, DTI, or barangay business clearance"
+                    label="Business permit / DTI registration (optional)"
+                    hint="Optional — upload your registered business permit, DTI, or barangay business clearance if you have one"
                     file={businessPermit}
                     onChange={setBusinessPermit}
                     accept="image/*,application/pdf"
@@ -1685,9 +1871,9 @@ export default function Register() {
                   />
                 )}
 
-                <Field label="Additional Proof / Documents" required hint="Upload up to 5 files (minimum 2). Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
+                <Field label="Additional Proof / Documents" required error={errs.additional} hint="Upload up to 5 files (minimum 2). Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
                   <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-xl cursor-pointer bg-card hover:bg-muted/50 transition-colors">
+                    <label className={cn("flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer bg-card hover:bg-muted/50 transition-colors", errs.additional ? "border-red-500" : "border-border")}>
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground">
@@ -1711,7 +1897,7 @@ export default function Register() {
                   </div>
 
                   <div className="flex justify-between items-center text-xs mt-3 mb-1">
-                    <span className={cn("font-medium", (additionalProofValid || existingDocs.additionalDocuments >= 2) ? "text-emerald-600" : "text-destructive")}>
+                    <span className={cn("font-medium", (additionalProofValid || existingDocs.additionalDocuments >= 2) ? "text-emerald-600" : "text-muted-foreground")}>
                       {additionalProof.length > 0
                         ? `${additionalProof.length} / 5 files selected (minimum 2)`
                         : existingDocs.additionalDocuments >= 2
@@ -1775,7 +1961,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={!canStep5Verify || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1794,9 +1980,10 @@ export default function Register() {
                 <Field 
                   label="Sample works gallery" 
                   required 
+                  error={errs.portfolio}
                   hint="Please upload at least 6 but no more than 12 images. Choose photos one by one or select multiple."
                 >
-                  <label className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/30 transition-colors cursor-pointer block bg-muted/20">
+                  <label className={cn("border-2 border-dashed rounded-xl p-8 text-center hover:border-primary/30 transition-colors cursor-pointer block bg-muted/20", errs.portfolio ? "border-red-500" : "border-border")}>
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2 animate-bounce" />
                     <p className="text-sm font-semibold">Click to browse and add files</p>
                     <p className="text-xs text-muted-foreground mt-1">Accepts JPG, PNG, WEBP (6 to 12 images, max 5MB per file)</p>
@@ -1866,7 +2053,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(5)} nextLabel="Continue to Profile Builder" disabled={!canStep6Portfolio || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(5)} nextLabel="Continue to Profile Builder" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1880,20 +2067,21 @@ export default function Register() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <form className="lg:col-span-6 space-y-5" onSubmit={(e) => { e.preventDefault(); if (canStep7Profile && !isLoading) setShowSubmitConfirm(true); }}>
+                <form className="lg:col-span-6 space-y-5" onSubmit={(e) => { e.preventDefault(); if (isLoading) return; if (canStep7Profile) setShowSubmitConfirm(true); else revealErrors(); }}>
                   
-                  <Field label="Brand bio/description" required hint="Tell clients who you are. Min 20 characters">
+                  <Field label="Brand bio/description" required error={errs.bio} hint="Tell clients who you are. Min 20 characters">
                     <Textarea 
                       value={bio} 
                       onChange={(e) => setBio(e.target.value)} 
+                      onBlur={() => touch("bio")} 
                       placeholder="e.g. Capturing timeless moments across Sorsogon with cinematic flair and natural lightning..." 
                       rows={3} 
                       maxLength={800} 
                     />
                   </Field>
 
-                  <Field label="Your Photography Style" required hint={`Select up to ${MAX_STYLES} tags or create custom ones (${photographyStyles.length}/${MAX_STYLES} selected)`}>
-                    <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-border bg-card mb-2">
+                  <Field label="Your Photography Style" required error={errs.styles} hint={`Select up to ${MAX_STYLES} tags or create custom ones (${photographyStyles.length}/${MAX_STYLES} selected)`}>
+                    <div className={cn("flex flex-wrap gap-1.5 p-3 rounded-xl border bg-card mb-2", errs.styles ? "border-red-500" : "border-border")}>
                       {PHOTOGRAPHY_STYLES.map((style) => {
                         const active = photographyStyles.includes(style);
                         return (
@@ -1994,7 +2182,7 @@ export default function Register() {
                     </Field>
                   </div>
 
-                  <Field label="Social profiles & website" required hint="At least one profile url required for live verification">
+                  <Field label="Social profiles & website" required error={errs.social} hint="At least one profile url required for live verification">
                     <div className="space-y-2">
                       <IconInput icon={Facebook} value={facebook} onChange={setFacebook} placeholder="Facebook Page URL" />
                       <IconInput icon={Instagram} value={instagram} onChange={setInstagram} placeholder="Instagram handle or URL" />
@@ -2017,7 +2205,7 @@ export default function Register() {
                     </div>
                   )}
 
-                  <StepNav onBack={() => handleStepChange(6)} nextLabel="Submit application" disabled={!canStep7Profile || isLoading} isLoading={isLoading} />
+                  <StepNav onBack={() => handleStepChange(6)} nextLabel="Submit application" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
                 </form>
 
                 <div className="lg:col-span-6 bg-muted/40 p-6 rounded-2xl border border-border sticky top-6">
@@ -2170,22 +2358,23 @@ function StepIndicator({ step, total, labels }: { step: number; total: number; l
   );
 }
 
-function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
+function Field({ label, required, hint, error, children }: { label: string; required?: boolean; hint?: string; error?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-field-error={error ? "true" : undefined}>
       <Label className="flex items-center gap-1">
         {label}
-        {required && <span className="text-destructive">*</span>}
+        {required && <span className="text-red-600" aria-hidden="true">*</span>}
       </Label>
-      {children}
+      <div className={cn("space-y-2", error && FIELD_INVALID_CLASSES)}>{children}</div>
+      {error && <p role="alert" className="text-xs font-medium text-red-600">{error}</p>}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-function ValidationHint({ text, valid }: { text: string; valid: boolean }) {
+function ValidationHint({ text, valid, invalid }: { text: string; valid: boolean; invalid?: boolean }) {
   return (
-    <p className={cn("text-xs flex items-center gap-1", valid ? "text-green-600" : "text-muted-foreground")}>
+    <p className={cn("text-xs flex items-center gap-1", valid ? "text-green-600" : invalid ? "font-medium text-red-600" : "text-muted-foreground")}>
       {valid && <CheckCircle2 className="w-3.5 h-3.5" />}
       {text}
     </p>
@@ -2213,8 +2402,8 @@ function StepNav({ onBack, nextLabel, disabled, isLoading }: { onBack: () => voi
   );
 }
 
-function PasswordInput({ value, onChange, show, setShow, placeholder }: {
-  value: string; onChange: (v: string) => void; show: boolean; setShow: (b: boolean) => void; placeholder?: string;
+function PasswordInput({ value, onChange, onBlur, show, setShow, placeholder }: {
+  value: string; onChange: (v: string) => void; onBlur?: () => void; show: boolean; setShow: (b: boolean) => void; placeholder?: string;
 }) {
   return (
     <div className="relative">
@@ -2222,6 +2411,7 @@ function PasswordInput({ value, onChange, show, setShow, placeholder }: {
         type={show ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
         maxLength={72}
@@ -2249,13 +2439,13 @@ function IconInput({ icon: Icon, value, onChange, placeholder }: {
   );
 }
 
-function FileField({ label, required, hint, file, onChange, accept, alreadyUploaded }: {
-  label: string; required?: boolean; hint?: string; file: File | null; onChange: (f: File | null) => void; accept?: string; alreadyUploaded?: boolean;
+function FileField({ label, required, hint, error, file, onChange, accept, alreadyUploaded }: {
+  label: string; required?: boolean; hint?: string; error?: React.ReactNode; file: File | null; onChange: (f: File | null) => void; accept?: string; alreadyUploaded?: boolean;
 }) {
   const showsExisting = !file && alreadyUploaded;
   return (
-    <Field label={label} required={required} hint={hint}>
-      <label className="border-2 border-dashed border-border rounded-xl p-4 hover:border-primary/30 transition-colors cursor-pointer flex items-center gap-3">
+    <Field label={label} required={required} hint={hint} error={error}>
+      <label className={cn("border-2 border-dashed rounded-xl p-4 hover:border-primary/30 transition-colors cursor-pointer flex items-center gap-3", error ? "border-red-500" : "border-border")}>
         <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", (file || showsExisting) ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
           <CheckCircle2 className="w-5 h-5" style={{ display: file || showsExisting ? undefined : "none" }} />
           <FileText className="w-5 h-5" style={{ display: file || showsExisting ? "none" : undefined }} />
@@ -2272,5 +2462,125 @@ function FileField({ label, required, hint, file, onChange, accept, alreadyUploa
           onChange={(e) => onChange(e.target.files?.[0] || null)} />
       </label>
     </Field>
+  );
+}
+function BarangayCombobox({ options, value, onChange, onBlur, disabled, placeholder = "Type to search barangay…" }: {
+  options: Barangay[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+  onBlur?: () => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const selected = options.find((o) => o.id === value) ?? null;
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLUListElement>(null);
+  const listId = useId();
+
+  // The text always mirrors the barangay that was actually picked. Anything typed
+  // that never got picked from the list is dropped as soon as the field closes.
+  useEffect(() => {
+    if (open) return;
+    setQuery(selected ? selected.name : "");
+  }, [selected?.id, selected?.name, open]);
+
+  useEffect(() => {
+    (listRef.current?.children[active] as HTMLElement | undefined)?.scrollIntoView?.({ block: "nearest" });
+  }, [active, open]);
+
+  const q = query.trim().toLowerCase();
+  const showAll = !q || (selected !== null && query === selected.name);
+  const matches = showAll
+    ? options
+    : options
+        .filter((o) => o.name.toLowerCase().includes(q))
+        .sort((a, b) => Number(b.name.toLowerCase().startsWith(q)) - Number(a.name.toLowerCase().startsWith(q)));
+
+  const choose = (o: Barangay) => {
+    onChange(o.id);
+    setQuery(o.name);
+    setOpen(false);
+  };
+
+  const handleInput = (text: string) => {
+    setQuery(text);
+    setOpen(true);
+    setActive(0);
+    if (value != null) onChange(null); // editing the text invalidates the previous pick
+  };
+
+  const handleBlur = () => {
+    // Typed the full name without clicking it? Accept it. Otherwise the text is reverted.
+    const exact = options.find((o) => o.name.trim().toLowerCase() === query.trim().toLowerCase());
+    if (exact && exact.id !== value) onChange(exact.id);
+    setOpen(false);
+    onBlur?.();
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        autoComplete="off"
+        value={query}
+        disabled={disabled}
+        placeholder={placeholder}
+        className="pr-9"
+        onChange={(e) => handleInput(e.target.value)}
+        onFocus={(e) => { setOpen(true); e.target.select(); }}
+        onBlur={handleBlur}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setActive((i) => Math.min(i + 1, Math.max(matches.length - 1, 0)));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter" && open) {
+            e.preventDefault(); // never submit the form from inside the list
+            if (matches[active]) choose(matches[active]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      />
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+
+      {open && !disabled && (
+        <ul
+          id={listId}
+          ref={listRef}
+          role="listbox"
+          className="absolute z-30 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+        >
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-muted-foreground">No matching barangay</li>
+          ) : (
+            matches.map((o, i) => (
+              <li
+                key={o.id}
+                role="option"
+                aria-selected={o.id === value}
+                onMouseDown={(e) => { e.preventDefault(); choose(o); }}
+                onMouseEnter={() => setActive(i)}
+                className={cn(
+                  "cursor-pointer rounded-sm px-3 py-1.5 text-sm",
+                  i === active && "bg-accent text-accent-foreground",
+                  o.id === value && "font-medium",
+                )}
+              >
+                {o.name}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
