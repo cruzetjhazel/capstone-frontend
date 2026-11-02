@@ -369,7 +369,7 @@ export default function StudioSettings() {
         fail("Business name, location, and years active are required.");
         return;
       }
-      if (!isFreelancer && !teamSize) {
+      if (!teamSize) {
         fail("Number of team members is required.");
         return;
       }
@@ -414,7 +414,7 @@ export default function StudioSettings() {
           business_name: businessName.trim(),
           location: location.trim(),
           years_active: Number(yearsActive),
-          ...(isFreelancer ? {} : { team_size: Number(teamSize) }),
+          team_size: Number(teamSize),
           services,
           other_services: otherServices.trim() || null,
           coverage_area: AREA_COVERAGE_MAP[coverageArea],
@@ -772,12 +772,10 @@ export default function StudioSettings() {
                 <Label>{isFreelancer ? "Years of Experience" : "Years Operating"}</Label>
                 <Input type="number" value={yearsActive} onChange={(e) => setYearsActive(e.target.value)} />
               </div>
-              {!isFreelancer && (
-                <div className="space-y-2">
-                  <Label>Number of Team Members</Label>
-                  <Input type="number" value={teamSize} onChange={(e) => setTeamSize(e.target.value)} />
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label>Number of Team Members</Label>
+                <Input type="number" value={teamSize} onChange={(e) => setTeamSize(e.target.value)} />
+              </div>
               <div className="space-y-2">
                 <Label>Minimum Base Price (₱)</Label>
                 <Input type="number" value={priceMin} onChange={(e) => setPriceMin(e.target.value)} />

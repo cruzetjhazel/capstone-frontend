@@ -155,6 +155,7 @@ export interface Photographer {
   socials?: { facebook?: string; instagram?: string; website?: string };
   phone?: string;
   yearsActive?: number | null;
+  teamSize?: number | null;
   shootingTypes?: string[];
   email?: string;
   // From the API's is_bookable (BookabilityService). undefined (mock data) is treated as bookable.

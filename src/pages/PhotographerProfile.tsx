@@ -454,6 +454,16 @@ export default function PhotographerProfile() {
                 </p>
               </div>
             )}
+            {p.teamSize != null && (
+              <div>
+                <span className={sectionLabel}>
+                  <Camera className="w-4 h-4" /> Team Size
+                </span>
+                <p className="mt-2 text-lg font-heading font-semibold">
+                  {p.teamSize} {p.teamSize === 1 ? "member" : "members"}
+                </p>
+              </div>
+            )}
             {p.coverageArea && coverageLabel(p.coverageArea) && (
               <div>
                 <span className={sectionLabel}>

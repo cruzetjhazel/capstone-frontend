@@ -313,9 +313,9 @@ export default function Register() {
         } else {
           setAddress(rawLocation);
         }
+        setTeamSize(application.team_size != null ? String(application.team_size) : "");
         if (application.photographer_type === "studio") {
           setYearsOperating(application.years_active != null ? String(application.years_active) : "");
-          setTeamSize(application.team_size != null ? String(application.team_size) : "");
         } else {
           setYearsExp(application.years_active != null ? String(application.years_active) : "");
         }
@@ -751,6 +751,7 @@ export default function Register() {
         payload.team_size = Number(teamSize);
       } else {
         payload.years_active = Number(yearsExp);
+        payload.team_size = Number(teamSize);
       }
 
       const response = await fetch(`${API_BASE}/photographer/application`, {
@@ -926,7 +927,7 @@ export default function Register() {
   const canProStep3 =
     accountType === "studio"
             ? !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsOperating, 0, 80) && isIntInRange(teamSize, 1, 500))
-            : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80));
+            : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80) && isIntInRange(teamSize, 1, 500));
 
   const canStep4 =
     services.length > 0 &&
@@ -995,7 +996,11 @@ export default function Register() {
 
     if (!isResumingApplication) {
       if (!password) req("password", "Password is required.");
-      else if (!passwordMeetsRules(password)) bad("password", "Password does not meet the requirements below.");
+      else if (!passwordMeetsRules(password)) {
+        const missing = PASSWORD_RULES.filter((r) => !r.test(password)).map((r) => r.label.toLowerCase());
+        const list = missing.length > 1 ? `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}` : missing[0];
+        bad("password", `Password must have ${list}.`);
+      }
 
       if (!confirmPassword) req("confirmPassword", "Please confirm your password.");
       else if (password !== confirmPassword) bad("confirmPassword", "Passwords do not match.");
@@ -1003,10 +1008,10 @@ export default function Register() {
       if (!termsAccepted) req("terms", "You must accept the Terms & Conditions to continue.");
     }
   } else if (step === 3 && accountType === "client") {
-    if (!region) req("region", "Please select your region.");
+    if (!region) req("region", "Please select your region from the list.");
     if (isBicol) {
-      if (!provinceId) req("province", "Please select your province.");
-      if (!cityMunicipalityId) req("city", "Please select your city / municipality.");
+      if (!provinceId) req("province", "Please select your province from the list.");
+      if (!cityMunicipalityId) req("city", "Please select your city / municipality from the list.");
       if (!barangayId) req("barangay", "Please select your barangay from the list.");
     } else if (region) {
       if (!manualProvince.trim()) req("manualProvince", "Province is required.");
@@ -1026,6 +1031,8 @@ export default function Register() {
     } else {
       if (yearsExp.trim() === "") req("years", "Years of experience is required.");
       else if (!isIntInRange(yearsExp, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
+      if (teamSize.trim() === "") req("team", "Number of team members is required.");
+      else if (!isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
     }
   } else if (step === 4 && accountType !== "client") {
     if (services.length === 0) req("services", "Select at least one service.");
@@ -1587,20 +1594,18 @@ export default function Register() {
                 </Field>
 
                 <Field label="Region" required error={errs.region}>
-                  <select
+                  <SearchCombobox
+                    options={REGIONS.map((r) => ({ id: r, name: r }))}
+                    value={region || null}
                     onBlur={() => touch("region")}
-                    value={region}
-                    onChange={(e) => {
-                      setRegion(e.target.value);
+                    placeholder="Type to search region…"
+                    onChange={(id) => {
+                      setRegion(id ?? "");
                       // Switching regions clears the other region's answers.
                       setProvinceId(null);
                       setManualProvince(""); setManualCity(""); setManualBarangay("");
                     }}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Select region…</option>
-                    {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  />
                   {region && !isBicol && (
                     <p className="text-[11px] text-muted-foreground mt-1">
                       Dropdown options are only available for Region V (Bicol). Please type your address below.
@@ -1611,35 +1616,32 @@ export default function Register() {
                 {isBicol ? (
                   <>
                     <Field label="Province" required error={errs.province}>
-                      <select
+                      <SearchCombobox
+                        options={provinces}
+                        value={provinceId}
+                        onChange={(id) => setProvinceId(id)}
                         onBlur={() => touch("province")}
-                        value={provinceId ?? ""}
-                        onChange={(e) => setProvinceId(e.target.value ? Number(e.target.value) : null)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Select province…</option>
-                        {provinces.map((pv) => <option key={pv.id} value={pv.id}>{pv.name}</option>)}
-                      </select>
+                        disabled={provinces.length === 0}
+                        placeholder={provinces.length === 0 ? "Loading provinces…" : "Type to search province…"}
+                      />
                     </Field>
 
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="City / Municipality" required error={errs.city}>
-                        <select
+                        <SearchCombobox
+                          options={citiesMunicipalities}
+                          value={cityMunicipalityId}
+                          onChange={(id) => setCityMunicipalityId(id)}
                           onBlur={() => touch("city")}
-                          value={cityMunicipalityId ?? ""}
-                          disabled={!provinceId}
-                          onChange={(e) => setCityMunicipalityId(e.target.value ? Number(e.target.value) : null)}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
-                        >
-                          <option value="">Select city/municipality…</option>
-                          {citiesMunicipalities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                          disabled={!provinceId || citiesMunicipalities.length === 0}
+                          placeholder={!provinceId ? "Select province first" : citiesMunicipalities.length === 0 ? "Loading cities…" : "Type to search city…"}
+                        />
                       </Field>
                       <Field label="Barangay" required error={errs.barangay}>
-                        <BarangayCombobox
+                        <SearchCombobox
                           options={barangays}
                           value={barangayId}
-                          onChange={setBarangayId}
+                          onChange={(id) => setBarangayId(id)}
                           onBlur={() => touch("barangay")}
                           disabled={!cityMunicipalityId || barangays.length === 0}
                           placeholder={!cityMunicipalityId ? "Select city first" : barangays.length === 0 ? "Loading barangays…" : "Type to search barangay…"}
@@ -1717,10 +1719,10 @@ export default function Register() {
                 </p>
 
                 <Field label="Barangay" required error={errs.barangay} hint="Type to search, then pick your barangay from the list.">
-                  <BarangayCombobox
+                  <SearchCombobox
                     options={barangays}
                     value={barangayId}
-                    onChange={setBarangayId}
+                    onChange={(id) => setBarangayId(id)}
                     onBlur={() => touch("barangay")}
                     disabled={!cityMunicipalityId || barangays.length === 0}
                     placeholder={barangays.length === 0 ? "Loading barangays…" : "Type to search barangay…"}
@@ -1744,9 +1746,14 @@ export default function Register() {
                     </Field>
                   </>
                 ) : (
-                  <Field label="Years of experience" required error={errs.years}>
-                    <Input type="number" min={0} max={80} value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} onBlur={() => touch("years")} placeholder="e.g. 3" />
-                  </Field>
+                  <>
+                    <Field label="Years of experience" required error={errs.years}>
+                      <Input type="number" min={0} max={80} value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} onBlur={() => touch("years")} placeholder="e.g. 3" />
+                    </Field>
+                    <Field label="Number of team members" required error={errs.team}>
+                      <Input type="number" min={1} max={500} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} onBlur={() => touch("team")} placeholder="e.g. 1" />
+                    </Field>
+                  </>
                 )}
 
                 {apiError && (
@@ -2490,10 +2497,14 @@ function FileField({ label, required, hint, error, file, onChange, accept, alrea
     </Field>
   );
 }
-function BarangayCombobox({ options, value, onChange, onBlur, disabled, placeholder = "Type to search barangay…" }: {
-  options: Barangay[];
-  value: number | null;
-  onChange: (id: number | null) => void;
+// Type-to-search dropdown used for region, province, city/municipality and barangay.
+// Only a listed option counts as a valid value; free text that matches nothing is dropped.
+type ComboOption<T extends string | number> = { id: T; name: string };
+
+function SearchCombobox<T extends string | number>({ options, value, onChange, onBlur, disabled, placeholder = "Type to search…" }: {
+  options: ComboOption<T>[];
+  value: T | null;
+  onChange: (id: T | null) => void;
   onBlur?: () => void;
   disabled?: boolean;
   placeholder?: string;
@@ -2524,7 +2535,7 @@ function BarangayCombobox({ options, value, onChange, onBlur, disabled, placehol
         .filter((o) => o.name.toLowerCase().includes(q))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(q)) - Number(a.name.toLowerCase().startsWith(q)));
 
-  const choose = (o: Barangay) => {
+  const choose = (o: ComboOption<T>) => {
     onChange(o.id);
     setQuery(o.name);
     setOpen(false);
@@ -2586,7 +2597,7 @@ function BarangayCombobox({ options, value, onChange, onBlur, disabled, placehol
           className="absolute z-30 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
         >
           {matches.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-muted-foreground">No matching barangay</li>
+            <li className="px-3 py-2 text-sm text-muted-foreground">No matching result</li>
           ) : (
             matches.map((o, i) => (
               <li

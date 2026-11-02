@@ -29,6 +29,7 @@ interface RawPhotographerProfile {
   };
   phone: string | null;
   years_active?: number | null;
+  team_size?: number | null;
   shooting_types?: string[] | null;
   email: string | null;
   portfolio: Array<{ url?: string; image_url?: string; path?: string } | string>;
@@ -258,6 +259,7 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
     },
     phone: raw.phone ?? undefined,
     yearsActive: raw.years_active ?? null,
+    teamSize: raw.team_size ?? null,
     shootingTypes: raw.shooting_types ?? [],
     email: raw.email ?? undefined,
 
