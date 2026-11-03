@@ -439,7 +439,7 @@ export default function StudioPackages() {
   const [packageModal, setPackageModal] = useState<{ mode: "create" | "edit"; source?: PackageRecord; initial: PackageFormState } | null>(null);
   const [addOnModal, setAddOnModal] = useState<{ mode: "create" | "edit"; source?: AddOnRecord; initial: AddOnFormState } | null>(null);
   const [activeTab, setActiveTab] = useState<"fixed" | "custom">("fixed");
-  const tab = customConfig?.enabled ? activeTab : "fixed"; // custom tab only exists while enabled
+  const tab = activeTab; // custom tab is always available so pricing can be set before enabling
 
   const [packageToDraft, setPackageToDraft] = useState<PackageRecord | null>(null);
   const [pendingCustomToggle, setPendingCustomToggle] = useState<boolean | null>(null);
@@ -663,7 +663,7 @@ export default function StudioPackages() {
 
         {/* TABS */}
         <div className="flex gap-1 border-b border-border">
-          {([["fixed", "Fixed Packages"], ...(customConfig?.enabled ? [["custom", "Custom Package"]] : [])] as [string, string][]).map(([id, label]) => (
+          {([["fixed", "Fixed Packages"], ["custom", "Custom Package"]] as [string, string][]).map(([id, label]) => (
             <button
               key={id}
               type="button"
