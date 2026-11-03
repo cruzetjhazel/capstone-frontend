@@ -574,8 +574,7 @@ export default function StudioPackages() {
   // Only sends `enabled`: the backend keeps every stored pricing field.
   const confirmCustomToggle = async () => {
     if (pendingCustomToggle === null) return;
-    setActiveTab(pendingCustomToggle ? "custom" : "fixed");
-    setActiveTab(pendingCustomToggle ? "custom" : "fixed");
+    setActiveTab(pendingCustomToggle ? "custom" : "fixed")
     try {
       await updateConfig.mutateAsync({
         enabled: pendingCustomToggle,
@@ -1065,7 +1064,7 @@ function CustomPackageDrawer({
       if (Number(maxHours) < Number(minHours)) return "Max. hours can't be less than min. hours.";
     }
     if (isUnitModel && (!Number(unitRate) || Number(unitRate) <= 0)) return `Rate per ${pricingModel === "per_day" ? "day" : "person"} is required and must be greater than 0.`;
-    if (multiEnabled && maxSessions !== "" && Number(maxSessions) < 2) return "Maximum sessions must be at least 2, or leave it blank for no limit.";
+            if (pricingModel === "per_day" && multiEnabled && maxSessions !== "" && Number(maxSessions) < 2) return "Maximum sessions must be at least 2, or leave it blank for no limit.";
     return "";
   })();
 
@@ -1117,8 +1116,8 @@ function CustomPackageDrawer({
         unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
         coverage_hours: isUnitModel && coverageHours !== "" ? Number(coverageHours) : null,
         max_people: pricingModel === "per_person" && maxPeople !== "" ? Number(maxPeople) : null,
-        allows_multiple_sessions: multiEnabled,
-        max_sessions: multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
+        allows_multiple_sessions: pricingModel === "per_day" && multiEnabled,
+        max_sessions: pricingModel === "per_day" && multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
         base_fee_mode: null,
       });
       toast({ title: "Pricing updated." });
@@ -1352,17 +1351,13 @@ function CustomPackageDrawer({
           </div>
         )}
 
-        {(
+        {pricingModel === "per_day" && (
           <div className="space-y-2 pt-2 border-t border-border/50">
             <div className="flex items-center justify-between">
               <div className="pr-2">
                 <p className="text-sm font-semibold flex items-center gap-1.5"><CalendarPlus className="w-4 h-4 text-primary" />Allow extra days / sessions</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Client can add more dates to one booking.
-{pricingModel === "fixed" && " The fixed price covers all sessions."}
-{pricingModel === "per_day" && " Different dates count as extra days."}
-{pricingModel === "per_person" && " The price stays the same."}
-{pricingModel === "hourly" && " Each session is charged by its own hours."}
+                  Client can add more dates to one booking. Different dates count as extra days.
                 </p>
               </div>
               <Switch checked={multiEnabled} onCheckedChange={setMultiEnabled} />
