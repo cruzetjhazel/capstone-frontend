@@ -40,6 +40,10 @@ import type {
 // Clearing the field entirely is allowed: it means "duration not fixed".
 const DEFAULT_DURATION_MINUTES = 60;
 
+// Keep in sync with MULTI_SESSIONS_ENABLED in Booking.tsx. While it's off, clients can't
+// add extra days/sessions, so the photographer-side toggles are hidden.
+const MULTI_SESSIONS_ENABLED = false;
+
 // One pricing method per photographer. Price never decides the schedule:
 // per-day / per-person use "agreed coverage hours" for scheduling only.
 const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string; example: string; icon: typeof Tag }[] = [
@@ -234,7 +238,7 @@ function PackageFormModal({
           : "Availability reserves duration + buffer so clients can't book you back-to-back."}
       </p>
 
-      <div className="rounded-lg border border-border p-3 space-y-2">
+      <div className={cn("rounded-lg border border-border p-3 space-y-2", !MULTI_SESSIONS_ENABLED && "hidden")}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold">Allow multiple photography sessions</p>
@@ -1441,7 +1445,7 @@ function CustomPackageDrawer({
           </div>
         )}
 
-        {pricingModel === "per_day" && (
+        {MULTI_SESSIONS_ENABLED && pricingModel === "per_day" && (
           <div className="space-y-2 pt-2 border-t border-border/50">
             <div className="flex items-center justify-between">
               <div className="pr-2">
