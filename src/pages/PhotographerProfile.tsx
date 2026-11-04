@@ -630,20 +630,20 @@ export default function PhotographerProfile() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 pt-3">
+              <div className="flex flex-wrap justify-center gap-5 pt-3">
                 {(p.packages ?? []).length === 0 ? (
-                  <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                  <div className="w-full py-8 text-center text-sm text-muted-foreground">
                     No fixed packages set up yet.
                   </div>
                 ) : visiblePackages.length === 0 ? (
-                  <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                  <div className="w-full py-8 text-center text-sm text-muted-foreground">
                     No packages match your search. Try a different keyword.
                   </div>
                 ) : visiblePackages.map(({ pkg, i }) => (
                   <div
                     key={pkg.name}
                     className={cn(
-                      "relative bg-card rounded-2xl border p-5 flex flex-col transition-all duration-300 hover:-translate-y-0.5",
+                      "relative bg-card rounded-2xl border p-6 flex flex-col w-full sm:w-[calc((100%-1.25rem)/2)] lg:w-[calc((100%-2.5rem)/3)] transition-all duration-300 hover:-translate-y-0.5",
                       i === popularPackageIndex
                         ? "border-primary shadow-lg shadow-primary/10 bg-gradient-to-b from-card to-primary/5" 
                         : "border-border/50 card-shadow hover:shadow-lg"
@@ -666,26 +666,26 @@ export default function PhotographerProfile() {
                       >
                         <Heart className={`w-4 h-4 ${isPackageFavorite((pkg as any).id) ? "fill-red-500 text-red-500" : ""}`} />
                       </button>
-                      <h4 className="font-heading font-semibold text-base leading-snug px-7">{pkg.name}</h4>
+                      <h4 className="font-heading font-semibold text-lg leading-snug tracking-tight px-8">{pkg.name}</h4>
                       <div className="mt-3 flex items-baseline justify-center gap-1">
-                        <span className="text-xl font-heading font-bold">{formatPrice(pkg.price)}</span>
+                        <span className="text-3xl font-heading font-bold text-primary tracking-tight">{formatPrice(pkg.price)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{pkg.description}</p>
+                      <p className="text-[13px] text-muted-foreground mt-3 leading-relaxed line-clamp-3">{pkg.description}</p>
                     </div>
 
-                    <div className="space-y-3 flex-grow border-t border-border/50 pt-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Includes</p>
+                    <div className="space-y-2.5 flex-grow border-t border-border/60 pt-5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary/70 mb-3">Includes</p>
                       {pkg.inclusions.map((inc, idx) => (
-                        <div key={idx} className="flex items-start gap-2.5 text-xs">
+                        <div key={idx} className="flex items-start gap-2.5 text-[13px]">
                           <Check className="w-3.5 h-3.5 text-primary shrink-0 mt-px" /> 
-                          <span className="text-muted-foreground leading-snug">
+                          <span className="text-foreground/80 leading-snug">
                             {inclusionText(inc)}
                           </span>
                         </div>
                       ))}
                     </div>
 
-                    <div className="mt-8">
+                    <div className="mt-auto pt-6">
                       <Link to={`/booking/${p.id}?package=${i}`} className="block" onClick={handleBookClick}>
                         <Button className="w-full" variant={i === popularPackageIndex ? "default" : "outline"} size="default" disabled={!canBook}>
                           Select Package
