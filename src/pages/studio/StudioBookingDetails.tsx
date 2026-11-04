@@ -5,12 +5,12 @@ import { BookingTracker } from "@/components/BookingTracker";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
 
 // Mirrors backend UpdateServiceTrackerStatusAction::ALLOWED_TRANSITIONS.
-// The manual tracker can only move one step forward, and only from these
-// two stages — Upcoming, Event Day, and Completed are all system/action
+// The manual tracker can only move one step forward, and only from this
+// stage (Editing → Delivered) — Upcoming, Event Day, and Completed are all system/action
 // driven (BookingObserver, RunServiceProgressTransitionsAction,
 // MarkServiceCompletedAction respectively) and are never manually settable.
 const MANUAL_TRACKER_TRANSITIONS: Partial<Record<TrackingStage, TrackingStage>> = {
-  upcoming: "event_day",
+  // upcoming -> event_day is NOT here on purpose: it happens automatically at the scheduled start (Asia/Manila).
   // event_day -> editing is NOT here on purpose: it only happens through "Confirm Shoot Completed".
   editing: "delivered",
 };
@@ -378,13 +378,13 @@ export default function StudioBookingDetail() {
   const nextManualStage = booking.serviceStatus
     ? MANUAL_TRACKER_TRANSITIONS[booking.serviceStatus as TrackingStage]
     : undefined;
-  // Same rules the backend enforces: nothing moves before the scheduled start,
+ // Same rules the backend enforces: Event Day is automatic (Asia/Manila time),
   // and nothing moves forward while a no-show report awaits the admin.
-  const serviceHasStarted = new Date(`${booking.date}T${booking.startTime}`) <= new Date();
+
   // Confirm Shoot Completed needs EVERY session finished (all days). Unconfirmed end = end of that day.
   const serviceHasEnded = (booking.schedules?.length ? booking.schedules : [{ eventDate: booking.date, endTime: booking.endTime }]).every((s) => {
     const day = String(s.eventDate).slice(0, 10);
-    const end = s.endTime ? new Date(`${day}T${s.endTime}`) : new Date(`${day}T23:59:59`);
+    const end = s.endTime ? new Date(`${day}T${s.endTime}+08:00`) : new Date(`${day}T23:59:59+08:00`);
     return end <= new Date();
   });
   const hasPendingNoShowReport = ["open", "awaiting_admin", "disputed"].includes(booking.nonCompletionState ?? "");
@@ -613,7 +613,7 @@ export default function StudioBookingDetail() {
               <div className="space-y-3 pt-1">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-emerald-800/80 dark:text-emerald-400/80 uppercase tracking-wider">Update Service Tracker Stage</span>
-                  {nextManualStage && !hasPendingNoShowReport && (nextManualStage !== "event_day" || serviceHasStarted) ? (
+                  {nextManualStage && !hasPendingNoShowReport ? (
                     <select
                       value={displayStage}
                       onChange={(e) => setPendingTrackerStage(e.target.value as TrackingStage)}
@@ -635,8 +635,8 @@ export default function StudioBookingDetail() {
                         ? "Paused — a no-show report is awaiting admin review"
                         : booking.serviceStatus === "event_day"
                         ? "Use “Confirm Shoot Completed” below"
-                        : booking.serviceStatus === "upcoming" && !serviceHasStarted
-                        ? "Event Day starts at the scheduled time"
+                        : booking.serviceStatus === "upcoming"
+                        ? "Event Day starts automatically at the scheduled time"
                         : "Advances automatically"}
                     </span>
                   )}

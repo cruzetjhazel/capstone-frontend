@@ -14,7 +14,7 @@ import { trackingStages, type TrackingStage } from "@/data/photographers";
 // Mirrors backend UpdateServiceTrackerStatusAction::ALLOWED_TRANSITIONS —
 // see the same const in StudioBookingDetails.tsx for the full explanation.
 const MANUAL_TRACKER_TRANSITIONS: Partial<Record<TrackingStage, TrackingStage>> = {
-  upcoming: "event_day",
+  // upcoming -> event_day is NOT here on purpose: it happens automatically at the scheduled start (Asia/Manila).
   // event_day -> editing is NOT here on purpose: it only happens through "Confirm Shoot Completed" on the booking page.
   editing: "delivered",
 };

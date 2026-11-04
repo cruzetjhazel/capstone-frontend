@@ -864,7 +864,7 @@ export default function StudioCalendar() {
                 <Clock className="w-4 h-4 text-primary" /> Usual Booking Hours
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Set the days and hours when clients can start a booking. Days left blank are unavailable by default.
+                New accounts start open 7:00 AM – 10:00 PM every day. Edit or remove any period to match your schedule; days with no hours are unavailable.
                 Use the calendar above to open or block specific one-off dates.
               </p>
             </div>
