@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import {
   Plus, Archive, Sparkles, Wand2, Package, Save, Copy,
@@ -31,6 +32,7 @@ import {
 } from "@/hooks/usePhotographerCustomPackage";
 import type {
   CustomComponentRecord, CustomPackageConfigRecord, CustomPricingModel,
+  CustomPackageConfigInput,
 } from "@/services/photographerCustomPackageService";
 
 // Sensible starting point for a brand-new fixed package's duration — the
@@ -48,28 +50,12 @@ const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string; exa
 ];
 
 // ---------- toast notifications ----------
-// A thin wrapper around react-hot-toast that keeps the familiar
-// `toast({ title, variant })` call shape everywhere in this file, but renders
-// a compact, icon-led toast with a subtle slide/fade instead of plain text.
+// Same implementation as ClientProfile.tsx (plain react-hot-toast success/error),
+// wrapped so the existing `toast({ title, variant })` call sites keep working.
 type ToastVariant = "success" | "destructive";
 function toast({ title, variant = "success" }: { title: string; variant?: ToastVariant }) {
-  const isError = variant === "destructive";
-  hotToast.custom(
-    (t) => (
-      <div
-        className={`flex items-center gap-2.5 w-full max-w-sm rounded-lg border px-4 py-3 text-sm font-medium shadow-lg backdrop-blur-sm transition-all duration-200 ${
-          t.visible ? "animate-in slide-in-from-top-2 fade-in" : "animate-out fade-out slide-out-to-right-2"
-        } ${isError ? "bg-destructive text-destructive-foreground border-destructive/40" : "bg-emerald-600 text-white border-emerald-500/40"}`}
-      >
-        {isError ? <XCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
-        <span className="flex-1 leading-snug">{title}</span>
-        <button onClick={() => hotToast.dismiss(t.id)} className="shrink-0 opacity-70 hover:opacity-100 transition-opacity">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    ),
-    { duration: isError ? 4500 : 3000 }
-  );
+  if (variant === "destructive") hotToast.error(title);
+  else hotToast.success(title);
 }
 
 // ---------- shared modal shell ----------
@@ -439,6 +425,12 @@ export default function StudioPackages() {
   const [packageModal, setPackageModal] = useState<{ mode: "create" | "edit"; source?: PackageRecord; initial: PackageFormState } | null>(null);
   const [addOnModal, setAddOnModal] = useState<{ mode: "create" | "edit"; source?: AddOnRecord; initial: AddOnFormState } | null>(null);
   const [activeTab, setActiveTab] = useState<"fixed" | "custom">("fixed");
+  const [customDirty, setCustomDirty] = useState(false);
+  const blockIfDirty = () => {
+    if (!customDirty) return false;
+    toast({ title: "Save or discard your changes first.", variant: "destructive" });
+    return true;
+  };
   const tab = customConfig?.enabled ? activeTab : "fixed"; // custom tab only exists while enabled
 
   const [packageToDraft, setPackageToDraft] = useState<PackageRecord | null>(null);
@@ -595,7 +587,7 @@ export default function StudioPackages() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-8 animate-fade-up pb-12">
+      <div className="max-w-5xl mx-auto space-y-8 animate-fade-up pb-24">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -658,7 +650,7 @@ export default function StudioPackages() {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <span className="text-xs text-muted-foreground">{customConfig?.enabled ? "On" : "Off"}</span>
-            <Switch checked={customConfig?.enabled ?? false} onCheckedChange={(checked) => setPendingCustomToggle(checked)} />
+            <Switch checked={customConfig?.enabled ?? false} onCheckedChange={(checked) => { if (blockIfDirty()) return; setPendingCustomToggle(checked); }} />
           </div>
         </section>
 
@@ -668,7 +660,7 @@ export default function StudioPackages() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveTab(id as "fixed" | "custom")}
+              onClick={() => { if (id !== tab && blockIfDirty()) return; setActiveTab(id as "fixed" | "custom"); }}
               className={cn(
                 "px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors",
                 tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
@@ -684,8 +676,9 @@ export default function StudioPackages() {
             inline
             customConfig={customConfig}
             components={components}
-            onClose={() => setActiveTab("fixed")}
-            onToggleEnabled={(checked) => setPendingCustomToggle(checked)}
+            onClose={() => { if (blockIfDirty()) return; setActiveTab("fixed"); }}
+            onToggleEnabled={(checked) => { if (blockIfDirty()) return; setPendingCustomToggle(checked); }}
+            onDirtyChange={setCustomDirty}
             updateConfig={updateConfig}
             createComponent={createComponent}
             updateComponentMut={updateComponentMut}
@@ -982,7 +975,7 @@ export default function StudioPackages() {
 // ---------- Configure Custom Package drawer ----------
 function CustomPackageDrawer({
   inline = false,
-  customConfig, components, onClose, onToggleEnabled,
+  customConfig, components, onClose, onToggleEnabled, onDirtyChange,
   updateConfig, createComponent, updateComponentMut, archiveComponentMut,
   errToast,
 }: {
@@ -991,6 +984,7 @@ function CustomPackageDrawer({
   components: CustomComponentRecord[];
   onClose: () => void;
   onToggleEnabled: (checked: boolean) => void;
+  onDirtyChange: (dirty: boolean) => void;
   updateConfig: ReturnType<typeof useUpdateCustomPackageConfig>;
   createComponent: ReturnType<typeof useCreateCustomComponent>;
   updateComponentMut: ReturnType<typeof useUpdateCustomComponent>;
@@ -1052,8 +1046,9 @@ function CustomPackageDrawer({
       Number(unitRate) !== Number(customConfig?.unitRate ?? 0)
       || coverageHours !== (customConfig?.coverageHours ?? "")
       || (pricingModel === "per_person" && maxPeople !== (customConfig?.maxPeople ?? ""))))
-    || multiEnabled !== (customConfig?.allowsMultipleSessions ?? false)
-    || (multiEnabled && maxSessions !== (customConfig?.maxSessions ?? ""));
+    || (pricingModel === "per_day" && (
+      multiEnabled !== (customConfig?.allowsMultipleSessions ?? false)
+      || (multiEnabled && maxSessions !== (customConfig?.maxSessions ?? ""))));
 
   const pricingError = (() => {
     if (!customConfig?.enabled) return "";
@@ -1068,8 +1063,20 @@ function CustomPackageDrawer({
     return "";
   })();
 
+  // ---- Staged (unsaved) changes: nothing below is sent until "Save Changes" ----
+  type StagedEdit = { label: string; price: number; durationMinutes: number | null };
+  type StagedCreate = {
+    key: string; type: "tier_option" | "flat_option"; tierName: string | null;
+    label: string; price: number; durationMinutes: number | null;
+  };
+  const [stagedEdits, setStagedEdits] = useState<Record<string, StagedEdit>>({});
+  const [stagedCreates, setStagedCreates] = useState<StagedCreate[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const nextKey = () => `new-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingFields, setEditingFields] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
+  const [editingFields, setEditingFields] = useState<StagedEdit>({ label: "", price: 0, durationMinutes: null });
 
   const [addOptionTier, setAddOptionTier] = useState<string | null>(null);
   const [newOption, setNewOption] = useState<{ label: string; price: number; durationMinutes: number | null }>({ label: "", price: 0, durationMinutes: null });
@@ -1078,7 +1085,6 @@ function CustomPackageDrawer({
   const [newTier, setNewTier] = useState<{ tierName: string; options: { label: string; price: number; durationMinutes: number | null }[] }>({
     tierName: "", options: [{ label: "", price: 0, durationMinutes: null }],
   });
-  const [isCreatingTier, setIsCreatingTier] = useState(false);
 
   const [showFlatForm, setShowFlatForm] = useState(false);
   const [newFlat, setNewFlat] = useState({ label: "", price: 0 });
@@ -1089,70 +1095,52 @@ function CustomPackageDrawer({
   }
   const flatOptions = components.filter((c) => c.type === "flat_option" && c.status !== "archived");
 
-  const saveBufferMinutes = async () => {
-    try {
-      await updateConfig.mutateAsync({
-        enabled: customConfig?.enabled ?? false,
-        buffer_minutes: Number(bufferMinutes) || 0,
-      });
-      toast({ title: "Buffer time updated." });
-    } catch (err) {
-      errToast(err, "Couldn't update buffer time.");
-    }
-  };
+  // A brand-new tier is just a tier name that only has staged options.
+  const stagedByTier: Record<string, StagedCreate[]> = {};
+  for (const s of stagedCreates) {
+    if (s.type === "tier_option" && s.tierName) (stagedByTier[s.tierName] ??= []).push(s);
+  }
+  const stagedFlat = stagedCreates.filter((s) => s.type === "flat_option");
+  const allTierNames = Array.from(new Set([...Object.keys(tierGroups), ...Object.keys(stagedByTier)]));
+  const tierCount = (name: string) => (tierGroups[name]?.length ?? 0) + (stagedByTier[name]?.length ?? 0);
 
-  const savePricing = async () => {
-    if (pricingError) return;
-    try {
-      await updateConfig.mutateAsync({
-        enabled: customConfig?.enabled ?? false,
-        pricing_model: pricingModel,
-        base_fee: pricingModel === "fixed" ? (Number(baseFee) || 0) : null,
-        base_hours: null,
-        hourly_rate: pricingModel === "hourly" ? (Number(hourlyRate) || 0) : null,
-        outdoor_hourly_rate: pricingModel === "hourly" && outdoorHourlyRate !== "" && Number(outdoorHourlyRate) > 0 ? Number(outdoorHourlyRate) : null,
-        min_hours: pricingModel === "hourly" ? (Number(minHours) || 1) : null,
-        max_hours: pricingModel === "hourly" ? (Number(maxHours) || 8) : null,
-        unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
-        coverage_hours: isUnitModel && coverageHours !== "" ? Number(coverageHours) : null,
-        max_people: pricingModel === "per_person" && maxPeople !== "" ? Number(maxPeople) : null,
-        allows_multiple_sessions: pricingModel === "per_day" && multiEnabled,
-        max_sessions: pricingModel === "per_day" && multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
-        base_fee_mode: null,
-      });
-      toast({ title: "Pricing updated." });
-    } catch (err) {
-      errToast(err, "Couldn't update pricing.");
-    }
-  };
+  const isDirty = pricingDirty || bufferDirty || Object.keys(stagedEdits).length > 0 || stagedCreates.length > 0;
+  // Tell the parent, so it can block tab switching / disabling while there are unsaved changes.
+  useEffect(() => { onDirtyChange(isDirty); }, [isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirtyChange(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const viewOf = (c: CustomComponentRecord): StagedEdit =>
+    stagedEdits[c.id] ?? { label: c.label, price: c.priceAddition, durationMinutes: c.durationMinutes };
 
   const startEdit = (c: CustomComponentRecord) => {
     setEditingId(c.id);
-    setEditingFields({ label: c.label, price: c.priceAddition, durationMinutes: c.durationMinutes });
+    setEditingFields(viewOf(c));
   };
-  const saveEdit = async (c: CustomComponentRecord) => {
-    if (!editingFields.label.trim()) {
+
+  // "Done" on an edit row only stages the change locally.
+  const stageEdit = (c: CustomComponentRecord) => {
+    const label = editingFields.label.trim();
+    if (!label) {
       toast({ title: "Label is required.", variant: "destructive" });
       return;
     }
-    try {
-      await updateComponentMut.mutateAsync({
-        id: c.id,
-        input: {
-          type: c.type,
-          tier_name: c.tierName,
-          label: editingFields.label.trim(),
-          price_addition: Number(editingFields.price) || 0,
-          duration_minutes: editingFields.durationMinutes,
-        },
-      });
-      toast({ title: `"${editingFields.label.trim()}" updated.` });
-      setEditingId(null);
-    } catch (err) {
-      errToast(err, "Couldn't update this item.");
-    }
+    const price = Number(editingFields.price) || 0;
+    const unchanged = label === c.label && price === c.priceAddition && editingFields.durationMinutes === c.durationMinutes;
+    setStagedEdits((prev) => {
+      const next = { ...prev };
+      if (unchanged) delete next[c.id];
+      else next[c.id] = { label, price, durationMinutes: editingFields.durationMinutes };
+      return next;
+    });
+    setEditingId(null);
   };
+
+  // Archive stays immediate, but never silently discards unsaved edits to that item.
   const archiveItem = async (c: CustomComponentRecord) => {
+    if (stagedEdits[c.id]) {
+      toast({ title: "Save or discard your changes first.", variant: "destructive" });
+      return;
+    }
     try {
       await archiveComponentMut.mutateAsync(c.id);
       toast({ title: `"${c.label}" archived.` });
@@ -1161,29 +1149,23 @@ function CustomPackageDrawer({
     }
   };
 
-  const submitAddOption = async (tierName: string) => {
+  const removeStaged = (key: string) => setStagedCreates((prev) => prev.filter((s) => s.key !== key));
+
+  const submitAddOption = (tierName: string) => {
     if (!newOption.label.trim()) {
       toast({ title: "Please enter a label for this option.", variant: "destructive" });
       return;
     }
-    if ((tierGroups[tierName]?.length ?? 0) >= 4) {
+    if (tierCount(tierName) >= 4) {
       toast({ title: "Each tier can have at most 4 options.", variant: "destructive" });
       return;
     }
-    try {
-      await createComponent.mutateAsync({
-        type: "tier_option",
-        tier_name: tierName,
-        label: newOption.label.trim(),
-        price_addition: Number(newOption.price) || 0,
-        duration_minutes: newOption.durationMinutes,
-      });
-      toast({ title: `Option added to "${tierName}".` });
-      setNewOption({ label: "", price: 0, durationMinutes: null });
-      setAddOptionTier(null);
-    } catch (err) {
-      errToast(err, "Couldn't add this option.");
-    }
+    setStagedCreates((prev) => [...prev, {
+      key: nextKey(), type: "tier_option", tierName,
+      label: newOption.label.trim(), price: Number(newOption.price) || 0, durationMinutes: newOption.durationMinutes,
+    }]);
+    setNewOption({ label: "", price: 0, durationMinutes: null });
+    setAddOptionTier(null);
   };
 
   const updateNewTierOption = (index: number, patch: Partial<{ label: string; price: number; durationMinutes: number | null }>) => {
@@ -1192,13 +1174,13 @@ function CustomPackageDrawer({
   const addNewTierOptionRow = () => setNewTier((prev) => (prev.options.length >= 4 ? prev : { ...prev, options: [...prev.options, { label: "", price: 0, durationMinutes: null }] }));
   const removeNewTierOptionRow = (index: number) => setNewTier((prev) => ({ ...prev, options: prev.options.filter((_, i) => i !== index) }));
 
-  const submitNewTier = async () => {
+  const submitNewTier = () => {
     const name = newTier.tierName.trim();
     if (!name) {
       toast({ title: "Please name this tier.", variant: "destructive" });
       return;
     }
-    if (tierGroups[name]) {
+    if (allTierNames.includes(name)) {
       toast({ title: "A tier with this name already exists — add options to it instead.", variant: "destructive" });
       return;
     }
@@ -1207,39 +1189,147 @@ function CustomPackageDrawer({
       toast({ title: "Please add at least one option.", variant: "destructive" });
       return;
     }
-    setIsCreatingTier(true);
-    try {
-      for (const opt of filled) {
-        await createComponent.mutateAsync({
-          type: "tier_option",
-          tier_name: name,
-          label: opt.label.trim(),
-          price_addition: Number(opt.price) || 0,
-          duration_minutes: opt.durationMinutes,
-        });
-      }
-      toast({ title: `Tier "${name}" created.` });
-      setNewTier({ tierName: "", options: [{ label: "", price: 0, durationMinutes: null }] });
-      setShowNewTierForm(false);
-    } catch (err) {
-      errToast(err, "Couldn't create this tier.");
-    } finally {
-      setIsCreatingTier(false);
-    }
+    setStagedCreates((prev) => [
+      ...prev,
+      ...filled.map((o) => ({
+        key: nextKey(), type: "tier_option" as const, tierName: name,
+        label: o.label.trim(), price: Number(o.price) || 0, durationMinutes: o.durationMinutes,
+      })),
+    ]);
+    setNewTier({ tierName: "", options: [{ label: "", price: 0, durationMinutes: null }] });
+    setShowNewTierForm(false);
   };
 
-  const submitFlatOption = async () => {
+  const submitFlatOption = () => {
     if (!newFlat.label.trim()) {
       toast({ title: "Please enter a label for this extra.", variant: "destructive" });
       return;
     }
-    try {
-      await createComponent.mutateAsync({ type: "flat_option", label: newFlat.label.trim(), price_addition: Number(newFlat.price) || 0 });
-      toast({ title: `"${newFlat.label.trim()}" added.` });
-      setNewFlat({ label: "", price: 0 });
-      setShowFlatForm(false);
-    } catch (err) {
-      errToast(err, "Couldn't add this extra.");
+    setStagedCreates((prev) => [...prev, {
+      key: nextKey(), type: "flat_option", tierName: null,
+      label: newFlat.label.trim(), price: Number(newFlat.price) || 0, durationMinutes: null,
+    }]);
+    setNewFlat({ label: "", price: 0 });
+    setShowFlatForm(false);
+  };
+
+  const handleDiscard = () => {
+    setBaseFee(customConfig?.baseFee ?? 0);
+    setBufferMinutes(customConfig?.bufferMinutes ?? 0);
+    setPricingModel(storedModel);
+    setHourlyRate(customConfig?.hourlyRate ?? 0);
+    setOutdoorHourlyRate(customConfig?.outdoorHourlyRate ?? "");
+    setMinHours(customConfig?.minHours ?? 1);
+    setMaxHours(customConfig?.maxHours ?? 8);
+    setUnitRate(customConfig?.unitRate ?? 0);
+    setCoverageHours(customConfig?.coverageHours ?? "");
+    setMaxPeople(customConfig?.maxPeople ?? "");
+    setMultiEnabled(customConfig?.allowsMultipleSessions ?? false);
+    setMaxSessions(customConfig?.maxSessions ?? "");
+    setStagedEdits({});
+    setStagedCreates([]);
+    setEditingId(null);
+    setAddOptionTier(null);
+    setNewOption({ label: "", price: 0, durationMinutes: null });
+    setShowNewTierForm(false);
+    setNewTier({ tierName: "", options: [{ label: "", price: 0, durationMinutes: null }] });
+    setShowFlatForm(false);
+    setNewFlat({ label: "", price: 0 });
+    setSaveError(null);
+  };
+
+  // Saves everything with the EXISTING endpoints, one request at a time.
+  // Every operation that succeeds is removed from the staged state right away,
+  // so a retry only repeats what failed (and never re-creates something that was saved).
+  const handleSaveAll = async () => {
+    if (editingId) {
+      toast({ title: "Finish or cancel the item you're editing first.", variant: "destructive" });
+      return;
+    }
+    if (pricingError) {
+      setSaveError(pricingError);
+      toast({ title: pricingError, variant: "destructive" });
+      return;
+    }
+    setSaveError(null);
+    setIsSaving(true);
+    const failures: string[] = [];
+
+    // 1. Pricing + buffer: ONE call to the config endpoint. Only changed sections are sent;
+    //    keys left out keep their stored values on the backend.
+    if (pricingDirty || bufferDirty) {
+      const payload: CustomPackageConfigInput = {
+        enabled: customConfig?.enabled ?? false,
+        ...(bufferDirty ? { buffer_minutes: Number(bufferMinutes) || 0 } : {}),
+        ...(pricingDirty ? {
+          pricing_model: pricingModel,
+          base_fee: pricingModel === "fixed" ? (Number(baseFee) || 0) : null,
+          base_hours: null,
+          hourly_rate: pricingModel === "hourly" ? (Number(hourlyRate) || 0) : null,
+          outdoor_hourly_rate: pricingModel === "hourly" && outdoorHourlyRate !== "" && Number(outdoorHourlyRate) > 0 ? Number(outdoorHourlyRate) : null,
+          min_hours: pricingModel === "hourly" ? (Number(minHours) || 1) : null,
+          max_hours: pricingModel === "hourly" ? (Number(maxHours) || 8) : null,
+          unit_rate: isUnitModel ? (Number(unitRate) || 0) : null,
+          coverage_hours: isUnitModel && coverageHours !== "" ? Number(coverageHours) : null,
+          max_people: pricingModel === "per_person" && maxPeople !== "" ? Number(maxPeople) : null,
+          allows_multiple_sessions: pricingModel === "per_day" && multiEnabled,
+          max_sessions: pricingModel === "per_day" && multiEnabled && maxSessions !== "" ? Number(maxSessions) : null,
+          base_fee_mode: null,
+        } : {}),
+      };
+      try {
+        await updateConfig.mutateAsync(payload);
+      } catch (err) {
+        failures.push(getApiErrorMessage(err, "Couldn't save pricing or buffer time."));
+      }
+    }
+
+    // 2. Edits to existing tier options / extras.
+    for (const [id, edit] of Object.entries(stagedEdits)) {
+      const c = components.find((x) => x.id === id);
+      if (!c) {
+        failures.push(`"${edit.label}" no longer exists. Discard to clear it.`);
+        continue;
+      }
+      try {
+        await updateComponentMut.mutateAsync({
+          id,
+          input: {
+            type: c.type,
+            tier_name: c.tierName,
+            label: edit.label,
+            price_addition: edit.price,
+            duration_minutes: edit.durationMinutes,
+          },
+        });
+        setStagedEdits((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      } catch (err) {
+        failures.push(`"${edit.label}": ${getApiErrorMessage(err, "couldn't be updated.")}`);
+      }
+    }
+
+    // 3. New options / new tiers / new extras.
+    for (const s of stagedCreates) {
+      try {
+        await createComponent.mutateAsync({
+          type: s.type,
+          tier_name: s.tierName,
+          label: s.label,
+          price_addition: s.price,
+          duration_minutes: s.durationMinutes,
+        });
+        removeStaged(s.key);
+      } catch (err) {
+        failures.push(`"${s.label}": ${getApiErrorMessage(err, "couldn't be added.")}`);
+      }
+    }
+
+    setIsSaving(false);
+    if (failures.length > 0) {
+      setSaveError(failures.join(" "));
+      toast({ title: "Some changes couldn't be saved. Your unsaved changes are still here, so you can fix them and try again.", variant: "destructive" });
+    } else {
+      toast({ title: "Changes saved." });
     }
   };
 
@@ -1375,16 +1465,6 @@ function CustomPackageDrawer({
         )}
 
         {pricingError && <p className="text-[11px] text-destructive">{pricingError}</p>}
-
-        <Button
-          size="sm"
-          variant={pricingDirty ? "default" : "outline"}
-          className="h-9 text-xs gap-1"
-          disabled={!pricingDirty || !!pricingError || updateConfig.isPending}
-          onClick={savePricing}
-        >
-          {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
-        </Button>
       </div>
 
       {/* Buffer time */}
@@ -1393,12 +1473,7 @@ function CustomPackageDrawer({
         <p className="text-[11px] text-muted-foreground -mt-0.5">
           Extra time held after each session for packing up and travel.
         </p>
-        <div className="flex items-center gap-2">
-          <Input type="number" min={0} className="h-9 text-sm flex-1" value={bufferMinutes === 0 ? "" : bufferMinutes} onChange={(e) => setBufferMinutes(e.target.value === "" ? 0 : Number(e.target.value))} />
-          <Button size="sm" variant={bufferDirty ? "default" : "outline"} className="h-9 text-xs gap-1" disabled={!bufferDirty || updateConfig.isPending} onClick={saveBufferMinutes}>
-            {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
-          </Button>
-        </div>
+        <Input type="number" min={0} className="h-9 text-sm" value={bufferMinutes === 0 ? "" : bufferMinutes} onChange={(e) => setBufferMinutes(e.target.value === "" ? 0 : Number(e.target.value))} />
       </div>
 
       {/* Tier groups — still configurable whichever pricing method is on;
@@ -1413,71 +1488,96 @@ function CustomPackageDrawer({
           </Button>
         </div>
 
-        {Object.entries(tierGroups).map(([tierName, options]) => (
-          <div key={tierName} className="pt-2">
-            <Label className="text-xs font-semibold">{tierName}</Label>
-            <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">Clients pick one option from this tier. {options.length}/4 options.</p>
-            <div className="space-y-2">
-              {options.map((c) => (
-                <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
-                  {editingId === c.id ? (
-                    <>
-                      <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
-                      <span className="text-muted-foreground">+₱</span>
-                      <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
-                      <Input
-                        type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
-                        title="Coverage duration in minutes — only set this on the option representing how long you'll be shooting, not the client's whole event."
-                        value={editingFields.durationMinutes ?? ""}
-                        onChange={(e) => setEditingFields((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
-                      />
-                      <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
-                      <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => saveEdit(c)} disabled={updateComponentMut.isPending}>
-                        <Save className="w-3 h-3" /> Save
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>
-                        {c.label}
-                        {c.durationMinutes != null && (
-                          <span className="ml-2 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium align-middle">
-                            {c.durationMinutes} min coverage
+        {allTierNames.map((tierName) => {
+          const options = tierGroups[tierName] ?? [];
+          const staged = stagedByTier[tierName] ?? [];
+          return (
+            <div key={tierName} className="pt-2">
+              <Label className="text-xs font-semibold">{tierName}</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">Clients pick one option from this tier. {tierCount(tierName)}/4 options.</p>
+              <div className="space-y-2">
+                {options.map((c) => {
+                  const v = viewOf(c);
+                  const edited = !!stagedEdits[c.id];
+                  return (
+                    <div key={c.id} className={cn("flex items-center gap-2 p-2.5 rounded-lg border text-xs", edited ? "border-dashed border-primary/40 bg-primary/5" : "border-border bg-muted/10")}>
+                      {editingId === c.id ? (
+                        <>
+                          <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
+                          <span className="text-muted-foreground">+₱</span>
+                          <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                          <Input
+                            type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                            title="Coverage duration in minutes — only set this on the option representing how long you'll be shooting, not the client's whole event."
+                            value={editingFields.durationMinutes ?? ""}
+                            onChange={(e) => setEditingFields((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                          />
+                          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
+                          <Button size="sm" className="h-7 text-[11px]" onClick={() => stageEdit(c)}>Done</Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>
+                            {v.label}
+                            {v.durationMinutes != null && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium align-middle">
+                                {v.durationMinutes} min coverage
+                              </span>
+                            )}
+                            {edited && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 text-[10px] font-medium align-middle">Unsaved</span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                      <span className="font-semibold">+₱{c.priceAddition.toLocaleString()}</span>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => startEdit(c)} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveItem(c)} title="Archive"><Archive className="w-3.5 h-3.5" /></Button>
-                    </>
-                  )}
-                </div>
-              ))}
+                          <span className="font-semibold">+₱{v.price.toLocaleString()}</span>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => startEdit(c)} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveItem(c)} title="Archive"><Archive className="w-3.5 h-3.5" /></Button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
 
-              {addOptionTier === tierName ? (
-                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 text-xs">
-                  <Input className="flex-1 h-7 text-xs" placeholder="e.g. 100+ photos, or 2 hours" value={newOption.label} onChange={(e) => setNewOption((prev) => ({ ...prev, label: e.target.value }))} />
-                  <span className="text-muted-foreground">+₱</span>
-                  <Input type="number" className="w-24 h-7 text-xs" value={newOption.price === 0 ? "" : newOption.price} onChange={(e) => setNewOption((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
-                  <Input
-                    type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
-                    title="Coverage duration in minutes — only fill this in if this option represents how long you'll be shooting (e.g. a '2 hours' Coverage Duration tier), not the client's whole event."
-                    value={newOption.durationMinutes ?? ""}
-                    onChange={(e) => setNewOption((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
-                  />
-                  <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setAddOptionTier(null)}>Cancel</Button>
-                  <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => submitAddOption(tierName)} disabled={createComponent.isPending}>
-                    <Plus className="w-3 h-3" /> Add
+                {staged.map((s) => (
+                  <div key={s.key} className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 bg-primary/5 text-xs">
+                    <span className="flex-1 text-muted-foreground">
+                      {s.label}
+                      {s.durationMinutes != null && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium align-middle">
+                          {s.durationMinutes} min coverage
+                        </span>
+                      )}
+                      <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 text-[10px] font-medium align-middle">Unsaved</span>
+                    </span>
+                    <span className="font-semibold">+₱{s.price.toLocaleString()}</span>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeStaged(s.key)} title="Remove"><X className="w-3.5 h-3.5" /></Button>
+                  </div>
+                ))}
+
+                {addOptionTier === tierName ? (
+                  <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 text-xs">
+                    <Input className="flex-1 h-7 text-xs" placeholder="e.g. 100+ photos, or 2 hours" value={newOption.label} onChange={(e) => setNewOption((prev) => ({ ...prev, label: e.target.value }))} />
+                    <span className="text-muted-foreground">+₱</span>
+                    <Input type="number" className="w-24 h-7 text-xs" value={newOption.price === 0 ? "" : newOption.price} onChange={(e) => setNewOption((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                    <Input
+                      type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                      title="Coverage duration in minutes — only fill this in if this option represents how long you'll be shooting (e.g. a '2 hours' Coverage Duration tier), not the client's whole event."
+                      value={newOption.durationMinutes ?? ""}
+                      onChange={(e) => setNewOption((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                    />
+                    <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setAddOptionTier(null)}>Cancel</Button>
+                    <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => submitAddOption(tierName)}>
+                      <Plus className="w-3 h-3" /> Add
+                    </Button>
+                  </div>
+                ) : tierCount(tierName) < 4 && (
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => { setAddOptionTier(tierName); setNewOption({ label: "", price: 0, durationMinutes: null }); }}>
+                    <Plus className="w-3 h-3" /> Add Option
                   </Button>
-                </div>
-              ) : options.length < 4 && (
-                <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => { setAddOptionTier(tierName); setNewOption({ label: "", price: 0, durationMinutes: null }); }}>
-                  <Plus className="w-3 h-3" /> Add Option
-                </Button>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {showNewTierForm && (
           <div className="pt-2 border-t border-border/50 space-y-2">
@@ -1506,9 +1606,9 @@ function CustomPackageDrawer({
               </Button>
             )}
             <div className="flex justify-end gap-2 pt-1">
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowNewTierForm(false)} disabled={isCreatingTier}>Cancel</Button>
-              <Button size="sm" className="h-8 text-xs gap-1" onClick={submitNewTier} disabled={isCreatingTier}>
-                {isCreatingTier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Create Tier
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowNewTierForm(false)}>Cancel</Button>
+              <Button size="sm" className="h-8 text-xs gap-1" onClick={submitNewTier}>
+                <Plus className="w-3.5 h-3.5" /> Add Tier
               </Button>
             </div>
           </div>
@@ -1527,29 +1627,46 @@ function CustomPackageDrawer({
           </Button>
         </div>
         <div className="space-y-2">
-          {flatOptions.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-muted/10 text-xs">
-              {editingId === c.id ? (
-                <>
-                  <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
-                  <span className="text-muted-foreground">+₱</span>
-                  <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
-                  <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
-                  <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => saveEdit(c)} disabled={updateComponentMut.isPending}>
-                    <Save className="w-3 h-3" /> Save
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>{c.label}</span>
-                  <span className="font-semibold">+₱{c.priceAddition.toLocaleString()}</span>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => startEdit(c)} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveItem(c)} title="Archive"><Archive className="w-3.5 h-3.5" /></Button>
-                </>
-              )}
+          {flatOptions.map((c) => {
+            const v = viewOf(c);
+            const edited = !!stagedEdits[c.id];
+            return (
+              <div key={c.id} className={cn("flex items-center gap-2 p-2.5 rounded-lg border text-xs", edited ? "border-dashed border-primary/40 bg-primary/5" : "border-border bg-muted/10")}>
+                {editingId === c.id ? (
+                  <>
+                    <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
+                    <span className="text-muted-foreground">+₱</span>
+                    <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
+                    <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
+                    <Button size="sm" className="h-7 text-[11px]" onClick={() => stageEdit(c)}>Done</Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-muted-foreground cursor-pointer" onClick={() => startEdit(c)}>
+                      {v.label}
+                      {edited && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 text-[10px] font-medium align-middle">Unsaved</span>
+                      )}
+                    </span>
+                    <span className="font-semibold">+₱{v.price.toLocaleString()}</span>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={() => startEdit(c)} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => archiveItem(c)} title="Archive"><Archive className="w-3.5 h-3.5" /></Button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {stagedFlat.map((s) => (
+            <div key={s.key} className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 bg-primary/5 text-xs">
+              <span className="flex-1 text-muted-foreground">
+                {s.label}
+                <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 text-[10px] font-medium align-middle">Unsaved</span>
+              </span>
+              <span className="font-semibold">+₱{s.price.toLocaleString()}</span>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeStaged(s.key)} title="Remove"><X className="w-3.5 h-3.5" /></Button>
             </div>
           ))}
-          {flatOptions.length === 0 && !showFlatForm && (
+          {flatOptions.length === 0 && stagedFlat.length === 0 && !showFlatForm && (
             <p className="text-[11px] text-muted-foreground italic">No custom extras yet.</p>
           )}
           {showFlatForm && (
@@ -1558,13 +1675,37 @@ function CustomPackageDrawer({
               <span className="text-muted-foreground">+₱</span>
               <Input type="number" className="w-24 h-7 text-xs" value={newFlat.price === 0 ? "" : newFlat.price} onChange={(e) => setNewFlat((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
               <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setShowFlatForm(false)}>Cancel</Button>
-              <Button size="sm" className="h-7 text-[11px] gap-1" onClick={submitFlatOption} disabled={createComponent.isPending}>
+              <Button size="sm" className="h-7 text-[11px] gap-1" onClick={submitFlatOption}>
                 <Plus className="w-3 h-3" /> Add
               </Button>
             </div>
           )}
         </div>
       </div>
+
+      {/* STICKY ACTION BAR — same pattern as StudioSettings.tsx (portaled so the page's fade-up animation can't affect `fixed`) */}
+      {isDirty && createPortal(
+        <div className="fixed bottom-0 left-0 right-0 bg-background/90 backdrop-blur-md border-t border-border p-4 z-40 animate-in slide-in-from-bottom-5 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+          <div className="max-w-5xl mx-auto space-y-3">
+            {saveError && (
+              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>{saveError}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium hidden sm:block">You have unsaved custom package changes.</p>
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <Button variant="outline" size="sm" onClick={handleDiscard} disabled={isSaving}>Discard</Button>
+                <Button size="sm" onClick={handleSaveAll} disabled={isSaving}>
+                  {isSaving ? "Saving…" : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {!inline && (
         <div className="flex justify-end pt-2">

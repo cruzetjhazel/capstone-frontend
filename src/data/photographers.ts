@@ -4,7 +4,7 @@ export type PackageInclusion = string | { name: string; detail?: string };
 
 export function inclusionText(inc: PackageInclusion): string {
   if (typeof inc === "string") return inc;
-  return inc.detail ? `${inc.name} — ${inc.detail}` : inc.name;
+  return inc.detail ? `${inc.detail} ${inc.name}` : inc.name;
 }
 
 export interface Package {

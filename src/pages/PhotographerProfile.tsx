@@ -679,8 +679,7 @@ export default function PhotographerProfile() {
                         <div key={idx} className="flex items-start gap-2.5 text-xs">
                           <Check className="w-3.5 h-3.5 text-primary shrink-0 mt-px" /> 
                           <span className="text-muted-foreground leading-snug">
-                            {typeof inc === "string" ? inc : inc.name}
-                            {typeof inc !== "string" && inc.detail && <span className="text-muted-foreground/70"> — {inc.detail}</span>}
+                            {inclusionText(inc)}
                           </span>
                         </div>
                       ))}
