@@ -128,6 +128,8 @@ export interface Photographer {
   id: string;
   name: string;
   type: "Studio" | "Freelancer";
+  isFreelancer?: boolean;
+  isStudioOwner?: boolean;
   specialty: string;
   styles?: string[];
   avatarUrl?: string;

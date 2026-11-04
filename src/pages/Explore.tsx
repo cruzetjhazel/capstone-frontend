@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Camera, Star, MapPin, X, SlidersHorizontal, ChevronDown, Search, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { providerTags } from "@/lib/providerTags";
 import MarketingNavbar from "@/components/MarketingNavbar";
 import Reveal from "@/components/Reveal";
 import SearchBar from "@/components/SearchBar";
@@ -159,7 +160,7 @@ export default function Explore() {
       }
 
       // Exact Type Match
-      if (activeType !== "All" && s.type !== activeType) return false;
+      if (activeType !== "All" && !providerTags(s).includes(activeType)) return false;
     
 
       if (rf.min > 0 && s.rating < rf.min) return false;
@@ -540,9 +541,13 @@ export default function Explore() {
                   ) : (
                     <span className="text-4xl font-heading font-bold text-primary/20">{s.avatar}</span>
                   )}
-                  <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-card/90 text-xs font-medium border border-border">
-                    {s.type}
-                  </span>
+      <div className="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[70%]">
+  {providerTags(s).map((tag) => (
+    <span key={tag} className="px-2 py-0.5 rounded-full bg-card/90 text-xs font-medium border border-border">
+      {tag}
+    </span>
+  ))}
+</div>
                   {s.rating >= 4.9 && (
                     <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-accent/20 text-accent text-xs font-medium flex items-center gap-1">
                       Top Rated

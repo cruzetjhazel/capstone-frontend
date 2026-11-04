@@ -77,6 +77,7 @@ const STATUS_LABEL: Record<string, { text: string; className: string }> = {
 };
 
 type BusinessSnapshot = {
+  isFreelancer: boolean; isStudioOwner: boolean;
   businessName: string; location: string; yearsActive: string; teamSize: string;
   services: string[]; otherServices: string; coverageArea: string;
   shootingTypes: string[]; priceMin: string; priceMax: string;
@@ -109,7 +110,8 @@ export default function StudioSettings() {
   const [priceMax, setPriceMax] = useState("");
   const [initialBusiness, setInitialBusiness] = useState<BusinessSnapshot | null>(null);
 
-  const isFreelancer = application?.photographerType === "freelancer";
+  const [isFreelancer, setIsFreelancer] = useState(false);
+  const [isStudioOwner, setIsStudioOwner] = useState(false);
 
   // ---- Profile (branding) state ----
   const [bio, setBio] = useState("");
@@ -168,6 +170,10 @@ export default function StudioSettings() {
         ]);
 
         setApplication(app);
+        const loadedFreelancer = app.isFreelancer ?? app.photographerType === "freelancer";
+        const loadedStudio = app.isStudioOwner ?? app.photographerType === "studio";
+        setIsFreelancer(loadedFreelancer);
+        setIsStudioOwner(loadedStudio);
         setBusinessName(app.businessName);
         setLocation(app.location);
         setYearsActive(app.yearsActive != null ? String(app.yearsActive) : "");
@@ -183,6 +189,7 @@ export default function StudioSettings() {
         setPriceMin(app.priceMin != null ? String(app.priceMin) : "");
         setPriceMax(app.priceMax != null ? String(app.priceMax) : "");
         setInitialBusiness({
+          isFreelancer: loadedFreelancer, isStudioOwner: loadedStudio,
           businessName: app.businessName, location: app.location,
           yearsActive: app.yearsActive != null ? String(app.yearsActive) : "",
           teamSize: app.teamSize != null ? String(app.teamSize) : "",
@@ -244,7 +251,7 @@ export default function StudioSettings() {
 
   // ---- Dirty tracking (mirrors ClientProfile.tsx's sticky-bar pattern) ----
   const businessDirty = initialBusiness ? JSON.stringify({
-    businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax,
+    isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax,
   }) !== JSON.stringify(initialBusiness) : false;
 
   const profileDirty = initialProfile ? (
@@ -325,6 +332,8 @@ export default function StudioSettings() {
 
   const handleDiscard = () => {
     if (initialBusiness) {
+      setIsFreelancer(initialBusiness.isFreelancer);
+      setIsStudioOwner(initialBusiness.isStudioOwner);
       setBusinessName(initialBusiness.businessName);
       setLocation(initialBusiness.location);
       setYearsActive(initialBusiness.yearsActive);
@@ -365,6 +374,10 @@ export default function StudioSettings() {
     };
 
     if (businessDirty) {
+      if (!isFreelancer && !isStudioOwner) {
+        fail("Select at least one: Freelance Photographer or Studio Owner.");
+        return;
+      }
       if (!businessName.trim() || !location.trim() || !yearsActive) {
         fail("Business name, location, and years active are required.");
         return;
@@ -385,10 +398,7 @@ export default function StudioSettings() {
         fail("Select at least one shooting type.");
         return;
       }
-      if (!priceMin || !priceMax || Number(priceMin) > Number(priceMax)) {
-        fail("Minimum price cannot be higher than maximum price.");
-        return;
-      }
+
     }
     if (profileDirty) {
       if (bio.trim().length < 20) {
@@ -411,6 +421,8 @@ export default function StudioSettings() {
     if (businessDirty) {
       try {
         const updated = await photographerApplicationService.update({
+          is_freelancer: isFreelancer,
+          is_studio_owner: isStudioOwner,
           business_name: businessName.trim(),
           location: location.trim(),
           years_active: Number(yearsActive),
@@ -419,11 +431,9 @@ export default function StudioSettings() {
           other_services: otherServices.trim() || null,
           coverage_area: AREA_COVERAGE_MAP[coverageArea],
           shooting_types: shootingTypes.map((s) => SHOOTING_TYPE_MAP[s]).filter(Boolean),
-          price_min: Number(priceMin),
-          price_max: Number(priceMax),
         });
         setApplication(updated);
-        setInitialBusiness({ businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax });
+        setInitialBusiness({ isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax });
       } catch (err) {
         const msg = getApiErrorMessage(err, "Failed to save business details.");
         toast.error(msg);
@@ -621,7 +631,7 @@ export default function StudioSettings() {
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-24 relative">
 
         <div className="bg-card p-6 rounded-xl border border-border/50 card-shadow">
-          <h1 className="text-2xl font-heading font-bold">{isFreelancer ? "Photographer" : "Studio"} Settings</h1>
+          <h1 className="text-2xl font-heading font-bold">{isStudioOwner ? "Studio" : "Photographer"} Settings</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Manage your public profile, coverage, rates, payments, and account security.
           </p>
@@ -759,9 +769,24 @@ export default function StudioSettings() {
             <h3 className="font-heading font-semibold">Business Operations & Coverage</h3>
           </div>
           <div className="p-6 space-y-6">
+            <div className="space-y-2">
+              <Label>Business Type <span className="text-xs text-muted-foreground font-normal">(select all that apply)</span></Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 cursor-pointer hover:bg-muted/50 text-sm">
+                  <input type="checkbox" checked={isFreelancer} onChange={(e) => setIsFreelancer(e.target.checked)}
+                    className="rounded border-input text-primary focus:ring-primary h-4 w-4" />
+                  Freelance Photographer
+                </label>
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 cursor-pointer hover:bg-muted/50 text-sm">
+                  <input type="checkbox" checked={isStudioOwner} onChange={(e) => setIsStudioOwner(e.target.checked)}
+                    className="rounded border-input text-primary focus:ring-primary h-4 w-4" />
+                  Studio Owner
+                </label>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>{isFreelancer ? "Photographer Brand Name" : "Studio Name"}</Label>
+                <Label>{isStudioOwner ? "Studio Name" : "Photographer Brand Name"}</Label>
                 <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
               </div>
               <div className="space-y-2">
@@ -769,21 +794,14 @@ export default function StudioSettings() {
                 <Input value={location} onChange={(e) => setLocation(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>{isFreelancer ? "Years of Experience" : "Years Operating"}</Label>
+                <Label>{isStudioOwner ? "Years Operating" : "Years of Experience"}</Label>
                 <Input type="number" value={yearsActive} onChange={(e) => setYearsActive(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Number of Team Members</Label>
                 <Input type="number" value={teamSize} onChange={(e) => setTeamSize(e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label>Minimum Base Price (₱)</Label>
-                <Input type="number" value={priceMin} onChange={(e) => setPriceMin(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Maximum Base Price (₱)</Label>
-                <Input type="number" value={priceMax} onChange={(e) => setPriceMax(e.target.value)} />
-              </div>
+
             </div>
 
             <div className="space-y-2 pt-2">
@@ -861,7 +879,7 @@ export default function StudioSettings() {
                 onClick={() => handleViewDocument("selfie_with_id", "Selfie Holding ID")}>
                 <FileText className="w-4 h-4" /> Selfie ID
               </Button>
-              {!isFreelancer && (
+              {isStudioOwner && (
                 <Button variant="outline" size="sm" className="gap-1.5" disabled={!application?.documentsSubmitted.businessPermit}
                   onClick={() => handleViewDocument("business_permit", "Business Permit / DTI Registration")}>
                   <FileText className="w-4 h-4" /> Business Permit

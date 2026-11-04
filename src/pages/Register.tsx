@@ -198,6 +198,17 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [accountType, setAccountType] = useState<AccountType | null>(null);
+  // Photographer business classification (checkboxes; a person can be both).
+  // accountType stays "client" | "freelancer" | "studio" for the rest of the form:
+  // "studio" means studio owner (with or without freelance work), so studio fields show.
+  const [photographerSelected, setPhotographerSelected] = useState(false);
+  const [isFreelancer, setIsFreelancer] = useState(false);
+  const [isStudioOwner, setIsStudioOwner] = useState(false);
+  const applyClassification = (free: boolean, studio: boolean) => {
+    setIsFreelancer(free);
+    setIsStudioOwner(studio);
+    setAccountType(studio ? "studio" : free ? "freelancer" : null);
+  };
   const [submitted, setSubmitted] = useState(false);
   const [clientCreated, setClientCreated] = useState(false);
   
@@ -302,7 +313,10 @@ export default function Register() {
 
         // draft or revision_requested — safe to resume editing
         setIsResumingApplication(true);
-        setAccountType(application.photographer_type === "studio" ? "studio" : "freelancer");
+        const savedStudio = application.is_studio_owner ?? application.photographer_type === "studio";
+        const savedFreelancer = application.is_freelancer ?? application.photographer_type !== "studio";
+        setPhotographerSelected(true);
+        applyClassification(savedFreelancer, savedStudio);
         setBusinessName(application.business_name ?? "");
         const rawLocation: string = application.location ?? "";
         const locParts = rawLocation.split(",").map((p) => p.trim()).filter(Boolean);
@@ -314,7 +328,7 @@ export default function Register() {
           setAddress(rawLocation);
         }
         setTeamSize(application.team_size != null ? String(application.team_size) : "");
-        if (application.photographer_type === "studio") {
+        if (savedStudio) {
           setYearsOperating(application.years_active != null ? String(application.years_active) : "");
         } else {
           setYearsExp(application.years_active != null ? String(application.years_active) : "");
@@ -330,8 +344,7 @@ export default function Register() {
           .filter(Boolean) as string[];
         setShootingTypes(shootingLabels);
 
-        setPriceMin(application.price_min != null ? String(application.price_min) : "");
-        setPriceMax(application.price_max != null ? String(application.price_max) : "");
+
 
         setExistingDocs({
           governmentId: !!application.documents_submitted?.government_id,
@@ -536,8 +549,6 @@ export default function Register() {
   const [otherService, setOtherService] = useState("");
   const [areaCoverage, setAreaCoverage] = useState<string>("");
   const [shootingTypes, setShootingTypes] = useState<string[]>([]);
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
 
   const handleStep4Submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -556,8 +567,6 @@ export default function Register() {
           other_services: otherService.trim() || null,
           coverage_area: AREA_COVERAGE_MAP[areaCoverage] ?? null,
           shooting_types: shootingTypes.map((s) => SHOOTING_TYPE_MAP[s]).filter(Boolean),
-          price_min: Number(priceMin),
-          price_max: Number(priceMax),
         }),
       });
       await parseApiResponse(response);
@@ -751,7 +760,6 @@ export default function Register() {
         payload.team_size = Number(teamSize);
       } else {
         payload.years_active = Number(yearsExp);
-        payload.team_size = Number(teamSize);
       }
 
       const response = await fetch(`${API_BASE}/photographer/application`, {
@@ -927,16 +935,12 @@ export default function Register() {
   const canProStep3 =
     accountType === "studio"
             ? !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsOperating, 0, 80) && isIntInRange(teamSize, 1, 500))
-            : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80) && isIntInRange(teamSize, 1, 500));
+            : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80));
 
   const canStep4 =
     services.length > 0 &&
     !!areaCoverage &&
-    shootingTypes.length > 0 &&
-    priceMin !== "" &&
-    priceMax !== "" &&
-    Number(priceMin) >= 0 &&
-    Number(priceMax) >= Number(priceMin);
+    shootingTypes.length > 0;
 
   const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 5;
   const hasAdequateAdditionalProof = additionalProofValid || existingDocs.additionalDocuments >= 2;
@@ -1026,23 +1030,17 @@ export default function Register() {
     if (accountType === "studio") {
       if (yearsOperating.trim() === "") req("years", "Years operating is required.");
       else if (!isIntInRange(yearsOperating, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
-      if (teamSize.trim() === "") req("team", "Number of team members is required.");
-      else if (!isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
+      if (accountType === "studio" && teamSize.trim() === "") req("team", "Number of team members is required.");
+      else if (accountType === "studio" && !isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
     } else {
       if (yearsExp.trim() === "") req("years", "Years of experience is required.");
       else if (!isIntInRange(yearsExp, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
-      if (teamSize.trim() === "") req("team", "Number of team members is required.");
-      else if (!isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
     }
   } else if (step === 4 && accountType !== "client") {
     if (services.length === 0) req("services", "Select at least one service.");
     if (!areaCoverage) req("area", "Select the area you cover.");
     if (shootingTypes.length === 0) req("shooting", "Select at least one shooting type.");
-    if (priceMin === "") req("priceMin", "Minimum price is required.");
-    else if (Number(priceMin) < 0) bad("priceMin", "Price can't be negative.");
-    if (priceMax === "") req("priceMax", "Maximum price is required.");
-    else if (Number(priceMax) < 0) bad("priceMax", "Price can't be negative.");
-    else if (priceMin !== "" && Number(priceMax) < Number(priceMin)) bad("priceMax", "Maximum price must be the same as or higher than the minimum.");
+
   } else if (step === 5 && accountType !== "client") {
     if (!(govId || existingDocs.governmentId)) req("govId", "Upload your government ID (front).");
     if (!(selfieId || existingDocs.selfieWithId)) req("selfie", "Upload a selfie of you holding your ID.");
@@ -1194,7 +1192,8 @@ export default function Register() {
           phone_number: normalizePhilippinePhone(phone),
           password: password,
           password_confirmation: confirmPassword,
-          photographer_type: accountType, // "freelancer" | "studio"
+          is_freelancer: isFreelancer,
+          is_studio_owner: isStudioOwner,
           terms_accepted: termsAccepted,
         }),
       });
@@ -1372,7 +1371,7 @@ export default function Register() {
             {step === 1 && "Discover photographers, manage bookings, and grow your photography business — all in one place."}
             {step === 2 && "We'll use these details to secure your Bulan account."}
             {step === 3 && (accountType === "client" ? "Tell us a bit about yourself." : accountType === "studio" ? "Tell us about your studio." : "Tell us about your photography practice.")}
-            {step === 4 && "Define what services you offer, your general price limits, and active dynamic coverage area."}
+            {step === 4 && "Define what services you offer and the areas you cover."}
             {step === 5 && "Upload documents so we can verify you're a real professional."}
             {step === 6 && "Upload 6 to 12 showcase items from your stunning portfolio."}
             {step === 7 && "Review and build your public profile live before submission."}
@@ -1399,30 +1398,82 @@ export default function Register() {
               <h2 className="text-2xl font-heading font-bold mb-1">Create your account</h2>
               <p className="text-muted-foreground mb-6">Choose how you'll use Bulan</p>
 
-              <div className="space-y-3 mb-8">
-                {accountTypes.map((a) => (
+                            <div className="space-y-3 mb-8">
+                <button
+                  type="button"
+                  onClick={() => { setPhotographerSelected(false); setAccountType("client"); }}
+                  className={cn(
+                    "w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 text-left",
+                    accountType === "client" ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
+                  )}
+                >
+                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
+                    accountType === "client" ? "bg-primary/10" : "bg-muted")}>
+                    <User className={cn("w-6 h-6", accountType === "client" ? "text-primary" : "text-muted-foreground")} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-sm block">Client</span>
+                    <span className="text-xs text-muted-foreground">Find &amp; book photographers for your events</span>
+                  </div>
+                  {accountType === "client" && <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />}
+                </button>
+
+                <div className={cn(
+                  "rounded-xl border-2 transition-all duration-200",
+                  photographerSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
+                )}>
                   <button
-                    key={a.type}
                     type="button"
-                    onClick={() => setAccountType(a.type)}
-                    className={cn(
-                      "w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 text-left",
-                      accountType === a.type ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
-                    )}
+                    onClick={() => {
+                      setPhotographerSelected(true);
+                      setAccountType(isStudioOwner ? "studio" : isFreelancer ? "freelancer" : null);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 text-left"
                   >
                     <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
-                      accountType === a.type ? "bg-primary/10" : "bg-muted")}>
-                      <a.icon className={cn("w-6 h-6", accountType === a.type ? "text-primary" : "text-muted-foreground")} />
+                      photographerSelected ? "bg-primary/10" : "bg-muted")}>
+                      <Camera className={cn("w-6 h-6", photographerSelected ? "text-primary" : "text-muted-foreground")} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="font-semibold text-sm block">{a.label}</span>
-                      <span className="text-xs text-muted-foreground">{a.desc}</span>
+                      <span className="font-semibold text-sm block">Photographer</span>
+                      <span className="text-xs text-muted-foreground">Offer your photography services and manage your bookings</span>
                     </div>
-                    {accountType === a.type && (
-                      <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
-                    )}
+                    {photographerSelected && <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />}
                   </button>
-                ))}
+
+                  {photographerSelected && (
+                    <div className="px-4 pb-4 space-y-2">
+                      <p className="text-xs font-medium text-foreground/80">
+                        What best describes your photography business? Select all that apply.
+                      </p>
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card cursor-pointer hover:bg-muted/50">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={isFreelancer}
+                          onCheckedChange={(v) => applyClassification(v === true, isStudioOwner)}
+                        />
+                        <span>
+                          <span className="font-semibold text-sm block">Freelance Photographer</span>
+                          <span className="text-xs text-muted-foreground">I independently offer photography services.</span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card cursor-pointer hover:bg-muted/50">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={isStudioOwner}
+                          onCheckedChange={(v) => applyClassification(isFreelancer, v === true)}
+                        />
+                        <span>
+                          <span className="font-semibold text-sm block">Studio Owner</span>
+                          <span className="text-xs text-muted-foreground">I own or manage a photography studio.</span>
+                        </span>
+                      </label>
+                      {!isFreelancer && !isStudioOwner && (
+                        <p className="text-xs text-destructive">Select at least one to continue.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <Button className="w-full" size="lg" disabled={!canStep1} onClick={() => handleStepChange(2)}>
@@ -1750,9 +1801,6 @@ export default function Register() {
                     <Field label="Years of experience" required error={errs.years}>
                       <Input type="number" min={0} max={80} value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} onBlur={() => touch("years")} placeholder="e.g. 3" />
                     </Field>
-                    <Field label="Number of team members" required error={errs.team}>
-                      <Input type="number" min={1} max={500} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} onBlur={() => touch("team")} placeholder="e.g. 1" />
-                    </Field>
                   </>
                 )}
 
@@ -1828,22 +1876,10 @@ export default function Register() {
                   </div>
                 </Field>
 
-                <Field label="General base pricing rate limits (₱)" required>
-                  <div className="grid grid-cols-2 gap-3 items-start">
-                    <div className="space-y-1.5">
-                      <Input type="number" min={0} value={priceMin} onChange={(e) => setPriceMin(e.target.value)} onBlur={() => touch("priceMin")} placeholder="Min Price" className={cn(errs.priceMin && "border-red-500")} />
-                      {errs.priceMin && <p role="alert" data-field-error="true" className="text-xs font-medium text-red-600">{errs.priceMin}</p>}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Input type="number" min={0} value={priceMax} onChange={(e) => setPriceMax(e.target.value)} onBlur={() => touch("priceMax")} placeholder="Max Price" className={cn(errs.priceMax && "border-red-500")} />
-                      {errs.priceMax && <p role="alert" data-field-error="true" className="text-xs font-medium text-red-600">{errs.priceMax}</p>}
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs bg-muted/40 p-3 rounded-lg flex items-start gap-2 text-muted-foreground border">
-                    <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                    <p>Specific booking catalogs and draft tiers can be configured comfortably inside your dashboard room post-registration approval.</p>
-                  </div>
-                </Field>
+                <div className="text-xs bg-muted/40 p-3 rounded-lg flex items-start gap-2 text-muted-foreground border">
+                  <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                  <p>Your listed price range is calculated automatically from the fixed packages you publish in your dashboard.</p>
+                </div>
 
                 {apiError && (
                   <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-sm flex items-start gap-2.5">
@@ -2272,7 +2308,7 @@ export default function Register() {
                             {businessName || name || "Brand / Studio Name"}
                           </h3>
                           <span className="text-[10px] text-primary font-semibold block capitalize">
-                            {accountType === "studio" ? "Photography Studio" : "Freelancer"}
+                            {accountType === "studio" ? (isFreelancer ? "Freelancer & Studio" : "Photography Studio") : "Freelancer"}
                           </span>
                         </div>
                         <div className="flex gap-1">

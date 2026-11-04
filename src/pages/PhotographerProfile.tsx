@@ -20,7 +20,7 @@ import { useRole } from "@/contexts/RoleContext";
 import { Ban, ClipboardCheck } from "lucide-react";
 import { useProfileCompleteness } from "@/hooks/useProfileCompleteness";
 import { ProfileCompletenessModal } from "@/components/ProfileCompletenessModal";
-
+import { providerTags } from "@/lib/providerTags";
 
 // Shared style tokens so every section card and chip looks consistent.
 const sectionCard = "bg-card/95 backdrop-blur-sm rounded-2xl border border-border/50 shadow-[0_1px_2px_hsl(0_0%_0%/0.04),0_12px_32px_-16px_hsl(var(--primary)/0.2)]";
@@ -375,7 +375,9 @@ export default function PhotographerProfile() {
               <div className="flex-1 min-w-0 sm:pb-1">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="text-2xl sm:text-3xl font-heading font-bold tracking-tight leading-tight">{p.name}</h1>
-                  <span className="px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/15 text-xs font-semibold text-primary">{p.type}</span>
+                  {providerTags(p).map((tag) => (
+                    <span key={tag} className="px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/15 text-xs font-semibold text-primary">{tag}</span>
+                  ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {p.location}</span>

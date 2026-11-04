@@ -12,6 +12,8 @@ interface RawPhotographerProfile {
   id: number | string;
   is_bookable: boolean;
   photographer_type: string | null; // e.g. "studio" | "freelancer"
+  is_freelancer?: boolean;
+  is_studio_owner?: boolean;
   business_name: string | null;
   location: string | null;
   coverage_area: string | null;
@@ -227,6 +229,8 @@ function normalizeProfile(raw: RawPhotographerProfile): PublicProfile {
     id: String(raw.id),
     name,
     type,
+    isfreelancer: raw.is_freelancer,
+    isstudioowner: raw.is_studio_owner,
     specialty: raw.services?.[0] ?? raw.style?.[0] ?? "Photography",
     rating: toNumber(averageRating),
     reviews: toNumber(reviewCount),

@@ -6,6 +6,8 @@ export type ApplicationStatus = "draft" | "pending_review" | "revision_requested
 export interface PhotographerApplication {
   status: ApplicationStatus;
   photographerType: PhotographerType;
+  isFreelancer: boolean;
+  isStudioOwner: boolean;
   businessName: string;
   location: string;
   yearsActive: number | null;
@@ -27,6 +29,8 @@ export interface PhotographerApplication {
 type RawApplication = {
   status: ApplicationStatus;
   photographer_type: PhotographerType;
+  is_freelancer?: boolean;
+  is_studio_owner?: boolean;
   business_name: string | null;
   location: string | null;
   years_active: number | null;
@@ -49,6 +53,8 @@ function toApplication(raw: RawApplication): PhotographerApplication {
   return {
     status: raw.status,
     photographerType: raw.photographer_type,
+    isFreelancer: raw.is_freelancer ?? raw.photographer_type === "freelancer",
+    isStudioOwner: raw.is_studio_owner ?? raw.photographer_type === "studio",
     businessName: raw.business_name ?? "",
     location: raw.location ?? "",
     yearsActive: raw.years_active ?? null,
@@ -69,6 +75,8 @@ function toApplication(raw: RawApplication): PhotographerApplication {
 }
 
 export interface ApplicationUpdatePayload {
+  is_freelancer?: boolean;
+  is_studio_owner?: boolean;
   business_name: string;
   location: string;
   years_active: number;
@@ -77,8 +85,8 @@ export interface ApplicationUpdatePayload {
   other_services?: string | null;
   coverage_area: string;
   shooting_types: string[];
-  price_min: number;
-  price_max: number;
+  price_min?: number;
+  price_max?: number;
 }
 
 export const photographerApplicationService = {
