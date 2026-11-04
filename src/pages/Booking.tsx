@@ -134,6 +134,8 @@ const toYmd = (d: Date) =>
 const fromYmd = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const fmt12 = (t: string) => { const [hh, mm] = t.split(":").map(Number); return `${hh % 12 || 12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`; };
 const toMinutes = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+// Keep in sync with MIN_NOTICE_HOURS in the backend (config/platform.php). The server enforces it.
+const MIN_NOTICE_HOURS = 5;
 
 function SessionDateField({ photographerId, packageId, customDurationMinutes, sessionDurationMinutes, value, onPick, isDateTaken }: {
   photographerId?: string; packageId?: number; customDurationMinutes?: number; sessionDurationMinutes?: number;
@@ -207,7 +209,7 @@ function SessionTimeSlots({ date, startTime, times, loading, isTaken, onPick }: 
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-muted-foreground">Available start times ({sorted.length} open)</p>
+      <p className="text-[11px] text-muted-foreground">Available start times ({sorted.length} open) · at least {MIN_NOTICE_HOURS} hours' notice</p>
       {groups.map((g) => (
         <div key={g.label}>
           <p className="text-[11px] font-medium text-muted-foreground mb-1">{g.label}</p>
@@ -1594,13 +1596,14 @@ export default function Booking() {
                             )}
                           </div>
 
-                          {loadingStartTimes ? (
+                          <p className="text-[11px] text-muted-foreground mb-2">Bookings require at least {MIN_NOTICE_HOURS} hours' advance notice.</p>
+{loadingStartTimes ? (
                             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking available times…
                             </p>
                           ) : availableStartTimes.length === 0 ? (
                             <p className="text-xs text-muted-foreground">
-                              No start times are open on this date for the selected package. Try another date.
+                              No start times are open on this date for the selected package. Try another date. Same-day bookings need at least {MIN_NOTICE_HOURS} hours' advance notice.
                             </p>
                           ) : (
                             <>
