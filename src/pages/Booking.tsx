@@ -609,6 +609,14 @@ export default function Booking() {
     else if (startTimesByPeriod.pm.length) setActivePeriod("pm");
   }, [dateStr, startTimesByPeriod, startTime, availableStartTimes]);
 
+  // Clear a picked start time that is no longer offered on the Date & Time step
+  // (e.g. the 5-hour notice window moved past it while the page stayed open).
+  useEffect(() => {
+    if (step !== 0 || !startTime || loadingStartTimes) return;
+    if (!availableStartTimes.some((t) => t.slice(0, 5) === startTime)) {
+      setStartTime("");
+    }
+  }, [step, startTime, availableStartTimes, loadingStartTimes]);
   const isDateUnavailable = (d: Date) => {
     const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const status = monthAvailability?.[ds];
@@ -1533,7 +1541,7 @@ export default function Booking() {
                       selected={date}
                       month={viewMonth}
                       onMonthChange={setViewMonth}
-                      onSelect={setDate}
+                      onSelect={(d) => { setDate(d); setStartTime(""); }}
                       disabled={(d) => {
                         const s = getDateStatus(d);
                         return s === "past" || s === "booked" || s === "unknown" || isDateUnavailable(d);
