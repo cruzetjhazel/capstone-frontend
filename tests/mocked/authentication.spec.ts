@@ -33,6 +33,7 @@ test.describe('Authentication and account entry points', () => {
     await page.goto('/register');
     await expect(page.getByText('Create your account', { exact: true })).toBeVisible();
     await expect(page.getByText('Client', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /^Photographer\b/i }).click();
     await expect(page.getByText('Freelance Photographer', { exact: true })).toBeVisible();
     await expect(page.getByText('Studio Owner', { exact: true })).toBeVisible();
   });
