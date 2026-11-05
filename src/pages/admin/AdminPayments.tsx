@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import {
-  DollarSign, Clock, Search, Filter,
+  PhilippinePeso, Clock, Search, Filter,
   Eye, X, AlertTriangle, CheckCircle2,
   CreditCard, FileText, Ban, ShieldCheck, Loader2, ReceiptText,
 } from "lucide-react";
@@ -201,7 +201,7 @@ export default function AdminPayments() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <AdminStatCard label="Verified Revenue" value={`₱${verifiedRevenue.toLocaleString()}`} icon={DollarSign} color="bg-emerald-500/10 text-emerald-600" />
+          <AdminStatCard label="Verified Revenue" value={`₱${verifiedRevenue.toLocaleString()}`} icon={PhilippinePeso} color="bg-emerald-500/10 text-emerald-600" />
           <AdminStatCard label="Awaiting Match / Review" value={`₱${pendingReviewAmount.toLocaleString()}`} icon={Clock} color="bg-amber-500/10 text-amber-600" />
         </div>
 

@@ -1,6 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatusBadge } from "@/components/StatusBadge";
-import { DollarSign, TrendingUp, Clock } from "lucide-react";
+import { PhilippinePeso, TrendingUp, Clock } from "lucide-react";
 
 const transactions = [
   { id: "INV-001", photographer: "Marcus Rivera", event: "Wedding Photography", date: "Mar 15, 2026", amount: 650, method: "Credit Card", status: "paid" as const },
@@ -25,7 +25,7 @@ export default function Payments() {
           <div className="bg-card rounded-xl card-shadow border border-border/50 p-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-success" />
+                <PhilippinePeso className="w-5 h-5 text-success" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Paid</p>

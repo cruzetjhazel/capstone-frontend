@@ -18,7 +18,7 @@ import {
   ArrowLeft, Calendar, User, Package, Mail,
   FileText, AlertTriangle, Loader2, Phone,
   Wand2, Check, Camera, MapPin, Users,
-  CreditCard, X, DollarSign, AlertCircle, PackageCheck, Clock
+  CreditCard, X, PhilippinePeso, AlertCircle, PackageCheck, Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
     import { getApiErrorMessage } from "@/services/clientProfileService";
@@ -583,7 +583,7 @@ export default function StudioBookingDetail() {
             {booking.status === "confirmed" && !booking.hasActiveCancellationRequest && booking.remainingBalance > 0 &&
               booking.paymentStatus !== "pending_verification" && booking.paymentStatus !== "fully_paid" && booking.paymentStatus !== "partially_paid" && (
               <div className="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 flex items-center gap-3 text-blue-800 dark:text-blue-300 text-sm">
-                <DollarSign className="w-5 h-5 text-blue-600 shrink-0" />
+                <PhilippinePeso className="w-5 h-5 text-blue-600 shrink-0" />
                 <span>Confirmed, but the client hasn't paid their deposit yet.</span>
               </div>
             )}
@@ -605,7 +605,7 @@ export default function StudioBookingDetail() {
                     setOnsitePaymentInput(booking.remainingBalance);
                     setActiveModal("record_onsite");
                   }}>
-                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Record Onsite Payment
+                    <PhilippinePeso className="w-3.5 h-3.5 text-emerald-600" /> Record Onsite Payment
                   </Button>
                 )}
               </div>
@@ -1425,7 +1425,7 @@ export default function StudioBookingDetail() {
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <DollarSign className="w-5 h-5 text-primary" />
+                  <PhilippinePeso className="w-5 h-5 text-primary" />
                 </div>
                 <div>
                   <h3 className="font-bold text-lg">Record Onsite Payment</h3>

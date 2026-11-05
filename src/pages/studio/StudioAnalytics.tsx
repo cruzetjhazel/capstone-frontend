@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DollarSign, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2, Eye, Package as PackageIcon, Heart } from "lucide-react";
+import { PhilippinePeso, CalendarDays, Star, ArrowUpRight, ArrowDownRight, Users, Loader2, Eye, Package as PackageIcon, Heart } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import toast from "react-hot-toast";
@@ -154,7 +154,7 @@ export default function StudioAnalytics() {
           value: formatPHP(data.kpis.totalRevenue),
           change: data.kpis.revenueChangePct !== null ? `${data.kpis.revenueChangePct >= 0 ? "+" : ""}${data.kpis.revenueChangePct}%` : "—",
           up: (data.kpis.revenueChangePct ?? 0) >= 0,
-          icon: DollarSign,
+          icon: PhilippinePeso,
         },
         {
           label: "Bookings (this month)",

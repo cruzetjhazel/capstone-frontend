@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Search, Calendar, DollarSign, HelpCircle } from "lucide-react";
+import { Search, Calendar, PhilippinePeso, HelpCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,7 +20,7 @@ const renderIcon = (category: string) => {
     case "payments":
       return (
         <div className="w-9 h-9 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-          <DollarSign className="w-4 h-4 text-amber-600" />
+          <PhilippinePeso className="w-4 h-4 text-amber-600" />
         </div>
       );
     default:

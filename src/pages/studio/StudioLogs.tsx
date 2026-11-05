@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useActivityLogs } from "@/hooks/useActivityLogs";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import {
-  Search, Calendar, DollarSign, Package, Download,
+  Search, Calendar, PhilippinePeso, Package, Download,
   Users, CheckCircle, X, HelpCircle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -84,7 +84,7 @@ export default function ActivityLogs() {
       case "payments":
         return (
           <div className="w-9 h-9 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-            <DollarSign className="w-4 h-4 text-amber-600" />
+            <PhilippinePeso className="w-4 h-4 text-amber-600" />
           </div>
         );
       case "packages":

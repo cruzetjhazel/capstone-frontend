@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import {
-  DollarSign, TrendingUp, Clock, ArrowUpRight, Search, X, ExternalLink,
+  PhilippinePeso, TrendingUp, Clock, ArrowUpRight, Search, X, ExternalLink,
   User, Package as PackageIcon, Receipt, CheckCircle, Loader2, AlertTriangle,
   ShieldCheck, XCircle, MapPin, Users as UsersIcon
 } from "lucide-react";
@@ -339,7 +339,7 @@ export default function StudioEarnings() {
               <div className="bg-card rounded-xl card-shadow border border-border/50 p-5 transition-all hover:border-success/50">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center shrink-0">
-                    <DollarSign className="w-5 h-5 text-success" />
+                    <PhilippinePeso className="w-5 h-5 text-success" />
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground font-medium">Total Earned</p>

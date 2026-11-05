@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import ManualBookingDialog from "@/components/photographer/ManualBookingDialog";
 import { BookingTracker } from "@/components/BookingTracker";
 import {
-  Check, DollarSign, AlertCircle, ArrowRight,
+  Check, PhilippinePeso, AlertCircle, ArrowRight,
   Search, SlidersHorizontal, ArrowUpDown, Receipt, X, PackageCheck, CalendarPlus,
 } from "lucide-react";
 import { trackingStages, type TrackingStage } from "@/data/photographers";
@@ -606,7 +606,7 @@ export default function StudioBookings() {
                 {b.status === "confirmed" && !b.isManual && !b.hasActiveCancellationRequest && b.remainingBalance > 0 &&
                   b.paymentStatus !== "pending_verification" && b.paymentStatus !== "fully_paid" && b.paymentStatus !== "partially_paid" && (
                   <div className="flex items-center gap-2 p-2.5 mt-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                    <DollarSign className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <PhilippinePeso className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <p className="text-xs text-blue-900 dark:text-blue-400">Awaiting client's deposit payment — nothing paid yet.</p>
                   </div>
                 )}
@@ -618,7 +618,7 @@ export default function StudioBookings() {
                       <div className="flex items-center justify-end gap-2 flex-wrap">
                         {b.remainingBalance > 0 && b.paymentStatus !== "fully_paid" && (
                           <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => { setRecordingPaymentFor(b); setPaymentAmountInput(b.remainingBalance); }}>
-                            <DollarSign className="w-3.5 h-3.5" /> Record Payment
+                            <PhilippinePeso className="w-3.5 h-3.5" /> Record Payment
                           </Button>
                         )}
                         {b.isManual ? null : nextManualStage ? (
@@ -730,7 +730,7 @@ export default function StudioBookings() {
         {recordingPaymentFor && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
-              <h3 className="text-lg font-bold flex items-center gap-2"><DollarSign className="text-primary w-5 h-5"/> Record Onsite Payment</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2"><PhilippinePeso className="text-primary w-5 h-5"/> Record Onsite Payment</h3>
               <p className="text-sm text-muted-foreground">
                 Use this to log a cash or offline payment <strong>{recordingPaymentFor.clientName}</strong> already gave you in person for this booking. This only records that you received it — it does not charge the client.
               </p>

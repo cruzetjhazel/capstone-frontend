@@ -1,5 +1,5 @@
 import {
-  CalendarDays, DollarSign, Clock, CheckCircle,
+  CalendarDays, PhilippinePeso, Clock, CheckCircle,
   Check, X, AlertCircle, Loader2, Activity, ClipboardCheck,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -95,7 +95,7 @@ export default function StudioDashboard() {
         { label: "Pending Requests", value: String(actionablePendingBookings.length), icon: Clock, highlight: actionablePendingBookings.length > 0 },
     { label: "Upcoming Bookings", value: String(futureConfirmedBookings.length), icon: CalendarDays, highlight: false },
     { label: "Completed", value: String(completedBookings.length), icon: CheckCircle, highlight: false },
-    { label: "Revenue This Month", value: `₱${monthRevenue.toLocaleString()}`, icon: DollarSign, highlight: false },
+    { label: "Revenue This Month", value: `₱${monthRevenue.toLocaleString()}`, icon: PhilippinePeso, highlight: false },
   ];
 
   const isStatsLoading = loadingBookings || loadingPayments;
