@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole, type Role } from "@/contexts/RoleContext";
-import { getAuthToken } from "@/lib/tokenStorage";
+import { getAuthToken, setAuthToken } from "@/lib/tokenStorage";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
 import { prepareImageForUpload } from "@/lib/prepareImage";
@@ -260,7 +260,7 @@ export default function Register() {
   const [pendingGeo, setPendingGeo] = useState<{ provinceId: number | null; cityId: number | null; barangayId: number | null } | null>(null);
   const [pendingBarangayName, setPendingBarangayName] = useState("");
 
-  const { refreshApplication } = useRole();
+  const { refreshApplication, setUserFromRegistration, user } = useRole();
   const navigate = useNavigate();
 
   // Field-level validation display. "Missing" errors only appear once the field
@@ -1098,8 +1098,12 @@ export default function Register() {
     setClientCreated(true); // shows the generic "check your email" screen
   };
 
-  const handlePhotographerAccountSubmit = async () => {
+    const handlePhotographerAccountSubmit = async () => {
     if (isLoading || !accountType || accountType === "client") return;
+
+    // Account already created (they pressed Back from step 3): don't register twice
+    if (getAuthToken()) { handleStepChange(3); return; }
+
     if (!canStep2) { revealErrors(); return; }
 
     setIsLoading(true);
@@ -1120,10 +1124,17 @@ export default function Register() {
           terms_accepted: termsAccepted,
         }),
       });
-      await parseApiResponse(response);
+      const payload = await parseApiResponse(response);
+      const result = payload.data ?? payload;
+      const token = result.token;
+      if (!token || !result.user) throw new Error("Account created, but we couldn't sign you in. Please sign in to continue.");
+
+      setAuthToken(token); // so the next requests (step 3 onward) are authenticated
+      await setUserFromRegistration(result.user, token);
+      toast.success("Account created! We sent a verification link to your email.");
 
       setIsLoading(false);
-      setClientCreated(true); // same generic screen; the account is created only if registration can proceed
+      handleStepChange(3);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.";
       setApiError(message);
@@ -1939,7 +1950,17 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                {user?.emailVerified === false && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <p>
+                      Verify your email to upload your documents. Open the link we sent you, or use
+                      Resend in the box at the bottom. This page unlocks automatically once you've verified.
+                    </p>
+                  </div>
+                )}
+
+                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading || user?.emailVerified === false} isLoading={isLoading} />
               </form>
             </div>
           )}
