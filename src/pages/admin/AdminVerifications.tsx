@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import {
   Search, Clock, ArrowRight, CheckCircle2, XCircle,
-  MapPin, Mail, Camera,
-  FileText, ShieldCheck, User,
-  DollarSign, Eye, AlertCircle, MessageSquare, Compass,
-  X, Check, Filter, Loader2
+  AlertCircle, MessageSquare,
+  X, Filter, Loader2
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PillTabs } from "@/components/ListPagination";
@@ -14,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import api, { getApiErrorMessage } from "@/lib/api";
+import { ApplicationChecklist, buildRevisionNotes, getRevisionItems, type Checklist } from "@/components/admin/ApplicationReviewPanel";
 
 // --- Types mapping to the real backend PhotographerApplicationResource (admin view) ---
 export type PhotographerType = "freelancer" | "studio";
@@ -88,8 +87,14 @@ function unwrapList(payload: any): any[] {
   return Array.isArray(cur) ? cur : [];
 }
 
+// Unwraps the success envelope for a single (non-list) resource.
+function unwrapObject(payload: any): any {
+  let cur = payload;
+  for (let i = 0; i < 4 && cur && typeof cur === "object" && !Array.isArray(cur) && "data" in cur; i++) cur = cur.data;
+  return cur && typeof cur === "object" ? cur : {};
+}
+
 type ActionType = "approve" | "reject" | "revise" | null;
-type DocType = "government-id" | "selfie-with-id" | "business-permit";
 
 export default function AdminVerification() {
   const [apps, setApps] = useState<ApplicationRecord[]>([]);
@@ -99,6 +104,13 @@ export default function AdminVerification() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewApp, setViewApp] = useState<ApplicationRecord | null>(null);
+
+  // The list rows only carry summary data. The modal loads the full record (checklist,
+  // documents, portfolio, profile) from the single-application endpoint when it opens.
+  const [checklist, setChecklist] = useState<Checklist | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [detailReload, setDetailReload] = useState(0);
 
   const [actionType, setActionType] = useState<ActionType>(null);
   const [actionNote, setActionNote] = useState("");
@@ -125,6 +137,37 @@ export default function AdminVerification() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
+  useEffect(() => {
+    if (!viewApp) {
+      setChecklist(null);
+      setDetailError("");
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError("");
+    setChecklist(null);
+
+    api.get(`/admin/photographer-applications/${viewApp.id}`)
+      .then((res) => {
+        if (cancelled) return;
+        const next = unwrapObject(res.data)?.checklist ?? null;
+        setChecklist(next);
+        if (!next) setDetailError("The review checklist is unavailable for this application.");
+      })
+      .catch((err) => {
+        if (!cancelled) setDetailError(getApiErrorMessage(err, "Failed to load the application details."));
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewApp?.id, detailReload]);
+
   const filteredApps = apps.filter((app) => {
     const q = searchTerm.toLowerCase();
     return (
@@ -135,11 +178,23 @@ export default function AdminVerification() {
     );
   });
 
+  const autoRevisionText = checklist ? buildRevisionNotes(checklist) : "";
+  const revisionItems = checklist ? getRevisionItems(checklist) : { missing: [], flagged: [] };
+  const extraNotesLimit = Math.max(0, 1000 - autoRevisionText.length - (autoRevisionText ? 22 : 0));
+  const composeRevisionNotes = () => {
+    const extra = actionNote.trim();
+    const extraBlock = extra ? (autoRevisionText ? `Additional notes:\n${extra}` : extra) : "";
+    return [autoRevisionText, extraBlock].filter(Boolean).join("\n\n");
+  };
+
   const handleConfirmAction = async () => {
     if (!viewApp || !actionType) return;
 
-    if (actionType === "revise" && !actionNote.trim()) {
-      toast.error("Please provide clear revision instructions for the photographer.");
+    // Revision message = the automatic checklist summary + the admin's optional extra notes.
+    const revisionNotes = actionType === "revise" ? composeRevisionNotes() : "";
+
+    if (actionType === "revise" && !revisionNotes) {
+      toast.error("Please add revision instructions for the photographer.");
       return;
     }
     if (actionType === "reject" && !actionNote.trim()) {
@@ -155,7 +210,7 @@ export default function AdminVerification() {
       } else if (actionType === "reject") {
         res = await api.post(`/admin/photographer-applications/${viewApp.id}/reject`, { reason: actionNote });
       } else {
-        res = await api.post(`/admin/photographer-applications/${viewApp.id}/request-revision`, { notes: actionNote });
+        res = await api.post(`/admin/photographer-applications/${viewApp.id}/request-revision`, { notes: revisionNotes });
       }
 
       const updated = fromApi(res.data?.data ?? res.data);
@@ -172,19 +227,6 @@ export default function AdminVerification() {
       toast.error(getApiErrorMessage(err, "That action couldn't be completed."));
     } finally {
       setIsSubmittingAction(false);
-    }
-  };
-
-  const viewDocument = async (applicationId: number, type: DocType, label: string) => {
-    try {
-      const res = await api.get(`/admin/photographer-applications/${applicationId}/documents/${type}`, {
-        responseType: "blob",
-      });
-      const url = URL.createObjectURL(res.data);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, `Couldn't open ${label}.`));
     }
   };
 
@@ -355,59 +397,7 @@ export default function AdminVerification() {
               </div>
             </div>
 
-            <div className="overflow-y-auto p-6 space-y-8">
-
-              {/* Identity document checklist — this is the data the backend actually exposes for review */}
-              <div className="p-4 rounded-xl border bg-muted/10 border-border">
-                <h4 className="text-sm font-bold flex items-center gap-2 mb-3">
-                  <ShieldCheck className="w-4 h-4 text-primary" /> Identity Verification Documents
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="flex items-center justify-between p-3 border border-border rounded-xl bg-background">
-                    <span className="text-xs flex items-center gap-2">
-                      {viewApp.documentsSubmitted.governmentId ? <Check className="w-4 h-4 text-emerald-600" /> : <X className="w-4 h-4 text-rose-500" />}
-                      Government ID
-                    </span>
-                    {viewApp.documentsSubmitted.governmentId && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => viewDocument(viewApp.id, "government-id", "Government ID")}>
-                        <Eye className="w-3.5 h-3.5 mr-1" /> View
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between p-3 border border-border rounded-xl bg-background">
-                    <span className="text-xs flex items-center gap-2">
-                      {viewApp.documentsSubmitted.selfieWithId ? <Check className="w-4 h-4 text-emerald-600" /> : <X className="w-4 h-4 text-rose-500" />}
-                      Selfie Holding ID
-                    </span>
-                    {viewApp.documentsSubmitted.selfieWithId && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => viewDocument(viewApp.id, "selfie-with-id", "Selfie Holding ID")}>
-                        <Eye className="w-3.5 h-3.5 mr-1" /> View
-                      </Button>
-                    )}
-                  </div>
-                  {viewApp.photographerType === "studio" && (
-                    <div className="flex items-center justify-between p-3 border border-border rounded-xl bg-background">
-                      <span className="text-xs flex items-center gap-2">
-                        {viewApp.documentsSubmitted.businessPermit ? <Check className="w-4 h-4 text-emerald-600" /> : <X className="w-4 h-4 text-rose-500" />}
-                        Business Permit / DTI
-                      </span>
-                      {viewApp.documentsSubmitted.businessPermit && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => viewDocument(viewApp.id, "business-permit", "Business Permit")}>
-                          <Eye className="w-3.5 h-3.5 mr-1" /> View
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  {viewApp.documentsSubmitted.additionalDocuments > 0 && (
-                    <div className="flex items-center p-3 border border-border rounded-xl bg-background">
-                      <span className="text-xs flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-muted-foreground" />
-                        {viewApp.documentsSubmitted.additionalDocuments} additional document(s) submitted
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+            <div className="overflow-y-auto p-6 space-y-5">
 
               {/* Revision / rejection history if any */}
               {viewApp.revisionNotes && (
@@ -427,91 +417,27 @@ export default function AdminVerification() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 border-b border-border pb-2">
-                    <User className="w-4 h-4" /> Applicant & Business Profile
-                  </h3>
-
-                  <div className="bg-muted/20 p-4 rounded-xl border border-border/50 space-y-3 text-xs">
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Account Owner Full Name</p>
-                      <p className="text-sm font-medium text-foreground">{viewApp.applicant?.name ?? "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Email Address</p>
-                      <p className="font-medium flex items-center gap-1 break-all"><Mail className="w-3 h-3 text-muted-foreground shrink-0" /> {viewApp.applicant?.email ?? "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Location</p>
-                      <p className="font-medium flex items-center gap-1"><MapPin className="w-3 h-3 text-muted-foreground shrink-0" /> {viewApp.location || "—"}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 border-t border-border/50 pt-2">
-                      <div>
-                        <p className="text-muted-foreground mb-0.5">Years Active</p>
-                        <p className="font-medium text-foreground">{viewApp.yearsActive ?? "—"}</p>
-                      </div>
-                      {viewApp.photographerType === "studio" && (
-                        <div>
-                          <p className="text-muted-foreground mb-0.5">Team Size</p>
-                          <p className="font-medium text-foreground">{viewApp.teamSize ?? "—"}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+              {detailLoading && (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading application details…
                 </div>
+              )}
 
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2 border-b border-border pb-2">
-                    <Camera className="w-4 h-4" /> Service Offerings & Pricing
-                  </h3>
-
-                  <div className="bg-muted/20 p-4 rounded-xl border border-border/50 space-y-3 text-xs">
-                    <div>
-                      <p className="text-muted-foreground mb-1">Services Offered</p>
-                      <div className="flex flex-wrap gap-1">
-                        {(viewApp.services ?? []).map((s) => (
-                          <span key={s} className="px-2 py-0.5 bg-background border border-border rounded font-medium">{s}</span>
-                        ))}
-                        {viewApp.otherServices && (
-                          <span className="px-2 py-0.5 bg-background border border-border rounded font-medium">{viewApp.otherServices}</span>
-                        )}
-                        {(viewApp.services ?? []).length === 0 && !viewApp.otherServices && "—"}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-muted-foreground mb-1">Shooting Types</p>
-                        <div className="flex flex-wrap gap-1">
-                          {(viewApp.shootingTypes ?? []).map((t) => (
-                            <span key={t} className="px-2 py-0.5 bg-background border border-border rounded font-medium">{t}</span>
-                          ))}
-                          {(viewApp.shootingTypes ?? []).length === 0 && "—"}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground mb-1">Coverage Area</p>
-                        <p className="font-medium flex items-center gap-1"><Compass className="w-3 h-3 text-muted-foreground" /> {viewApp.coverageArea || "—"}</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Base Price Range</p>
-                      <p className="text-sm font-semibold text-emerald-600 flex items-center gap-0.5">
-                        <DollarSign className="w-3.5 h-3.5" />
-                        {viewApp.priceMin && viewApp.priceMax
-                          ? `₱${Number(viewApp.priceMin).toLocaleString()} – ₱${Number(viewApp.priceMax).toLocaleString()}`
-                          : "—"}
-                      </p>
-                    </div>
-                  </div>
+              {!detailLoading && detailError && (
+                <div className="text-center py-12 space-y-3">
+                  <p className="text-sm text-rose-600">{detailError}</p>
+                  <Button variant="outline" size="sm" onClick={() => setDetailReload((n) => n + 1)}>Try again</Button>
                 </div>
-              </div>
+              )}
+
+              {!detailLoading && checklist && (
+                <ApplicationChecklist
+                  applicationId={viewApp.id}
+                  checklist={checklist}
+                  canReview={viewApp.status === "pending_review"}
+                  onChecklistChange={setChecklist}
+                />
+              )}
             </div>
 
             <div className="bg-muted/30 px-6 py-4 border-t border-border flex flex-col sm:flex-row justify-end gap-3">
@@ -527,7 +453,10 @@ export default function AdminVerification() {
               <Button
                 variant="outline"
                 className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-border"
-                onClick={() => setActionType("revise")}
+                onClick={() => {
+                  setActionNote("");
+                  setActionType("revise");
+                }}
                 disabled={viewApp.status === "approved" || viewApp.status === "rejected"}
               >
                 <MessageSquare className="w-4 h-4 mr-2" /> Request Revision
@@ -536,7 +465,14 @@ export default function AdminVerification() {
               <Button
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={() => setActionType("approve")}
-                disabled={viewApp.status === "approved" || viewApp.status === "rejected"}
+                disabled={viewApp.status !== "pending_review" || detailLoading || !checklist?.summary.ready_for_approval}
+                title={
+                  viewApp.status !== "pending_review"
+                    ? "Only applications pending review can be approved."
+                    : checklist && !checklist.summary.ready_for_approval
+                      ? checklist.summary.blockers[0] ?? "Resolve the outstanding items first."
+                      : undefined
+                }
               >
                 <CheckCircle2 className="w-4 h-4 mr-2" /> Approve & Verify
               </Button>
@@ -578,16 +514,69 @@ export default function AdminVerification() {
               </p>
             </div>
 
-            {(actionType === "revise" || actionType === "reject") && (
+            {actionType === "revise" && (
+              <div className="py-2 space-y-4">
+                {(revisionItems.missing.length > 0 || revisionItems.flagged.length > 0) && (
+                  <div>
+                    <p className="text-xs font-semibold mb-1.5">Sent automatically from the checklist</p>
+                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                      {revisionItems.missing.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-rose-700 mb-1">Missing required ({revisionItems.missing.length})</p>
+                          <ul className="space-y-1">
+                            {revisionItems.missing.map((m) => (
+                              <li key={m} className="flex items-start gap-2 text-xs">
+                                <X className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-px" /> <span>{m}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {revisionItems.flagged.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-orange-700 mb-1">Needs revision ({revisionItems.flagged.length})</p>
+                          <ul className="space-y-1">
+                            {revisionItems.flagged.map((f) => (
+                              <li key={f.label} className="flex items-start gap-2 text-xs">
+                                <AlertCircle className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-px" />
+                                <span><span className="font-medium">{f.label}</span>{f.feedback && <span className="text-muted-foreground"> — {f.feedback}</span>}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-semibold mb-1 flex justify-between">
+                    <span>
+                      Additional notes{" "}
+                      {autoRevisionText ? <span className="font-normal text-muted-foreground">(optional)</span> : <span className="text-rose-500">*</span>}
+                    </span>
+                    <span className="font-normal text-muted-foreground">{actionNote.length}/{extraNotesLimit}</span>
+                  </label>
+                  <textarea
+                    className="flex min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    placeholder="Anything else the applicant should know? e.g. Your selfie is blurry, please retake it."
+                    value={actionNote}
+                    maxLength={extraNotesLimit}
+                    onChange={(e) => setActionNote(e.target.value)}
+                    disabled={isSubmittingAction}
+                  />
+                </div>
+              </div>
+            )}
+
+            {actionType === "reject" && (
               <div className="py-2">
                 <label className="text-xs font-semibold mb-1 block">
-                  {actionType === "revise" ? "Revision Instructions" : "Rejection Reason"} <span className="text-rose-500">*</span>
+                  Rejection Reason <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   className="flex min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  placeholder={actionType === "revise"
-                    ? "E.g., Your business permit document is expired. Please re-upload a valid business permit."
-                    : "E.g., Submitted documents don't meet verification requirements."}
+                  placeholder="E.g., Submitted documents don't meet verification requirements."
                   value={actionNote}
                   onChange={(e) => setActionNote(e.target.value)}
                   disabled={isSubmittingAction}

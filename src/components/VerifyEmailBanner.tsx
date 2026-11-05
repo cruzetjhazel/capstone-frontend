@@ -58,9 +58,11 @@ export default function VerifyEmailBanner() {
     setSending(true);
     try {
       await api.post("/auth/email/resend");
-      toast.success(`Verification email sent to ${user.email}. Check your inbox or spam.`);
+      toast.success(`Verification email sent to ${user.email}. Check your inbox or spam. Older links no longer work.`);
       setCooldown(RESEND_COOLDOWN);
     } catch (err) {
+      const retry = Number((err as any)?.response?.data?.retry_after);
+      if ((err as any)?.response?.status === 429 && retry > 0) setCooldown(Math.min(retry, 3600));
       toast.error(getApiErrorMessage(err, "Could not send the email. Please try again."));
     } finally {
       setSending(false);
@@ -78,7 +80,7 @@ export default function VerifyEmailBanner() {
         </p>
       </div>
       <Button size="sm" variant="outline" onClick={resend} disabled={sending || cooldown > 0}>
-        {sending ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown}s` : "Resend"}
+        {sending ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown >= 120 ? `${Math.ceil(cooldown / 60)} min` : `${cooldown}s`}` : "Resend"}
       </Button>
       <button onClick={() => setDismissed(true)} aria-label="Dismiss" className="text-muted-foreground hover:text-foreground">
         <X className="w-4 h-4" />

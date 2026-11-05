@@ -8,11 +8,11 @@ import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 import {
   ArrowLeft, CheckCircle2, XCircle, RotateCcw,
-  FileText, Building2, User, Eye, Camera, Briefcase, Clock, AlertCircle, Loader2,
+  User, Briefcase, Clock, AlertCircle, Loader2,
 } from "lucide-react";
+import { ApplicationReviewPanel, buildRevisionNotes, type Checklist } from "@/components/admin/ApplicationReviewPanel";
 
 type ApplicationStatus = "draft" | "pending_review" | "revision_requested" | "approved" | "rejected";
-type DocType = "government-id" | "selfie-with-id" | "business-permit";
 
 interface ApplicationDetail {
   id: number;
@@ -38,6 +38,7 @@ interface ApplicationDetail {
   revisionNotes: string | null;
   rejectionReason: string | null;
   applicant: { id: number; name: string; email: string; accountStatus: string } | null;
+  checklist: Checklist | null;
 }
 
 // Unwraps the success envelope for a single (non-list) resource.
@@ -73,6 +74,7 @@ function fromApi(raw: any): ApplicationDetail {
     submittedAt: raw.submitted_at,
     revisionNotes: raw.revision_notes,
     rejectionReason: raw.rejection_reason,
+    checklist: raw.checklist ?? null,
     applicant: raw.applicant
       ? { id: raw.applicant.id, name: raw.applicant.name, email: raw.applicant.email, accountStatus: raw.applicant.account_status }
       : null,
@@ -101,80 +103,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="text-xs text-muted-foreground block font-semibold">{label}</span>
       <p className="font-medium">{children || "—"}</p>
     </div>
-  );
-}
-
-// Documents are stored on a private disk and served through an authenticated
-// endpoint, so they must be fetched with the bearer token as a blob (a plain
-// <img src> or <a href> would be sent without the Authorization header).
-function DocumentCard({
-  applicationId, type, title, icon, submitted, tall,
-}: {
-  applicationId: number;
-  type: DocType;
-  title: string;
-  icon: ReactNode;
-  submitted: boolean;
-  tall?: boolean;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [isImage, setIsImage] = useState(false);
-  const [loading, setLoading] = useState(submitted);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!submitted) {
-      setLoading(false);
-      return;
-    }
-    let objectUrl: string | null = null;
-    let cancelled = false;
-    setLoading(true);
-    setFailed(false);
-
-    api.get(`/admin/photographer-applications/${applicationId}/documents/${type}`, { responseType: "blob" })
-      .then((res) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(res.data);
-        setUrl(objectUrl);
-        setIsImage(String(res.data?.type ?? "").startsWith("image/"));
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [applicationId, type, submitted]);
-
-  return (
-    <section className="bg-card border border-border/50 rounded-xl p-5 shadow-sm space-y-4">
-      <div className="flex justify-between items-center border-b border-border/50 pb-2">
-        <h3 className="font-heading font-bold text-sm flex items-center gap-2">{icon} {title}</h3>
-        {url && (
-          <a href={url} target="_blank" rel="noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline">
-            <Eye className="w-3.5 h-3.5" /> View
-          </a>
-        )}
-      </div>
-
-      <div className="border border-border/60 rounded-lg overflow-hidden bg-muted/20 flex items-center justify-center p-2 min-h-24">
-        {!submitted && <p className="text-xs text-muted-foreground py-6">Not submitted.</p>}
-        {submitted && loading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
-        {submitted && failed && <p className="text-xs text-destructive py-6">Couldn't load this document.</p>}
-        {submitted && url && isImage && (
-          <img src={url} alt={title} className={`${tall ? "max-h-72" : "max-h-48"} w-full object-contain rounded`} />
-        )}
-        {submitted && url && !isImage && (
-          <p className="text-xs text-muted-foreground py-6">Preview unavailable — use View to open the file.</p>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -216,6 +144,14 @@ export default function AdminReviewApplication() {
     setActionType(null);
     setNote("");
   };
+
+  const openRevision = () => {
+    setNote(application?.checklist ? buildRevisionNotes(application.checklist) : "");
+    setActionType("revision");
+  };
+
+  const handleChecklistChange = (checklist: Checklist) =>
+    setApplication((prev) => (prev ? { ...prev, checklist } : prev));
 
   const handleConfirmAction = async () => {
     if (!application || !actionType) return;
@@ -276,6 +212,7 @@ export default function AdminReviewApplication() {
   const isStudio = application.photographerType === "studio";
   const displayName = application.businessName ?? application.applicant?.name ?? `Application #${application.id}`;
   const canReview = application.status === "pending_review";
+  const canApprove = !application.checklist || application.checklist.summary.ready_for_approval;
 
   return (
     <DashboardLayout>
@@ -309,7 +246,7 @@ export default function AdminReviewApplication() {
                 variant="outline"
                 size="sm"
                 className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30 border-amber-300"
-                onClick={() => setActionType("revision")}
+                onClick={openRevision}
               >
                 <RotateCcw className="w-4 h-4 mr-1.5" /> Request Revision
               </Button>
@@ -324,6 +261,8 @@ export default function AdminReviewApplication() {
               <Button
                 size="sm"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={!canApprove}
+                title={canApprove ? undefined : "Resolve the items listed in the review summary first."}
                 onClick={() => setActionType("approve")}
               >
                 <CheckCircle2 className="w-4 h-4 mr-1.5" /> Approve Application
@@ -402,40 +341,17 @@ export default function AdminReviewApplication() {
             </section>
           </div>
 
-          {/* Right Column: Documents */}
+          {/* Right Column: Review */}
           <div className="space-y-6 md:col-span-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <DocumentCard
+            {application.checklist ? (
+              <ApplicationReviewPanel
                 applicationId={application.id}
-                type="government-id"
-                title="Government ID"
-                icon={<FileText className="w-4 h-4 text-primary" />}
-                submitted={application.documentsSubmitted.governmentId}
+                checklist={application.checklist}
+                canReview={canReview}
+                onChecklistChange={handleChecklistChange}
               />
-              <DocumentCard
-                applicationId={application.id}
-                type="selfie-with-id"
-                title="Selfie Holding Gov ID"
-                icon={<Camera className="w-4 h-4 text-primary" />}
-                submitted={application.documentsSubmitted.selfieWithId}
-              />
-            </div>
-
-            {isStudio && (
-              <DocumentCard
-                applicationId={application.id}
-                type="business-permit"
-                title="Business Permit or DTI Registration"
-                icon={<Building2 className="w-4 h-4 text-primary" />}
-                submitted={application.documentsSubmitted.businessPermit}
-                tall
-              />
-            )}
-
-            {application.documentsSubmitted.additionalDocuments > 0 && (
-              <p className="text-xs text-muted-foreground">
-                + {application.documentsSubmitted.additionalDocuments} additional document(s) submitted (not previewable here).
-              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Review checklist unavailable.</p>
             )}
           </div>
         </div>

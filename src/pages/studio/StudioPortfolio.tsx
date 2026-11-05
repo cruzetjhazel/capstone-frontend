@@ -51,6 +51,11 @@ export default function StudioPortfolio() {
     e.target.value = "";
     if (!file) return;
 
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("File size must not exceed 2 MB.");
+      return;
+    }
+
     setIsUploading(true);
     try {
       const newItem = await studioPortfolioService.upload(file);
@@ -129,7 +134,7 @@ export default function StudioPortfolio() {
         {/* Hidden File Input */}
         <input
           type="file"
-          accept="image/*"
+          accept={IMAGE_ACCEPT}
           className="hidden"
           ref={fileInputRef}
           onChange={handleFileChange}
@@ -139,7 +144,7 @@ export default function StudioPortfolio() {
           <div>
             <h1 className="text-2xl font-heading font-bold">Portfolio Showcase</h1>
             <p className="text-muted-foreground mt-1">
-              Manage your active portfolio display ({MIN_ACTIVE} to {MAX_ACTIVE} items). Drag a photo to reorder — this is the order clients see on your public profile.
+              Manage your active portfolio display ({MIN_ACTIVE} to {MAX_ACTIVE} items). Each photo must be 2 MB or smaller. Drag a photo to reorder — this is the order clients see on your public profile.
             </p>
           </div>
           <Button onClick={triggerFileInput} disabled={items.length >= MAX_ACTIVE || isUploading}>

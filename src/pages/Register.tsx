@@ -42,6 +42,15 @@ const PHOTOGRAPHY_STYLES = [
 ];
 
 const MAX_STYLES = 6;
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB per file, same as the backend
+const MAX_UPLOAD_LABEL = "2 MB";
+
+// Same file types the backend accepts (mimes:jpg,jpeg,png,pdf)
+const DOC_ACCEPT = "image/jpeg,image/png,application/pdf";
+const IMAGE_ACCEPT = "image/jpeg,image/png";
+const TYPE_LABELS: Record<string, string> = { "image/jpeg": "JPG", "image/png": "PNG", "application/pdf": "PDF" };
+const typeListLabel = (accept: string) =>
+  accept.split(",").map((t) => TYPE_LABELS[t.trim()] ?? t.trim()).join(", ");
 const CLIENT_DRAFT_KEY = "bulan_client_registration_draft";
 
 type ClientDraft = {
@@ -239,7 +248,7 @@ export default function Register() {
   const [pendingGeo, setPendingGeo] = useState<{ provinceId: number | null; cityId: number | null; barangayId: number | null } | null>(null);
   const [pendingBarangayName, setPendingBarangayName] = useState("");
 
-  const { setUserFromRegistration, refreshApplication } = useRole();
+  const { refreshApplication } = useRole();
   const navigate = useNavigate();
 
   // Field-level validation display. "Missing" errors only appear once the field
@@ -407,96 +416,10 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
-  // Who owns a taken email (from /auth/check-email): decides which message is shown.
-  const [emailTakenInfo, setEmailTakenInfo] = useState<{ accountType: string | null; applicationStatus: string | null } | null>(null);
-
-  useEffect(() => {
-    // Resuming an application: the email belongs to the logged-in account, skip the check
-    if (isResuming || isResumingApplication) return;
-
-    const value = email.trim();
-    if (!isValidEmail(value)) {
-      setEmailStatus("idle");
-      return;
-    }
-
-    setEmailStatus("checking");
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/check-email`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ email: value }),
-          signal: controller.signal,
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setEmailStatus("error");
-          return;
-        }
-        setEmailTakenInfo(
-          !data.available && data.reason === "taken"
-            ? { accountType: data.account_type ?? null, applicationStatus: data.application_status ?? null }
-            : null
-        );
-        setEmailStatus(
-          data.available ? "available" : data.reason === "invalid_format" ? "invalid" : "taken"
-        );
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") setEmailStatus("error");
-      }
-    }, 500);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [email, isResuming, isResumingApplication]);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [phoneTouched, setPhoneTouched] = useState(false);
-  const [phoneStatus, setPhoneStatus] = useState<"idle" | "checking" | "available" | "taken" | "error">("idle");
-
-  // Reject a phone number that already belongs to another account (all roles).
-  useEffect(() => {
-    // Resuming an application: the number belongs to the logged-in account, skip the check
-    if (isResuming || isResumingApplication) return;
-
-    const canonical = normalizePhilippinePhone(phone);
-    if (!isValidPhilippinePhone(canonical)) {
-      setPhoneStatus("idle");
-      return;
-    }
-
-    setPhoneStatus("checking");
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/check-phone`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ phone_number: canonical }),
-          signal: controller.signal,
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setPhoneStatus("error");
-          return;
-        }
-        setPhoneStatus(data.available ? "available" : "taken");
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") setPhoneStatus("error");
-      }
-    }, 500);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [phone, isResuming, isResumingApplication]);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Client — about you
@@ -850,9 +773,20 @@ export default function Register() {
     setCustomStyleInput("");
   };
 
-  const handleAdditionalProofChange = (files: File[]) => {
-    const MAX_SIZE = 2 * 1024 * 1024;
+  const handleAdditionalProofChange = (allFiles: File[]) => {
+    const MAX_SIZE = MAX_UPLOAD_BYTES;
     const MAX_FILES = 5;
+
+    const allowedTypes = DOC_ACCEPT.split(",");
+    const wrongType = allFiles.filter((f) => !allowedTypes.includes(f.type));
+    if (wrongType.length > 0) {
+      toast.error(
+        wrongType.length === 1
+          ? `"${wrongType[0].name}" was not added. Only ${typeListLabel(DOC_ACCEPT)} files are allowed.`
+          : `${wrongType.length} files were not added. Only ${typeListLabel(DOC_ACCEPT)} files are allowed.`
+      );
+    }
+    const files = allFiles.filter((f) => allowedTypes.includes(f.type));
 
     const oversized = files.filter((f) => f.size > MAX_SIZE);
     const validFiles = files.filter((f) => f.size <= MAX_SIZE);
@@ -860,8 +794,8 @@ export default function Register() {
     if (oversized.length > 0) {
       toast.error(
         oversized.length === 1
-          ? `"${oversized[0].name}" was removed — it exceeds the 2MB size limit.`
-          : `${oversized.length} files were removed — they exceed the 2MB size limit.`
+          ? `"${oversized[0].name}" was not added. File size must not exceed ${MAX_UPLOAD_LABEL}.`
+          : `${oversized.length} files were not added. File size must not exceed ${MAX_UPLOAD_LABEL} per file.`
       );
     }
 
@@ -885,7 +819,16 @@ export default function Register() {
   };
 
   const handlePortfolioChange = (files: File[]) => {
-    const totalSelected = [...portfolioFiles, ...files].slice(0, 12);
+    const tooBig = files.filter((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig.length > 0) {
+      toast.error(
+        tooBig.length === 1
+          ? `"${tooBig[0].name}" was not added. File size must not exceed ${MAX_UPLOAD_LABEL}.`
+          : `${tooBig.length} images were not added. File size must not exceed ${MAX_UPLOAD_LABEL} per file.`
+      );
+    }
+    const accepted = files.filter((f) => f.size <= MAX_UPLOAD_BYTES);
+    const totalSelected = [...portfolioFiles, ...accepted].slice(0, 12);
     setPortfolioFiles(totalSelected);
 
     portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
@@ -920,9 +863,7 @@ export default function Register() {
   const canStep2 =
     !!name.trim() &&
     isValidEmail(email) &&
-    (isResumingApplication || emailStatus === "available") &&
     isValidPhilippinePhone(normalizePhilippinePhone(phone)) &&
-    (isResumingApplication || (phoneStatus !== "taken" && phoneStatus !== "checking")) &&
     (isResumingApplication || (passwordMeetsRules(password) && password === confirmPassword)) &&
     (isResumingApplication || termsAccepted);
 
@@ -943,14 +884,16 @@ export default function Register() {
     shootingTypes.length > 0;
 
   const additionalProofValid = additionalProof.length >= 2 && additionalProof.length <= 5;
-  const hasAdequateAdditionalProof = additionalProofValid || existingDocs.additionalDocuments >= 2;
+  // New files REPLACE the ones already on file, so once any are selected they must be 2 to 5 by themselves.
+  const hasAdequateAdditionalProof =
+    additionalProof.length > 0 ? additionalProofValid : existingDocs.additionalDocuments >= 2;
   const canStep5Verify =
     accountType === "studio"
       ? !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof) // business permit / DTI is optional
       : !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof);
 
   const portfolioFilesWithinLimits = portfolioFiles.length >= 6 && portfolioFiles.length <= 12;
-  const portfolioFilesValidSizes = portfolioFiles.every((f) => f.size <= 5 * 1024 * 1024);
+  const portfolioFilesValidSizes = portfolioFiles.every((f) => f.size <= MAX_UPLOAD_BYTES);
   const canStep6Portfolio = (portfolioFilesWithinLimits || existingPortfolioCount >= 6) && portfolioFilesValidSizes;
 
   const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && photographyStyles.length <= MAX_STYLES && !!(facebook.trim() || instagram.trim() || website.trim());
@@ -967,36 +910,10 @@ export default function Register() {
     if (!name.trim()) req("name", "Full name is required.");
 
     if (!email.trim()) req("email", "Email address is required.");
-    else if (!isValidEmail(email) || (!isResumingApplication && emailStatus === "invalid")) bad("email", "Enter a valid email address.");
-    else if (!isResumingApplication && emailStatus === "taken") {
-      const signIn = (text: string) => <Link to="/login" className="font-semibold underline">{text}</Link>;
-      let takenMsg: React.ReactNode;
-      if (emailTakenInfo?.accountType === "photographer") {
-        switch (emailTakenInfo.applicationStatus) {
-          case "pending_review":
-            takenMsg = <>An account with this email already exists. Its photographer application has already been submitted and is awaiting review. {signIn("Sign in to check its status")}.</>;
-            break;
-          case "approved":
-            takenMsg = <>An account with this email already exists and its photographer account is already approved. Please {signIn("sign in")}.</>;
-            break;
-          case "rejected":
-            takenMsg = <>An account with this email already exists, but its photographer application was not approved. {signIn("Sign in to view the feedback")}.</>;
-            break;
-          case "revision_requested":
-            takenMsg = <>An account with this email already exists. The admin requested changes to its photographer application. {signIn("Sign in to update and resubmit it")}.</>;
-            break;
-          default: // "draft" (including a photographer with no saved application yet)
-            takenMsg = <>An account with this email already exists. You have an unfinished photographer application. {signIn("Sign in to continue your application")}.</>;
-        }
-      } else {
-        takenMsg = <>This email is already registered. Please {signIn("sign in")} or use another email address.</>;
-      }
-      bad("email", takenMsg);
-    } else if (!isResumingApplication && emailStatus === "error") bad("email", "Couldn't verify this email. Please try again.");
-
+    else if (!isValidEmail(email)) bad("email", "Enter a valid email address.");
     if (!phone.trim()) req("phone", "Phone number is required.");
     else if (!isValidPhilippinePhone(normalizePhilippinePhone(phone))) bad("phone", "Enter a valid Philippine mobile number (e.g. 0917 123 4567).");
-    else if (!isResumingApplication && phoneStatus === "taken") bad("phone", "Invalid phone number. This number is already registered.");
+
 
     if (!isResumingApplication) {
       if (!password) req("password", "Password is required.");
@@ -1046,7 +963,7 @@ export default function Register() {
     if (!(selfieId || existingDocs.selfieWithId)) req("selfie", "Upload a selfie of you holding your ID.");
     if (!hasAdequateAdditionalProof) req("additional", `Upload at least 2 additional proof files (${additionalProof.length} selected).`);
   } else if (step === 6 && accountType !== "client") {
-    if (!portfolioFilesValidSizes) bad("portfolio", "One or more images are over 5MB. Remove them to continue.");
+    if (!portfolioFilesValidSizes) bad("portfolio", "One or more images exceed 2 MB. Remove them to continue.");
     else if (!(portfolioFilesWithinLimits || existingPortfolioCount >= 6)) req("portfolio", `Upload at least 6 portfolio images (${portfolioFiles.length} selected).`);
   } else if (step === 7 && accountType !== "client") {
     if (!bio.trim()) req("bio", "Brand bio is required.");
@@ -1152,12 +1069,7 @@ export default function Register() {
 
     if (!response.ok) {
       if (response.status === 422 && data.errors) {
-        if (/invalid phone number/i.test([].concat(data.errors.phone_number ?? []).join(" "))) {
-          setPhoneStatus("taken");
-          setIsLoading(false);
-          handleStepChange(2);
-          return;
-        }
+
         const messages = Object.values(data.errors as Record<string, string[]>).flat().join(" ");
         setApiError(messages || data.message || "Validation failed. Please check your inputs.");
       } else {
@@ -1170,9 +1082,8 @@ export default function Register() {
     // Registration succeeded — this is now OUTSIDE the fetch try/catch,
     // so a bug here won't be mislabeled as a connection error
     setIsLoading(false);
-    await setUserFromRegistration(data.data.user, data.data.token);
     try { localStorage.removeItem(CLIENT_DRAFT_KEY); } catch { /* ignore */ }
-    setClientCreated(true);
+    setClientCreated(true); // shows the generic "check your email" screen
   };
 
   const handlePhotographerAccountSubmit = async () => {
@@ -1197,15 +1108,12 @@ export default function Register() {
           terms_accepted: termsAccepted,
         }),
       });
-      const data = await parseApiResponse(response);
-
-      await setUserFromRegistration(data.data.user, data.data.token);
+      await parseApiResponse(response);
 
       setIsLoading(false);
-      handleStepChange(3);
+      setClientCreated(true); // same generic screen; the account is created only if registration can proceed
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.";
-      if (/invalid phone number/i.test(message)) setPhoneStatus("taken");
       setApiError(message);
       setIsLoading(false);
     }
@@ -1232,14 +1140,15 @@ export default function Register() {
           <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-5">
             <CheckCircle2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-2xl font-heading font-bold mb-2">Successfully created an account!</h1>
+          <h1 className="text-2xl font-heading font-bold mb-2">Check your email</h1>
           <p className="text-muted-foreground text-sm leading-relaxed mb-8">
-            We sent a verification link to <span className="font-medium text-foreground">{email}</span>.
-            Open it to verify your email. You can keep exploring in the meantime.
+            Thank you for registering! If your registration can proceed, check your email for the next steps.
+            After you open the link, sign in to continue.
           </p>
-          <Button className="w-full" size="lg" onClick={() => navigate("/explore")}>
-            Explore Photographers <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button asChild variant="outline" className="flex-1"><Link to="/">Back to home</Link></Button>
+            <Button asChild className="flex-1"><Link to="/login">Go to sign in</Link></Button>
+          </div>
         </div>
       </div>
     );
@@ -1511,15 +1420,7 @@ export default function Register() {
                     placeholder="you@example.com"
                     maxLength={254}
                   />
-                  {email.trim() && !errs.email && (
-                    isResumingApplication ? (
-                      <ValidationHint text="Valid email address" valid />
-                    ) : emailStatus === "checking" ? (
-                      <ValidationHint text="Checking availability..." valid={false} />
-                    ) : emailStatus === "available" ? (
-                      <ValidationHint text="Email is available" valid />
-                    ) : null
-                  )}
+                  {email.trim() && !errs.email && <ValidationHint text="Valid email format" valid />}
                 </Field>
                 <Field label="Phone number" required error={errs.phone}>
                   <Input
@@ -1532,11 +1433,7 @@ export default function Register() {
                     placeholder="0917 123 4567"
                     maxLength={20}
                   />
-                  {phone.trim() && !errs.phone && (
-                    phoneStatus === "checking"
-                      ? <ValidationHint text="Checking phone number..." valid={false} />
-                      : <ValidationHint text="Valid phone number" valid />
-                  )}
+                  {phone.trim() && !errs.phone && <ValidationHint text="Valid phone number format" valid />}
                 </Field>
 
                 <Field label="Password" required error={errs.password}>
@@ -1589,7 +1486,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={hasVisibleErrors || emailStatus === "checking" || phoneStatus === "checking" || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1914,7 +1811,7 @@ export default function Register() {
                   error={errs.govId}
                   file={govId}
                   onChange={setGovId}
-                  accept="image/*,application/pdf"
+                  accept={DOC_ACCEPT}
                   alreadyUploaded={existingDocs.governmentId}
                 />
 
@@ -1925,7 +1822,7 @@ export default function Register() {
                   error={errs.selfie}
                   file={selfieId}
                   onChange={setSelfieId}
-                  accept="image/*"
+                  accept={IMAGE_ACCEPT}
                   alreadyUploaded={existingDocs.selfieWithId}
                 />
 
@@ -1935,12 +1832,12 @@ export default function Register() {
                     hint="Optional — upload your registered business permit, DTI, or barangay business clearance if you have one"
                     file={businessPermit}
                     onChange={setBusinessPermit}
-                    accept="image/*,application/pdf"
+                    accept={DOC_ACCEPT}
                     alreadyUploaded={existingDocs.businessPermit}
                   />
                 )}
 
-                <Field label="Additional Proof / Documents" required error={errs.additional} hint="Upload up to 5 files (minimum 2). Max 2MB per file. Accepts images or documents. Add files one by one or select multiple.">
+                <Field label="Additional Proof / Documents" required error={errs.additional} hint="Upload 2 to 5 files. Max 2 MB per file. Accepts JPG, PNG or PDF only. If you already have files on file, uploading new ones replaces them.">
                   <div className="flex items-center justify-center w-full">
                     <label className={cn("flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer bg-card hover:bg-muted/50 transition-colors", errs.additional ? "border-red-500" : "border-border")}>
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -1948,7 +1845,7 @@ export default function Register() {
                         <p className="text-sm text-muted-foreground">
                           <span className="font-semibold text-primary">Click to upload</span> or drag and drop
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or PDF (Max 2MB, up to 5 files)</p>
+                        <p className="text-xs text-muted-foreground mt-1">JPG, PNG or PDF (max 2 MB per file, up to 5 files)</p>
                       </div>
                       <Input 
                         type="file" 
@@ -1960,17 +1857,17 @@ export default function Register() {
                           }
                           e.target.value = '';
                         }}
-                        accept="image/*,.pdf,.doc,.docx" 
+                        accept={DOC_ACCEPT} 
                       />
                     </label>
                   </div>
 
                   <div className="flex justify-between items-center text-xs mt-3 mb-1">
-                    <span className={cn("font-medium", (additionalProofValid || existingDocs.additionalDocuments >= 2) ? "text-emerald-600" : "text-muted-foreground")}>
+                    <span className={cn("font-medium", hasAdequateAdditionalProof ? "text-emerald-600" : "text-muted-foreground")}>
                       {additionalProof.length > 0
                         ? `${additionalProof.length} / 5 files selected (minimum 2)`
                         : existingDocs.additionalDocuments >= 2
-                        ? `${existingDocs.additionalDocuments} file(s) already on file — add more to replace`
+                        ? `${existingDocs.additionalDocuments} file(s) already on file. Uploading new files replaces them.`
                         : `${additionalProof.length} / 5 files selected (minimum 2)`}
                     </span>
                   </div>
@@ -2042,7 +1939,7 @@ export default function Register() {
                 <ImageIcon className="w-6 h-6 text-primary" /> Portfolio upload
               </h2>
               <p className="text-muted-foreground mb-6">
-                Upload between 6 to 12 showcase items from your stunning portfolio. Real pictures under 5MB are preferred.
+                Upload between 6 to 12 showcase items from your stunning portfolio. Each image must be 2 MB or smaller.
               </p>
 
               <form className="space-y-5" onSubmit={handleStep6Submit}>
@@ -2055,7 +1952,7 @@ export default function Register() {
                   <label className={cn("border-2 border-dashed rounded-xl p-8 text-center hover:border-primary/30 transition-colors cursor-pointer block bg-muted/20", errs.portfolio ? "border-red-500" : "border-border")}>
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2 animate-bounce" />
                     <p className="text-sm font-semibold">Click to browse and add files</p>
-                    <p className="text-xs text-muted-foreground mt-1">Accepts JPG, PNG, WEBP (6 to 12 images, max 5MB per file)</p>
+                    <p className="text-xs text-muted-foreground mt-1">Accepts JPG, PNG, WEBP (6 to 12 images, max 2 MB per file)</p>
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
@@ -2079,14 +1976,14 @@ export default function Register() {
                       </span>
                       {!portfolioFilesValidSizes && (
                         <span className="text-destructive font-semibold flex items-center gap-1">
-                          <AlertCircle className="w-3.5 h-3.5" /> High-res assets exceed 5MB!
+                          <AlertCircle className="w-3.5 h-3.5" /> File size must not exceed 2 MB.
                         </span>
                       )}
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 border border-border p-3 rounded-xl bg-card shadow-sm">
                       {portfolioFiles.map((f, idx) => {
-                        const isSizeWarn = f.size > 5 * 1024 * 1024;
+                        const isSizeWarn = f.size > MAX_UPLOAD_BYTES;
                         return (
                           <div key={idx} className={cn("relative aspect-square rounded-lg border overflow-hidden bg-muted group", isSizeWarn ? "border-destructive" : "border-border")}>
                             {portfolioPreviews[idx] && (
@@ -2102,7 +1999,7 @@ export default function Register() {
                             </button>
                             {isSizeWarn && (
                               <div className="absolute inset-x-0 bottom-0 bg-destructive/90 text-white text-[9px] py-0.5 text-center font-medium flex items-center justify-center gap-0.5">
-                                <AlertCircle className="w-2.5 h-2.5" /> Over 5MB
+                                <AlertCircle className="w-2.5 h-2.5" /> Over 2 MB
                               </div>
                             )}
                           </div>
@@ -2512,8 +2409,14 @@ function FileField({ label, required, hint, error, file, onChange, accept, alrea
   label: string; required?: boolean; hint?: string; error?: React.ReactNode; file: File | null; onChange: (f: File | null) => void; accept?: string; alreadyUploaded?: boolean;
 }) {
   const showsExisting = !file && alreadyUploaded;
+  const [sizeError, setSizeError] = useState<string | null>(null);
   return (
-    <Field label={label} required={required} hint={hint} error={error}>
+    <Field
+      label={label}
+      required={required}
+      hint={hint ? `${hint}. Maximum file size: ${MAX_UPLOAD_LABEL}.` : `Maximum file size: ${MAX_UPLOAD_LABEL}.`}
+      error={sizeError ?? error}
+    >
       <label className={cn("border-2 border-dashed rounded-xl p-4 hover:border-primary/30 transition-colors cursor-pointer flex items-center gap-3", error ? "border-red-500" : "border-border")}>
         <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", (file || showsExisting) ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
           <CheckCircle2 className="w-5 h-5" style={{ display: file || showsExisting ? undefined : "none" }} />
@@ -2528,7 +2431,20 @@ function FileField({ label, required, hint, error, file, onChange, accept, alrea
           </p>
         </div>
         <input type="file" accept={accept} className="hidden"
-          onChange={(e) => onChange(e.target.files?.[0] || null)} />
+          onChange={(e) => {
+            const picked = e.target.files?.[0] || null;
+            e.target.value = "";
+            if (picked && accept && !accept.split(",").map((t) => t.trim()).includes(picked.type)) {
+              setSizeError(`Only ${typeListLabel(accept)} files are allowed.`);
+              return;
+            }
+            if (picked && picked.size > MAX_UPLOAD_BYTES) {
+              setSizeError("File size must not exceed 2 MB.");
+              return;
+            }
+            setSizeError(null);
+            onChange(picked);
+          }} />
       </label>
     </Field>
   );
