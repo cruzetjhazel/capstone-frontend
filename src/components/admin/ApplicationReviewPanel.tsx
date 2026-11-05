@@ -32,9 +32,6 @@ export interface Checklist {
   requirements: Requirement[];
   groups?: ChecklistGroup[];
   items: ReviewItem[];
-  // The portfolio is verified as ONE unit: `review` is its single review state,
-  // `images` are listed for viewing only (not reviewed one by one).
-  portfolio?: { review: ReviewItem | null; images: ReviewItem[] };
   problems: string[];
   summary: {
     required_total: number; required_submitted: number; missing_required: string[];
@@ -59,10 +56,11 @@ export function getRevisionItems(checklist: Checklist): { missing: string[]; fla
     missing.push(...checklist.summary.missing_required);
   }
   const flagged = checklist.items
-    .filter((i) => i.status === "needs_revision")
+    .filter((i) => i.status === "needs_revision" && i.type !== "portfolio_image")
     .map((i) => ({ label: i.label, feedback: i.feedback ?? "" }));
-  const pr = checklist.portfolio?.review;
-  if (pr && pr.status === "needs_revision") flagged.push({ label: pr.label, feedback: pr.feedback ?? "" });
+  // Portfolio images share ONE review, so the portfolio is listed once.
+  const flaggedPortfolio = checklist.items.find((i) => i.type === "portfolio_image" && i.status === "needs_revision");
+  if (flaggedPortfolio) flagged.push({ label: "Photography portfolio", feedback: flaggedPortfolio.feedback ?? "" });
   return { missing, flagged };
 }
 
@@ -396,7 +394,7 @@ export function ApplicationReviewPanel({
   const { requirements, items, summary } = checklist;
 
   const documents = items.filter((i) => i.type !== "portfolio_image");
-  const portfolio = checklist.portfolio?.images ?? [];
+  const portfolio = items.filter((i) => i.type === "portfolio_image");
   const identity = documents.filter((i) => i.type !== "additional_document");
   const additional = documents.filter((i) => i.type === "additional_document");
 
@@ -490,15 +488,15 @@ export function ApplicationReviewPanel({
           <p className="text-xs text-muted-foreground">No portfolio images submitted.</p>
         ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-              {portfolio.map((item) => <Thumb key={item.ref} item={item} onOpen={() => open("portfolio", portfolio, item)} />)}
-            </div>
             <PortfolioReviewBar
-              review={checklist.portfolio?.review ?? null}
+              review={portfolio[0] ?? null}
               canReview={canReview}
               applicationId={applicationId}
               onChecklistChange={onChecklistChange}
             />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+              {portfolio.map((item) => <Thumb key={item.ref} item={item} onOpen={() => open("portfolio", portfolio, item)} />)}
+            </div>
           </div>
         )}
       </section>
@@ -543,8 +541,8 @@ function RowValue({ row }: { row: ChecklistRow }) {
   return <p className="text-sm text-muted-foreground mt-0.5">{row.detail ?? "—"}</p>;
 }
 
-// One verification for the whole portfolio. The admin looks through the images, then verifies
-// (or flags) the portfolio as a whole, instead of reviewing every image.
+// ONE verification for the whole portfolio. All portfolio images carry the portfolio's single
+// status, so the first image stands in for it. The images stay viewable (zoom, download, next/previous).
 function PortfolioReviewBar({
   review, canReview, applicationId, onChecklistChange,
 }: {
@@ -589,7 +587,7 @@ function PortfolioReviewBar({
 
       {canReview && !flagging && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">Look through the images, then verify the portfolio as a whole.</p>
+          <p className="text-xs text-muted-foreground">Open any image to view, zoom or download. Verify the whole portfolio with one click.</p>
           <div className="flex items-center gap-2">
             {review.status !== "pending" && (
               <Button variant="ghost" size="sm" disabled={saving} onClick={() => submit("pending")}>Reset</Button>
@@ -609,7 +607,7 @@ function PortfolioReviewBar({
               disabled={saving || review.status === "reviewed"}
               onClick={() => submit("reviewed")}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {review.status === "reviewed" ? "Portfolio verified" : "Mark portfolio as verified"}
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {review.status === "reviewed" ? "Portfolio verified" : "Verify portfolio"}
             </Button>
           </div>
         </div>
@@ -647,11 +645,10 @@ function PortfolioReviewBar({
 }
 
 function GroupSection({
-  group, items, portfolio, open, onToggle, onOpenFile, onOpenPortfolio, canReview, applicationId, onChecklistChange,
+  group, items, open, onToggle, onOpenFile, onOpenPortfolio, canReview, applicationId, onChecklistChange,
 }: {
   group: ChecklistGroup;
   items: ReviewItem[];
-  portfolio: { review: ReviewItem | null; images: ReviewItem[] };
   canReview: boolean;
   applicationId: number;
   onChecklistChange: (c: Checklist) => void;
@@ -669,6 +666,9 @@ function GroupSection({
     : group.required_total > 0 ? "submitted"
     : null;
   const Icon = GROUP_ICONS[group.key] ?? ClipboardCheck;
+  // Green check once every required item is submitted and nothing is waiting on review.
+  const complete = group.required_total > 0
+    && group.missing_count === 0 && group.pending_count === 0 && group.needs_revision_count === 0;
 
   return (
     <section className={`rounded-xl border bg-background ${group.missing_count > 0 ? "border-rose-300" : "border-border/60"}`}>
@@ -678,7 +678,9 @@ function GroupSection({
         aria-expanded={open}
         className="w-full flex items-center gap-3 px-4 py-3 text-left"
       >
-        <Icon className="w-4 h-4 text-primary shrink-0" />
+        {complete
+          ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-label="All required items completed" />
+          : <Icon className="w-4 h-4 text-primary shrink-0" />}
         <span className="font-heading font-bold text-sm flex-1 min-w-0 truncate">{group.label}</span>
         {group.required_total > 0 && (
           <span className="text-xs text-muted-foreground shrink-0">{group.required_submitted}/{group.required_total} required</span>
@@ -693,8 +695,7 @@ function GroupSection({
       {open && (
         <ul className="divide-y divide-border/50 border-t border-border/50">
           {group.rows.map((row) => {
-            const isPortfolio = row.item_type === "portfolio_image";
-            const files = row.kind === "files" ? (isPortfolio ? portfolio.images : items.filter((i) => i.type === row.item_type)) : [];
+            const files = row.kind === "files" ? items.filter((i) => i.type === row.item_type) : [];
             return (
               <li key={row.key} className="px-4 py-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
@@ -714,15 +715,15 @@ function GroupSection({
                 {row.kind === "files" && files.length > 0 && (
                   row.item_type === "portfolio_image" ? (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-                        {files.map((item) => <Thumb key={item.ref} item={item} onOpen={() => onOpenPortfolio(item)} />)}
-                      </div>
                       <PortfolioReviewBar
-                        review={portfolio.review}
+                        review={files[0] ?? null}
                         canReview={canReview}
                         applicationId={applicationId}
                         onChecklistChange={onChecklistChange}
                       />
+                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {files.map((item) => <Thumb key={item.ref} item={item} onOpen={() => onOpenPortfolio(item)} />)}
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -757,7 +758,7 @@ export function ApplicationChecklist({
   const allOpen = groups.length > 0 && groups.every(isOpen);
 
   const documents = items.filter((i) => i.type !== "portfolio_image");
-  const portfolio = checklist.portfolio?.images ?? [];
+  const portfolio = items.filter((i) => i.type === "portfolio_image");
   const previewList = preview?.group === "portfolio" ? portfolio : documents;
 
   if (groups.length === 0) {
@@ -828,7 +829,6 @@ export function ApplicationChecklist({
           key={g.key}
           group={g}
           items={items}
-          portfolio={checklist.portfolio ?? { review: null, images: [] }}
           canReview={canReview}
           applicationId={applicationId}
           onChecklistChange={onChecklistChange}
