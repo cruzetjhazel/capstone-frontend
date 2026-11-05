@@ -12,8 +12,9 @@ import { cn, getInitials, formatGcashRef } from "@/lib/utils";
 import {
   Calendar, Clock, MapPin, ArrowLeft,
   AlertCircle, ChevronDown, X, CalendarPlus, FileX, Edit3, Loader2, Sparkles, Receipt,
-  CheckCircle2, Camera, FolderOpen, Users, Facebook, Instagram, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
+  CheckCircle2, Camera, FolderOpen, Users, Globe, Phone, Mail, Star, AlertTriangle, type LucideIcon
 } from "lucide-react";
+import { FaFacebook as Facebook, FaInstagram as Instagram } from "react-icons/fa";
 import { useState, useMemo } from "react";
 import { SlotOfferCard } from "@/components/booking/SlotOfferCard";
 // BUDGETING (disabled for now): import { BudgetRequestPanel } from "@/components/booking/BudgetRequestPanel";

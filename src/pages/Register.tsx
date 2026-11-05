@@ -1093,9 +1093,18 @@ export default function Register() {
 
     // Registration succeeded — this is now OUTSIDE the fetch try/catch,
     // so a bug here won't be mislabeled as a connection error
-    setIsLoading(false);
     try { localStorage.removeItem(CLIENT_DRAFT_KEY); } catch { /* ignore */ }
-    setClientCreated(true); // shows the generic "check your email" screen
+    const result = data?.data ?? data;
+    if (!result?.token || !result?.user) {
+      setIsLoading(false);
+      setApiError("Account created, but we couldn't sign you in. Please sign in to continue.");
+      return;
+    }
+    setAuthToken(result.token);
+    await setUserFromRegistration(result.user, result.token);
+    toast.success("Welcome! We sent a verification link to your email.");
+    setIsLoading(false);
+    navigate("/");
   };
 
     const handlePhotographerAccountSubmit = async () => {

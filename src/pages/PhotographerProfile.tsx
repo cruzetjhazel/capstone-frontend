@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Facebook, Instagram, Globe, Tag, Heart, AlertTriangle, X, Paperclip, Palette, Wrench, Phone, Mail, Search
+  Calendar, Globe, Tag, Heart, AlertTriangle, X, Paperclip, Palette, Wrench, Phone, Mail, Search
 } from "lucide-react";
+import { FaFacebook as Facebook, FaInstagram as Instagram } from "react-icons/fa";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
@@ -192,7 +193,7 @@ export default function PhotographerProfile() {
     { url: p.socials?.facebook, Icon: Facebook, label: "Facebook" },
     { url: p.socials?.instagram, Icon: Instagram, label: "Instagram" },
     { url: p.socials?.website, Icon: Globe, label: "Website" },
-  ].filter((s) => !!s.url) as { url: string; Icon: typeof Facebook; label: string }[];
+  ].filter((s) => !!s.url) as { url: string; Icon: React.ComponentType<{ className?: string }>; label: string }[];
 
   const handleReportSubmit = () => {
     toast.error(`Report sent — your report regarding ${p.name} has been sent to the admin team.`);
