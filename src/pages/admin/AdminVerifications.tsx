@@ -334,7 +334,13 @@ export default function AdminVerification() {
                     <TableCell className="px-4 py-3">{statusBadge(app.status)}</TableCell>
 
                     <TableCell className="px-4 py-3">
-                      <span className="text-xs font-medium px-2 py-1 rounded-md bg-muted text-muted-foreground border border-border uppercase tracking-wider">
+                      <span
+                        className={`text-xs font-medium px-2 py-1 rounded-md border uppercase tracking-wider ${
+                          app.applicant?.accountStatus?.toLowerCase() === "active"
+                            ? "bg-emerald-500/10 text-emerald-700 border-emerald-200"
+                            : "bg-muted text-muted-foreground border-border"
+                        }`}
+                      >
                         {app.applicant?.accountStatus ?? "—"}
                       </span>
                     </TableCell>

@@ -152,6 +152,61 @@ function useProtectedFile(endpoint: string | null) {
   return state;
 }
 
+type PendingReview = { status: ReviewStatus; feedback?: string } | null;
+
+function ReviewConfirm({
+  pending, what, saving, onConfirm, onCancel,
+}: {
+  pending: PendingReview;
+  what: string;
+  saving: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!pending) return null;
+  const copy = {
+    reviewed: {
+      title: `Mark ${what} as reviewed?`,
+      body: "This confirms you have checked it. You can change it later while the application is pending review.",
+      label: "Yes, mark as reviewed",
+      btn: "bg-emerald-600 hover:bg-emerald-700 text-white",
+    },
+    needs_revision: {
+      title: `Flag ${what} for revision?`,
+      body: "The applicant will be asked to fix this before the application can be approved.",
+      label: "Yes, flag for revision",
+      btn: "bg-orange-600 hover:bg-orange-700 text-white",
+    },
+    pending: {
+      title: `Reset ${what} to pending?`,
+      body: "Its current review result will be cleared and it will need to be reviewed again.",
+      label: "Yes, reset",
+      btn: "bg-primary text-primary-foreground hover:bg-primary/90",
+    },
+  }[pending.status];
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4" role="alertdialog" aria-modal="true">
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 space-y-3">
+        <h3 className="font-heading font-bold text-base">{copy.title}</h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">{copy.body}</p>
+        {pending.status === "needs_revision" && pending.feedback && (
+          <p className="text-xs rounded-md border border-orange-200 bg-orange-500/5 text-orange-800 p-2">
+            <span className="font-semibold">Your note:</span> {pending.feedback}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>Cancel</Button>
+          <Button size="sm" className={copy.btn} onClick={onConfirm} disabled={saving}>
+            {saving && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+            {copy.label}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ItemRow({ item, onOpen }: { item: ReviewItem; onOpen: () => void }) {
   const file = useProtectedFile(item.endpoint);
   return (
@@ -209,11 +264,13 @@ function PreviewModal({
   const [flagging, setFlagging] = useState(false);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState<PendingReview>(null);
   const total = items.length;
 
   useEffect(() => {
     setScale("fit");
     setFlagging(false);
+    setConfirm(null);
     setReason(item.feedback ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.endpoint]);
@@ -224,9 +281,9 @@ function PreviewModal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement)?.tagName === "TEXTAREA";
-      if (e.key === "Escape") onClose();
-      if (!typing && e.key === "ArrowLeft") go(-1);
-      if (!typing && e.key === "ArrowRight") go(1);
+      if (e.key === "Escape") { if (confirm) setConfirm(null); else onClose(); }
+      if (!typing && !confirm && e.key === "ArrowLeft") go(-1);
+      if (!typing && !confirm && e.key === "ArrowRight") go(1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -301,6 +358,16 @@ function PreviewModal({
 
         {/* Footer */}
         <div className="border-t border-border/60 p-4 space-y-3">
+          <ReviewConfirm
+            pending={confirm}
+            what={item.label}
+            saving={saving}
+            onCancel={() => setConfirm(null)}
+            onConfirm={async () => {
+              if (confirm) await submit(confirm.status, confirm.feedback);
+              setConfirm(null);
+            }}
+          />
           {item.status === "needs_revision" && item.feedback && (
             <p className="text-xs rounded-md border border-orange-200 bg-orange-500/5 text-orange-800 p-2">
               <span className="font-semibold">Flagged:</span> {item.feedback}
@@ -340,7 +407,7 @@ function PreviewModal({
                   size="sm"
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   disabled={saving || item.status === "reviewed"}
-                  onClick={() => submit("reviewed")}
+                  onClick={() => setConfirm({ status: "reviewed" })}
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {item.status === "reviewed" ? "Reviewed" : "Mark as reviewed"}
                 </Button>
@@ -369,7 +436,7 @@ function PreviewModal({
                   size="sm"
                   className="bg-orange-600 hover:bg-orange-700 text-white"
                   disabled={saving || !reason.trim()}
-                  onClick={() => submit("needs_revision", reason.trim())}
+                  onClick={() => setConfirm({ status: "needs_revision", feedback: reason.trim() })}
                 >
                   {saving ? "Saving…" : "Flag for revision"}
                 </Button>
@@ -554,6 +621,7 @@ function PortfolioReviewBar({
   const [flagging, setFlagging] = useState(false);
   const [reason, setReason] = useState(review?.feedback ?? "");
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState<PendingReview>(null);
 
   if (!review) return null;
 
@@ -579,6 +647,16 @@ function PortfolioReviewBar({
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2">
+      <ReviewConfirm
+        pending={confirm}
+        what="the portfolio"
+        saving={saving}
+        onCancel={() => setConfirm(null)}
+        onConfirm={async () => {
+          if (confirm) await submit(confirm.status, confirm.feedback);
+          setConfirm(null);
+        }}
+      />
       {review.status === "needs_revision" && review.feedback && (
         <p className="text-xs rounded-md border border-orange-200 bg-orange-500/5 text-orange-800 p-2">
           <span className="font-semibold">Flagged:</span> {review.feedback}
@@ -590,7 +668,7 @@ function PortfolioReviewBar({
           <p className="text-xs text-muted-foreground">Open any image to view, zoom or download. Verify the whole portfolio with one click.</p>
           <div className="flex items-center gap-2">
             {review.status !== "pending" && (
-              <Button variant="ghost" size="sm" disabled={saving} onClick={() => submit("pending")}>Reset</Button>
+              <Button variant="ghost" size="sm" disabled={saving} onClick={() => setConfirm({ status: "pending" })}>Reset</Button>
             )}
             <Button
               variant="outline"
@@ -605,7 +683,7 @@ function PortfolioReviewBar({
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
               disabled={saving || review.status === "reviewed"}
-              onClick={() => submit("reviewed")}
+              onClick={() => setConfirm({ status: "reviewed" })}
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {review.status === "reviewed" ? "Portfolio verified" : "Verify portfolio"}
             </Button>
@@ -633,7 +711,7 @@ function PortfolioReviewBar({
               size="sm"
               className="bg-orange-600 hover:bg-orange-700 text-white"
               disabled={saving || !reason.trim()}
-              onClick={() => submit("needs_revision", reason.trim())}
+              onClick={() => setConfirm({ status: "needs_revision", feedback: reason.trim() })}
             >
               {saving ? "Saving…" : "Flag for revision"}
             </Button>
