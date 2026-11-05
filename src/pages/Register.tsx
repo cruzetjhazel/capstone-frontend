@@ -1,4 +1,4 @@
-import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Facebook, Instagram, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users, ChevronDown } from "lucide-react";
+import { Camera, Eye, EyeOff, User, Aperture, ArrowLeft, ArrowRight, MapPin, Globe, Upload, Plus, X, Clock, CheckCircle2, ShieldCheck, FileText, Info, AlertCircle, Image as ImageIcon, Users, ChevronDown } from "lucide-react";
 import Logo from "@/components/Logo";
 import toast from "react-hot-toast";
 import { useState, useEffect, useRef, useId } from "react";
@@ -62,7 +62,19 @@ type ClientDraft = {
 };
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000/api";
+const Facebook = ({ className, size }: { className?: string; size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+  </svg>
+);
 
+const Instagram = ({ className, size }: { className?: string; size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+  </svg>
+);
 // Only Region V (Bicol) has PSGC dropdown data in our location tables.
 const BICOL_REGION = "Region V (Bicol Region)";
 const REGIONS = [
@@ -2395,7 +2407,10 @@ function PasswordInput({ value, onChange, onBlur, show, setShow, placeholder }: 
 }
 
 function IconInput({ icon: Icon, value, onChange, placeholder }: {
-  icon: typeof Facebook; value: string; onChange: (v: string) => void; placeholder?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
 }) {
   return (
     <div className="relative">

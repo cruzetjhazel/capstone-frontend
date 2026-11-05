@@ -32,6 +32,7 @@ type RawBooking = {
   event_date: string;
   start_time: string;
   end_time: string | null;
+  location_type?: string | null;
   event_address: string | null;
   province: { id: number; name: string } | null;
   city_municipality: { id: number; name: string } | null;
@@ -237,7 +238,12 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     date: raw.event_date,
     startTime: raw.start_time,
     endTime: raw.end_time,
-    eventLocation: raw.event_address ?? "",
+    // Full place text: venue/address first, then barangay, city, province.
+    eventLocation: [raw.event_address, raw.barangay?.name, raw.city_municipality?.name, raw.province?.name]
+      .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      .map((v) => v.trim())
+      .join(", "),
+    locationType: raw.location_type ?? null,
     guestCount: raw.guest_count != null ? String(raw.guest_count) : "",
     notes: "",
     contactName: raw.client.name,

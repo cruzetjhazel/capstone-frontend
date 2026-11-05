@@ -633,7 +633,7 @@ export default function BookingDetails() {
                 <div className="space-y-3">
                   {booking.schedules.map((sch: any) => {
                     const where = sch.isPrimary
-                      ? booking.eventLocation
+                      ? booking.eventLocation || (String((booking as any).locationType ?? "").toLowerCase() === "studio" ? "At the studio" : "")
                       : sch.locationType
                       ? [sch.eventAddress, sch.locationLabel].filter(Boolean).join(", ") || String(sch.locationType).replace(/_/g, " ")
                       : "Same location as the booking";
@@ -667,6 +667,8 @@ export default function BookingDetails() {
                   <InfoItem Icon={MapPin} label="Venue">
                     {booking.eventLocation ? (
                       booking.eventLocation
+                    ) : String((booking as any).locationType ?? "").toLowerCase() === "studio" ? (
+                      "At the studio"
                     ) : canShowModify && !hasActiveRequest ? (
                       <button type="button" onClick={() => handleOpenForm("modify")} className="text-primary hover:underline font-medium">
                         Add venue

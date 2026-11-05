@@ -8,10 +8,12 @@ type AdminStatCardProps = {
   icon: LucideIcon;
   color: string; // e.g. "bg-blue-500/10 text-blue-600"
   subtext?: string; // shown as tooltip
+  description?: string; // one line: what the card counts
+  scope?: string; // badge: "all time", "jan–dec 2026", "current snapshot"
   change?: { text: string; up: boolean }; // optional comparison row
 };
 
-export function AdminStatCard({ label, value, icon: Icon, color, subtext, change }: AdminStatCardProps) {
+export function AdminStatCard({ label, value, icon: Icon, color, subtext, description, scope, change }: AdminStatCardProps) {
   return (
     <div
       className="bg-card rounded-xl border border-border/50 hover:border-border transition-colors px-5 py-3.5 min-w-0"
@@ -24,6 +26,17 @@ export function AdminStatCard({ label, value, icon: Icon, color, subtext, change
         <p className="text-xs font-medium text-muted-foreground truncate flex-1">{label}</p>
         <p className="text-xl font-bold tracking-tight tabular-nums pr-1.5">{value}</p>
       </div>
+
+      {(description || scope) && (
+        <div classname="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+          {description && <p classname="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+          {scope && (
+            <span classname="shrink-0 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {scope}
+            </span>
+          )}
+        </div>
+      )}
 
       {change && (
         <div className="flex items-center gap-1 mt-2.5 pt-2.5 border-t border-border/40 text-[11px] font-medium">
