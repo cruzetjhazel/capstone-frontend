@@ -43,8 +43,8 @@ const roles = [
 const team = [
   { name: "Jhazel G. Cruzet", role: "Lead Developer & Programmer" },
   { name: "Erica G. Muring", role: "Project Manager" },
-  { name: "Chariza Mae Demetrial", role: "System Analyst" },
-  { name: "Patrick B. Palacio", role: "Technical Writer" },
+  { name: "Chariza Mae Demetrial", role: "Technical Writer" },
+  { name: "Patrick B. Palacio", role: "System Analyst" },
 ];
 
 /* Small shared bits so section headers stay consistent */
@@ -245,7 +245,7 @@ export default function About() {
             <Reveal className="lg:col-span-4">
               <Eyebrow>The team</Eyebrow>
               <h2 className="text-2xl sm:text-3xl font-heading font-bold mb-3">The People Behind the Platform</h2>
-              <p className="text-xs text-[#2b211b]">BSIT 3-4 · Sorsogon State University – Bulan Campus</p>
+              <p className="text-xs text-[#2b211b]">BSIT 4-4 · Sorsogon State University – Bulan Campus</p>
             </Reveal>
 
             <div className="lg:col-span-8">
