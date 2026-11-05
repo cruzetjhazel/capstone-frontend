@@ -32,6 +32,9 @@ export interface Checklist {
   requirements: Requirement[];
   groups?: ChecklistGroup[];
   items: ReviewItem[];
+  // The portfolio is verified as ONE unit: `review` is its single review state,
+  // `images` are listed for viewing only (not reviewed one by one).
+  portfolio?: { review: ReviewItem | null; images: ReviewItem[] };
   problems: string[];
   summary: {
     required_total: number; required_submitted: number; missing_required: string[];
@@ -58,6 +61,8 @@ export function getRevisionItems(checklist: Checklist): { missing: string[]; fla
   const flagged = checklist.items
     .filter((i) => i.status === "needs_revision")
     .map((i) => ({ label: i.label, feedback: i.feedback ?? "" }));
+  const pr = checklist.portfolio?.review;
+  if (pr && pr.status === "needs_revision") flagged.push({ label: pr.label, feedback: pr.feedback ?? "" });
   return { missing, flagged };
 }
 
@@ -184,21 +189,19 @@ function Thumb({ item, onOpen }: { item: ReviewItem; onOpen: () => void }) {
       {file.loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
       {file.url && <img src={file.url} alt={item.label} className="w-full h-full object-cover" />}
       {file.failed && <AlertCircle className="w-4 h-4 text-destructive" />}
-      <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-        {STATUS_META[item.status].label}
-      </span>
     </button>
   );
 }
 
 function PreviewModal({
-  items, index, onIndex, onClose, canReview, applicationId, onChecklistChange,
+  items, index, onIndex, onClose, canReview, viewOnly = false, applicationId, onChecklistChange,
 }: {
   items: ReviewItem[];
   index: number;
   onIndex: (i: number) => void;
   onClose: () => void;
   canReview: boolean;
+  viewOnly?: boolean;
   applicationId: number;
   onChecklistChange: (c: Checklist) => void;
 }) {
@@ -259,7 +262,7 @@ function PreviewModal({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-heading font-bold text-base">{item.label}</h3>
-              <StatusBadge status={item.status} />
+              {!viewOnly && <StatusBadge status={item.status} />}
             </div>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {item.type === "portfolio_image" ? "Portfolio" : "Verification document"} · {item.filename} · {index + 1} of {total}
@@ -324,7 +327,7 @@ function PreviewModal({
               </Button>
             </div>
 
-            {canReview && !flagging && (
+            {canReview && !viewOnly && !flagging && (
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -345,10 +348,10 @@ function PreviewModal({
                 </Button>
               </div>
             )}
-            {!canReview && <p className="text-xs text-muted-foreground">Reviews are locked: this application isn't pending review.</p>}
+            {!canReview && !viewOnly && <p className="text-xs text-muted-foreground">Reviews are locked: this application isn't pending review.</p>}
           </div>
 
-          {canReview && flagging && (
+          {canReview && !viewOnly && flagging && (
             <div className="space-y-2">
               <label className="text-xs font-semibold flex justify-between">
                 <span>What needs to be fixed?</span>
@@ -393,7 +396,7 @@ export function ApplicationReviewPanel({
   const { requirements, items, summary } = checklist;
 
   const documents = items.filter((i) => i.type !== "portfolio_image");
-  const portfolio = items.filter((i) => i.type === "portfolio_image");
+  const portfolio = checklist.portfolio?.images ?? [];
   const identity = documents.filter((i) => i.type !== "additional_document");
   const additional = documents.filter((i) => i.type === "additional_document");
 
@@ -418,7 +421,7 @@ export function ApplicationReviewPanel({
         </div>
         <div>
           <div className="flex justify-between text-sm mb-1.5">
-            <span className="font-semibold">{summary.reviewed_count} of {summary.reviewable_total} files reviewed</span>
+            <span className="font-semibold">{summary.reviewed_count} of {summary.reviewable_total} items reviewed</span>
           </div>
           <Bar value={summary.reviewed_count} total={summary.reviewable_total} tone="bg-emerald-500" />
         </div>
@@ -486,8 +489,16 @@ export function ApplicationReviewPanel({
         {portfolio.length === 0 ? (
           <p className="text-xs text-muted-foreground">No portfolio images submitted.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-            {portfolio.map((item) => <Thumb key={item.ref} item={item} onOpen={() => open("portfolio", portfolio, item)} />)}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+              {portfolio.map((item) => <Thumb key={item.ref} item={item} onOpen={() => open("portfolio", portfolio, item)} />)}
+            </div>
+            <PortfolioReviewBar
+              review={checklist.portfolio?.review ?? null}
+              canReview={canReview}
+              applicationId={applicationId}
+              onChecklistChange={onChecklistChange}
+            />
           </div>
         )}
       </section>
@@ -499,6 +510,7 @@ export function ApplicationReviewPanel({
           onIndex={(i) => setPreview({ ...preview, index: i })}
           onClose={() => setPreview(null)}
           canReview={canReview}
+          viewOnly={preview.group === "portfolio"}
           applicationId={applicationId}
           onChecklistChange={onChecklistChange}
         />
@@ -531,11 +543,118 @@ function RowValue({ row }: { row: ChecklistRow }) {
   return <p className="text-sm text-muted-foreground mt-0.5">{row.detail ?? "—"}</p>;
 }
 
+// One verification for the whole portfolio. The admin looks through the images, then verifies
+// (or flags) the portfolio as a whole, instead of reviewing every image.
+function PortfolioReviewBar({
+  review, canReview, applicationId, onChecklistChange,
+}: {
+  review: ReviewItem | null;
+  canReview: boolean;
+  applicationId: number;
+  onChecklistChange: (c: Checklist) => void;
+}) {
+  const [flagging, setFlagging] = useState(false);
+  const [reason, setReason] = useState(review?.feedback ?? "");
+  const [saving, setSaving] = useState(false);
+
+  if (!review) return null;
+
+  const submit = async (status: ReviewStatus, feedback?: string) => {
+    setSaving(true);
+    try {
+      const res = await api.post(`/admin/photographer-applications/${applicationId}/reviews`, {
+        item_type: "portfolio_image",
+        item_ref: "all",
+        status,
+        feedback: feedback ?? null,
+      });
+      const next = unwrapObject(res.data)?.checklist;
+      if (next) onChecklistChange(next);
+      toast.success(status === "reviewed" ? "Portfolio verified." : status === "needs_revision" ? "Portfolio flagged for revision." : "Portfolio reset to pending.");
+      setFlagging(false);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Couldn't save the portfolio review."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2">
+      {review.status === "needs_revision" && review.feedback && (
+        <p className="text-xs rounded-md border border-orange-200 bg-orange-500/5 text-orange-800 p-2">
+          <span className="font-semibold">Flagged:</span> {review.feedback}
+        </p>
+      )}
+
+      {canReview && !flagging && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Look through the images, then verify the portfolio as a whole.</p>
+          <div className="flex items-center gap-2">
+            {review.status !== "pending" && (
+              <Button variant="ghost" size="sm" disabled={saving} onClick={() => submit("pending")}>Reset</Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-orange-700 border-orange-300 hover:bg-orange-50"
+              disabled={saving}
+              onClick={() => { setReason(review.feedback ?? ""); setFlagging(true); }}
+            >
+              <AlertCircle className="w-3.5 h-3.5 mr-1" /> Needs revision
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={saving || review.status === "reviewed"}
+              onClick={() => submit("reviewed")}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {review.status === "reviewed" ? "Portfolio verified" : "Mark portfolio as verified"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {canReview && flagging && (
+        <div className="space-y-2">
+          <label className="text-xs font-semibold flex justify-between">
+            <span>What needs to be fixed in the portfolio?</span>
+            <span className="text-destructive">* Required</span>
+          </label>
+          <Textarea
+            rows={2}
+            maxLength={300}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Several images are blurry. Please upload clearer ones."
+            className="text-sm"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setFlagging(false)} disabled={saving}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              disabled={saving || !reason.trim()}
+              onClick={() => submit("needs_revision", reason.trim())}
+            >
+              {saving ? "Saving…" : "Flag for revision"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroupSection({
-  group, items, open, onToggle, onOpenFile, onOpenPortfolio,
+  group, items, portfolio, open, onToggle, onOpenFile, onOpenPortfolio, canReview, applicationId, onChecklistChange,
 }: {
   group: ChecklistGroup;
   items: ReviewItem[];
+  portfolio: { review: ReviewItem | null; images: ReviewItem[] };
+  canReview: boolean;
+  applicationId: number;
+  onChecklistChange: (c: Checklist) => void;
   open: boolean;
   onToggle: () => void;
   onOpenFile: (item: ReviewItem) => void;
@@ -574,7 +693,8 @@ function GroupSection({
       {open && (
         <ul className="divide-y divide-border/50 border-t border-border/50">
           {group.rows.map((row) => {
-            const files = row.kind === "files" ? items.filter((i) => i.type === row.item_type) : [];
+            const isPortfolio = row.item_type === "portfolio_image";
+            const files = row.kind === "files" ? (isPortfolio ? portfolio.images : items.filter((i) => i.type === row.item_type)) : [];
             return (
               <li key={row.key} className="px-4 py-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
@@ -593,8 +713,16 @@ function GroupSection({
 
                 {row.kind === "files" && files.length > 0 && (
                   row.item_type === "portfolio_image" ? (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-                      {files.map((item) => <Thumb key={item.ref} item={item} onOpen={() => onOpenPortfolio(item)} />)}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {files.map((item) => <Thumb key={item.ref} item={item} onOpen={() => onOpenPortfolio(item)} />)}
+                      </div>
+                      <PortfolioReviewBar
+                        review={portfolio.review}
+                        canReview={canReview}
+                        applicationId={applicationId}
+                        onChecklistChange={onChecklistChange}
+                      />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -629,7 +757,7 @@ export function ApplicationChecklist({
   const allOpen = groups.length > 0 && groups.every(isOpen);
 
   const documents = items.filter((i) => i.type !== "portfolio_image");
-  const portfolio = items.filter((i) => i.type === "portfolio_image");
+  const portfolio = checklist.portfolio?.images ?? [];
   const previewList = preview?.group === "portfolio" ? portfolio : documents;
 
   if (groups.length === 0) {
@@ -662,7 +790,7 @@ export function ApplicationChecklist({
         </div>
         <div>
           <div className="flex justify-between text-xs mb-1">
-            <span className="font-semibold">{summary.reviewed_count} of {summary.reviewable_total} files reviewed</span>
+            <span className="font-semibold">{summary.reviewed_count} of {summary.reviewable_total} items reviewed</span>
           </div>
           <Bar value={summary.reviewed_count} total={summary.reviewable_total} tone="bg-emerald-500" />
         </div>
@@ -700,6 +828,10 @@ export function ApplicationChecklist({
           key={g.key}
           group={g}
           items={items}
+          portfolio={checklist.portfolio ?? { review: null, images: [] }}
+          canReview={canReview}
+          applicationId={applicationId}
+          onChecklistChange={onChecklistChange}
           open={isOpen(g)}
           onToggle={() => setOpenKeys((prev) => ({ ...prev, [g.key]: !isOpen(g) }))}
           onOpenFile={(item) => setPreview({ group: "documents", index: documents.indexOf(item) })}
@@ -714,6 +846,7 @@ export function ApplicationChecklist({
           onIndex={(i) => setPreview({ ...preview, index: i })}
           onClose={() => setPreview(null)}
           canReview={canReview}
+          viewOnly={preview.group === "portfolio"}
           applicationId={applicationId}
           onChecklistChange={onChecklistChange}
         />
