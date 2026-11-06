@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole, type Role } from "@/contexts/RoleContext";
-import { getAuthToken, setAuthToken } from "@/lib/tokenStorage";
+import { getAuthToken } from "@/lib/tokenStorage";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
 import { IMAGE_ACCEPT } from "@/lib/uploads";
@@ -293,7 +293,7 @@ export default function Register() {
   const [pendingGeo, setPendingGeo] = useState<{ provinceId: number | null; cityId: number | null; barangayId: number | null } | null>(null);
   const [pendingBarangayName, setPendingBarangayName] = useState("");
 
-  const { refreshApplication, setUserFromRegistration, user } = useRole();
+  const { refreshApplication, user } = useRole();
   const navigate = useNavigate();
 
   // Field-level validation display. "Missing" errors only appear once the field
@@ -303,6 +303,9 @@ export default function Register() {
   const touch = (key: string) => setTouched((t) => (t[key] ? t : { ...t, [key]: true }));
   const revealErrors = () => {
     setShowErrors(true);
+    // First problem, in field order, so the user also sees it if the field is off-screen.
+    const first = Object.values(raw)[0]?.msg;
+    if (typeof first === "string") toast.error(first, { id: "form-error" });
     setTimeout(() => {
       document
         .querySelector<HTMLElement>('[data-field-error="true"]')
@@ -754,6 +757,10 @@ export default function Register() {
     e.preventDefault();
     if (isLoading) return;
     if (!canStep5Verify) { revealErrors(); return; }
+    if (user?.emailVerified === false) {
+      toast.error("Verify your email first. Open the link we sent you, then try again.", { id: "form-error" });
+      return;
+    }
 
     setIsLoading(true);
     setApiError(null);
@@ -1063,7 +1070,7 @@ export default function Register() {
   Object.entries(raw).forEach(([key, e]) => {
     if (!e.gated || showErrors || touched[key]) errs[key] = e.msg;
   });
-  const hasVisibleErrors = Object.keys(errs).length > 0;
+
 
   /* ---------- Submit Handlers ---------- */
   const handleFinalSubmit = async (e?: React.FormEvent) => {
@@ -1168,17 +1175,9 @@ export default function Register() {
     // Registration succeeded — this is now OUTSIDE the fetch try/catch,
     // so a bug here won't be mislabeled as a connection error
     try { localStorage.removeItem(CLIENT_DRAFT_KEY); } catch { /* ignore */ }
-    const result = data?.data ?? data;
-    if (!result?.token || !result?.user) {
-      setIsLoading(false);
-      setApiError("Account created, but we couldn't sign you in. Please sign in to continue.");
-      return;
-    }
-    setAuthToken(result.token);
-    await setUserFromRegistration(result.user, result.token);
-    toast.success("Welcome! We sent a verification link to your email.");
+    // Same neutral result whether or not the account was created. No auto-login.
     setIsLoading(false);
-    navigate("/");
+    setClientCreated(true);
   };
 
     const handlePhotographerAccountSubmit = async () => {
@@ -1207,17 +1206,10 @@ export default function Register() {
           terms_accepted: termsAccepted,
         }),
       });
-      const payload = await parseApiResponse(response);
-      const result = payload.data ?? payload;
-      const token = result.token;
-      if (!token || !result.user) throw new Error("Account created, but we couldn't sign you in. Please sign in to continue.");
-
-      setAuthToken(token); // so the next requests (step 3 onward) are authenticated
-      await setUserFromRegistration(result.user, token);
-      toast.success("Account created! We sent a verification link to your email.");
-
+      await parseApiResponse(response);
+      // Same neutral result whether or not the account was created. No auto-login.
       setIsLoading(false);
-      handleStepChange(3);
+      setClientCreated(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to connect to the server. Please check your connection and try again.";
       setApiError(message);
@@ -1592,7 +1584,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(1)} nextLabel="Continue" disabled={isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1736,7 +1728,7 @@ export default function Register() {
                 <StepNav
                   onBack={() => handleStepChange(2)}
                   nextLabel="Create account"
-                  disabled={hasVisibleErrors || isLoading}
+                  disabled={isLoading}
                   isLoading={isLoading}
                 />
               </form>
@@ -1822,7 +1814,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(2)} nextLabel="Continue" disabled={isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -1899,7 +1891,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(3)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(3)} nextLabel="Continue" disabled={isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -2104,12 +2096,12 @@ export default function Register() {
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <p>
                       Verify your email to upload your documents. Open the link we sent you, or use
-                      Resend in the box at the bottom. This page unlocks automatically once you've verified.
+                      Resend in the box at the bottom. You can't continue until you've verified.
                     </p>
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={hasVisibleErrors || isLoading || user?.emailVerified === false} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(4)} nextLabel="Continue" disabled={isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -2238,7 +2230,7 @@ export default function Register() {
                   </div>
                 )}
 
-                <StepNav onBack={() => handleStepChange(5)} nextLabel="Continue to Profile Builder" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                <StepNav onBack={() => handleStepChange(5)} nextLabel="Continue to Profile Builder" disabled={isLoading} isLoading={isLoading} />
               </form>
             </div>
           )}
@@ -2390,7 +2382,7 @@ export default function Register() {
                     </div>
                   )}
 
-                  <StepNav onBack={() => handleStepChange(6)} nextLabel="Submit application" disabled={hasVisibleErrors || isLoading} isLoading={isLoading} />
+                  <StepNav onBack={() => handleStepChange(6)} nextLabel="Submit application" disabled={isLoading} isLoading={isLoading} />
                 </form>
 
                 <div className="lg:col-span-6 bg-muted/40 p-6 rounded-2xl border border-border sticky top-6">

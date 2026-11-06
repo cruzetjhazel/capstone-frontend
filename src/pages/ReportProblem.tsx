@@ -139,7 +139,7 @@ export default function ReportProblem() {
       ? "warning"
       : "neutral";
   const avatarOf = (b: unknown) =>
-    (b as { photographerAvatar?: string | null } | undefined)?.photographerAvatar ?? null;
+    (b as { photographerPhotoUrl?: string | null } | undefined)?.photographerPhotoUrl ?? null;
 
   const bookingOptions: PickerOption[] = clientBookings.map((b) => ({
     value: String(b.id),
