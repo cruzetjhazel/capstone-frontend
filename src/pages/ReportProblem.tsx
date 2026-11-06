@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { reportService, getApiErrorMessage, type ReportTarget, type ReportSeverity, type ReportRequestedAction } from "@/services/reportService";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useBookings } from "@/hooks/useBookings";
 import { RecordPicker, type PickerOption } from "@/components/reporting/RecordPicker";
 import { ReportingNav, getReportsRoute } from "@/components/reporting/ReportingNav";
@@ -17,7 +18,7 @@ import {
 
 // One style for every input/select so the whole form lines up.
 const FIELD_CLASS =
-  "flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted";
+  "flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:!bg-background/40 disabled:!text-muted-foreground disabled:opacity-70";
 const LABEL_CLASS = "text-xs font-semibold flex items-center justify-between min-h-[16px]";
 const ATTACHMENT_MAX_FILES = 3;
 const ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
@@ -462,7 +463,7 @@ export default function ReportProblem() {
           <form onSubmit={handleSubmit} className="space-y-4">
             
             {/* Row 1: subject + reason (always shown, always aligned) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <div className="space-y-1.5">
                 <label className={LABEL_CLASS}>
                   <span>What are you reporting? <span className="text-destructive">*</span></span>
@@ -498,29 +499,30 @@ export default function ReportProblem() {
                   ))}
                 </select>
               </div>
-            </div>
 
-            {/* Reason details, full width, only for "Other" */}
-            {reason === "Other" && (
-              <div className="space-y-1.5 animate-in fade-in duration-200">
-                <label className={LABEL_CLASS}>
-                  <span>Please specify the reason <span className="text-destructive">*</span></span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={150}
-                  placeholder="Briefly describe what you're reporting"
-                  value={otherReason}
-                  onChange={(e) => setOtherReason(e.target.value)}
-                  className={FIELD_CLASS}
-                />
-              </div>
-            )}
+              {/* Full-width "specify" field, shown only when Reason is "Other" */}
+                {reason === "Other" && (
+                <div className={cn("space-y-1.5 animate-in fade-in duration-200", !showReferenceField && "md:col-span-2")}>
+                  <label className={LABEL_CLASS}>
+                    <span>Please specify the reason <span className="text-destructive">*</span></span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={150}
+                    placeholder="Briefly describe what you're reporting"
+                    value={otherReason}
+                    onChange={(e) => setOtherReason(e.target.value)}
+                    className={FIELD_CLASS}
+                  />
+                </div>
+              )}
+
+
 
             {/* Record being reported (full width, only when the subject has one) */}
             {showReferenceField && (
-              <div className="space-y-1.5 animate-in fade-in duration-200">
+              <div className={cn("space-y-1.5 animate-in fade-in duration-200", reason !== "Other" && "md:col-span-2")}>
                 <label className={LABEL_CLASS}>
                   <span>
                     {getReferenceLabel()}
@@ -558,6 +560,7 @@ export default function ReportProblem() {
                 )}
               </div>
             )}
+            </div>
 
             {/* Description */}
             <div className="space-y-1.5">
