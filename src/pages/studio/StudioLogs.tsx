@@ -116,7 +116,7 @@ export default function ActivityLogs() {
           <div>
             <h1 className="text-2xl font-heading font-bold">System Activity</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              View and monitor all your studio's operational events.
+              View and monitor all your photographer account activity.
             </p>
           </div>
         </div>

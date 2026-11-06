@@ -699,7 +699,7 @@ export default function StudioPackages() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h3 className="font-heading font-semibold flex items-center gap-2">
-                <Package className="w-4 h-4 text-primary" /> Fixed Studio Packages
+                <Package className="w-4 h-4 text-primary" /> Fixed Photographer Packages
               </h3>
               <p className="text-xs text-muted-foreground">Predefined photography packages that clients can select directly.</p>
             </div>

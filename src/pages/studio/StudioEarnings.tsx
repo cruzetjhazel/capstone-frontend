@@ -310,7 +310,7 @@ export default function StudioEarnings() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-heading font-bold">Earnings</h1>
-            <p className="text-sm text-muted-foreground mt-1">Track your studio's revenue and pending payments.</p>
+            <p className="text-sm text-muted-foreground mt-1">Track your photographer revenue and pending payments.</p>
           </div>
           <Button variant="outline" onClick={() => setIsRefModalOpen(true)}>
             <ShieldCheck className="w-4 h-4 mr-2" />

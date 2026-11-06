@@ -19,7 +19,7 @@ type BookingStatus = "Pending" | "Accepted" | "Confirmed" | "Declined" | "Cancel
 type PaymentStatus = "Pending" | "Pending Verification" | "Partially Paid" | "Fully Paid" | "Failed" | "Cancelled";
 type TrackingStatus = "Upcoming" | "In Progress" | "Completed" | "Pending";
 type PaymentPlan = "Half Payment" | "Full Payment";
-type ProfessionalType = "Freelancer" | "Studio";
+type ProfessionalType = string;
 
 interface ServiceTrackingStep {
   label: string;
@@ -74,7 +74,7 @@ function fromApi(raw: any): BookingRecord {
     clientPhone: raw.clientPhone,
     photographer: raw.photographer,
     photographerId: raw.photographerId,
-    professionalType: raw.professionalType === "Studio" ? "Studio" : "Freelancer",
+    professionalType: raw.professionalType ?? "Photographer",
     event: raw.event,
     eventLocation: raw.eventLocation,
     eventAddress: raw.eventAddress,
@@ -283,7 +283,7 @@ export default function AdminBookings() {
 
   const stats = [
     { label: "Total Bookings", value: platformStats.total.toLocaleString(), subtext: "Platform-wide", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
-    { label: "Pending", value: platformStats.pending.toLocaleString(), subtext: "Awaiting studio action", icon: Clock, color: "bg-amber-500/10 text-amber-600" },
+    { label: "Pending", value: platformStats.pending.toLocaleString(), subtext: "Awaiting photographer action", icon: Clock, color: "bg-amber-500/10 text-amber-600" },
     { label: "Confirmed", value: platformStats.confirmed.toLocaleString(), subtext: "Active bookings", icon: CheckCircle2, color: "bg-blue-500/10 text-blue-600" },
     { label: "Completed", value: platformStats.completed.toLocaleString(), subtext: "Finished events", icon: CheckCircle, color: "bg-primary/10 text-primary" },
     { label: "Cancelled / Declined", value: platformStats.cancelled_or_rejected.toLocaleString(), subtext: "Not proceeding", icon: XCircle, color: "bg-destructive/10 text-destructive" },
@@ -312,7 +312,7 @@ export default function AdminBookings() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search booking ID, client, studio, or event..."
+              placeholder="Search booking ID, client, photographer, or event..."
               className="pl-9 h-10 rounded-xl bg-card"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -354,10 +354,10 @@ export default function AdminBookings() {
 
             <Select value={studioFilter} onValueChange={(v) => { setStudioFilter(v); setCurrentPage(1); }}>
               <SelectTrigger className="h-10 rounded-xl bg-card">
-                <SelectValue placeholder="Studio" />
+                <SelectValue placeholder="Photographer" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Studios</SelectItem>
+                <SelectItem value="all">All Photographers</SelectItem>
                 {studios.map(studio => (
                   <SelectItem key={studio.id} value={String(studio.id)}>{studio.name}</SelectItem>
                 ))}
@@ -391,7 +391,7 @@ export default function AdminBookings() {
                 <tr className="bg-muted/50 border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   <th className="px-4 py-3 font-semibold">Booking ID</th>
                   <th className="px-4 py-3 font-semibold">Client</th>
-                  <th className="px-4 py-3 font-semibold">Studio</th>
+                  <th className="px-4 py-3 font-semibold">Photographer</th>
                   <th className="px-4 py-3 font-semibold">Event</th>
                   <th className="px-4 py-3 font-semibold">Booking Date</th>
                   <th className="px-4 py-3 font-semibold">Event Date</th>
@@ -714,7 +714,7 @@ export default function AdminBookings() {
                       </div>
                       <div className="h-px bg-border/50 w-full" />
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Professional / Studio</p>
+                        <p className="text-xs text-muted-foreground mb-1">Photographer</p>
                         <p className="text-sm font-medium flex items-center gap-1.5">
                           <Aperture className="w-3.5 h-3.5 text-primary" /> {viewBooking.photographer}
                         </p>

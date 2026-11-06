@@ -289,7 +289,7 @@ export default function AdminDashboard() {
       tag: "Verification",
       at: app.submittedAt ? new Date(app.submittedAt).getTime() : 0,
       title: app.name,
-      subtitle: `${app.type} application waiting for review`,
+      subtitle: "Photographer application waiting for review",
       to: "/admin/verifications",
       icon: ShieldCheck,
       color: "bg-amber-500/10 text-amber-600",
@@ -317,7 +317,7 @@ export default function AdminDashboard() {
   const statCards = [
     { label: "Total Users", value: String(stats.total_users), subtext: "Clients & Photographers", icon: Users, color: "bg-primary/10 text-primary" },
     { label: "Active Clients", value: String(stats.active_clients), subtext: "Registered consumers", icon: UserCheck, color: "bg-blue-500/10 text-blue-600" },
-    { label: "Photographers", value: String(stats.photographers), subtext: "Freelancers & Studios", icon: Aperture, color: "bg-secondary/10 text-secondary" },
+    { label: "Photographers", value: String(stats.photographers), subtext: "Freelancers & Studio owners", icon: Aperture, color: "bg-secondary/10 text-secondary" },
     { label: "Total Bookings", value: String(stats.total_bookings), subtext: "Platform-wide transactions", icon: CalendarDays, color: "bg-emerald-500/10 text-emerald-600" },
     { label: "Pending Reviews", value: String(pendingApplications.length), subtext: "Applications waiting", icon: ShieldAlert, color: "bg-amber-500/10 text-amber-600" },
   ];

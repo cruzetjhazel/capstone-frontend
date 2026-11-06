@@ -328,7 +328,7 @@ export default function StudioBookings() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-heading font-bold">Bookings</h1>
-            <p className="text-sm text-muted-foreground mt-1">Manage your studio bookings.</p>
+            <p className="text-sm text-muted-foreground mt-1">Manage your photographer bookings.</p>
           </div>
           <Button variant="outline" className="gap-2 self-start sm:self-auto" onClick={() => setManualOpen(true)}>
             <CalendarPlus className="w-4 h-4" /> Manual Booking

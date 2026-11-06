@@ -18,7 +18,7 @@ import {
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 
-type UserRole = "client" | "studio" | "freelancer" | "admin";
+type UserRole = "client" | "photographer" | "admin";
 type AccountStatus = "active" | "suspended" | "deactivated";
 type ApplicationStatus = "Approved" | "Pending Review" | "Revision Requested" | "Rejected" | "Draft" | "N/A";
 
@@ -32,6 +32,8 @@ interface UserRecord {
   status: AccountStatus;
   applicationStatus: ApplicationStatus;
   avatarColor: string;
+  isFreelancer: boolean;
+  isStudioOwner: boolean;
 }
 
 type RawUser = {
@@ -44,6 +46,8 @@ type RawUser = {
   joined_at: string | null;
   application_status: string | null;
   photographer_type: "freelancer" | "studio" | null;
+  is_freelancer?: boolean;
+  is_studio_owner?: boolean;
 };
 
 const avatarColors = [
@@ -63,10 +67,10 @@ const APP_STATUS_MAP: Record<string, ApplicationStatus> = {
   draft: "Draft",
 };
 
-function mapRole(accountType: RawUser["account_type"], photographerType: RawUser["photographer_type"]): UserRole {
+function mapRole(accountType: RawUser["account_type"]): UserRole {
   if (accountType === "administrator") return "admin";
   if (accountType === "client") return "client";
-  return photographerType === "studio" ? "studio" : "freelancer";
+  return "photographer";
 }
 
 function toUserRecord(raw: RawUser, colorIdx: number): UserRecord {
@@ -75,7 +79,9 @@ function toUserRecord(raw: RawUser, colorIdx: number): UserRecord {
     name: raw.name,
     email: raw.email,
     phone: raw.phone_number ?? "—",
-    role: mapRole(raw.account_type, raw.photographer_type),
+    role: mapRole(raw.account_type),
+    isFreelancer: Boolean(raw.is_freelancer ?? raw.photographer_type === "freelancer"),
+    isStudioOwner: Boolean(raw.is_studio_owner ?? raw.photographer_type === "studio"),
     joined: raw.joined_at ? new Date(raw.joined_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—",
     status: raw.account_status,
     applicationStatus: raw.application_status ? (APP_STATUS_MAP[raw.application_status] ?? "N/A") : "N/A",
@@ -89,14 +95,13 @@ function toUserRecord(raw: RawUser, colorIdx: number): UserRecord {
 function roleToAccountType(role: string): string | null {
   if (role === "client") return "client";
   if (role === "admin") return "administrator";
-  if (role === "freelancer" || role === "studio") return "photographer";
+  if (role === "photographer") return "photographer";
   return null;
 }
 
 const roleConfig: Record<UserRole, { icon: typeof User; label: string; className: string }> = {
   client: { icon: User, label: "Client", className: "bg-accent/10 text-accent" },
-  studio: { icon: Aperture, label: "Studio", className: "bg-secondary/10 text-secondary" },
-  freelancer: { icon: Camera, label: "Freelancer", className: "bg-primary/10 text-primary" },
+  photographer: { icon: Camera, label: "Photographer", className: "bg-primary/10 text-primary" },
   admin: { icon: Shield, label: "Admin", className: "bg-muted text-muted-foreground" },
 };
 
@@ -115,9 +120,9 @@ const appStatusConfig: Record<ApplicationStatus, { label: string; className: str
   "N/A": { label: "N/A", className: "text-muted-foreground bg-muted/50", icon: Shield },
 };
 
-const tabs = ["All", "Clients", "Freelancers", "Studios", "Admins"] as const;
+const tabs = ["All", "Clients", "Photographers", "Admins"] as const;
 const tabRoleMap: Record<string, UserRole | null> = {
-  All: null, Clients: "client", Freelancers: "freelancer", Studios: "studio", Admins: "admin",
+  All: null, Clients: "client", Photographers: "photographer", Admins: "admin",
 };
 
 const ITEMS_PER_PAGE = 8;
@@ -313,8 +318,7 @@ export default function AdminUsers() {
             <SelectContent>
               <SelectItem value="all">All Roles</SelectItem>
               <SelectItem value="client">Client</SelectItem>
-              <SelectItem value="freelancer">Freelancer</SelectItem>
-              <SelectItem value="studio">Studio</SelectItem>
+              <SelectItem value="photographer">Photographer</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
             </SelectContent>
           </Select>
@@ -372,9 +376,16 @@ export default function AdminUsers() {
                     </div>
 
                     <div className="flex items-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${rc.className}`}>
-                        {rc.label}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${rc.className}`}>
+                          {rc.label}
+                        </span>
+                        {u.role === "photographer" && (
+                          <span className="text-[11px] text-muted-foreground">
+                            {[u.isFreelancer && "Freelancer", u.isStudioOwner && "Studio Owner"].filter(Boolean).join(" + ") || "—"}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="truncate text-sm text-muted-foreground">{u.email}</div>
@@ -386,7 +397,7 @@ export default function AdminUsers() {
                     </div>
 
                     <div>
-                      {u.role === "freelancer" || u.role === "studio" ? (
+                      {u.role === "photographer" ? (
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${appStatusConfig[u.applicationStatus].className}`}>
                           <AppStatusIcon className="w-3 h-3" />
                           {appStatusConfig[u.applicationStatus].label}
@@ -572,7 +583,7 @@ export default function AdminUsers() {
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${statusConfig[viewUser.status]}`}>
                   Account: {viewUser.status}
                 </span>
-                {(viewUser.role === "freelancer" || viewUser.role === "studio") && (
+                {viewUser.role === "photographer" && (
                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${appStatusConfig[viewUser.applicationStatus].className}`}>
                     App: {viewUser.applicationStatus}
                   </span>

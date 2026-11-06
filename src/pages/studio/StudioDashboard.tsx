@@ -152,8 +152,8 @@ export default function StudioDashboard() {
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-up">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-heading font-bold">{user?.name || "Your Studio"}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Here's your studio at a glance.</p>
+          <h1 className="text-2xl font-heading font-bold">{user?.name || "Photographer Dashboard"}</h1>
+          <p className="text-sm text-muted-foreground mt-1">Here's your photographer dashboard at a glance.</p>
         </div>
 
         {/* Setup reminder: compact progress bar. The full checklist opens in the modal. */}

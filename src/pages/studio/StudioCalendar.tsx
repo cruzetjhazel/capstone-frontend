@@ -432,7 +432,7 @@ export default function StudioCalendar() {
         {/* Header Options */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-heading font-bold">Studio Calendar</h1>
+            <h1 className="text-2xl font-heading font-bold">Photographer Calendar</h1>
             <p className="text-sm text-muted-foreground mt-1">Manage availability, view non-conflicting schedules, and securely block dates.</p>
           </div>
 

@@ -225,7 +225,7 @@ export default function StudioReviews() {
                   <div className="mt-4 bg-muted/40 p-3.5 rounded-lg border border-border/50">
                     <div className="flex items-center gap-2 mb-1.5">
                       <CornerDownRight className="w-4 h-4 text-primary" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-primary">Studio Response</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-primary">Photographer Response</span>
                     </div>
                     <p className="text-sm text-muted-foreground pl-6">{r.reply}</p>
                   </div>
@@ -357,7 +357,7 @@ export default function StudioReviews() {
 
             <div className="space-y-3 text-sm">
               <p className="text-muted-foreground">
-                Are you sure you want to submit this report? Fraudulent reporting may affect your studio's standing.
+                Are you sure you want to submit this report? Fraudulent reporting may affect your photographer standing.
               </p>
               <div className="bg-muted/40 p-3 rounded-lg border border-border/50">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Stated Reason:</p>

@@ -21,6 +21,8 @@ export type ApplicationStatus = "draft" | "pending_review" | "revision_requested
 export interface ApplicationRecord {
   id: number;
   photographerType: PhotographerType;
+  isFreelancer: boolean;
+  isStudioOwner: boolean;
   status: ApplicationStatus;
   businessName: string | null;
   location: string | null;
@@ -49,10 +51,13 @@ function fromApi(raw: any): ApplicationRecord {
   return {
     id: raw.id,
     photographerType: raw.photographer_type,
+    isFreelancer: Boolean(raw.is_freelancer ?? raw.photographer_type === "freelancer"),
+    isStudioOwner: Boolean(raw.is_studio_owner ?? raw.photographer_type === "studio"),
     status: raw.status,
     businessName: raw.business_name,
     location: raw.location,
     yearsActive: raw.years_active,
+    freelanceYearsExperience: raw.freelance_years_experience ?? null,
     teamSize: raw.team_size,
     services: raw.services ?? [],
     otherServices: raw.other_services,
@@ -92,6 +97,19 @@ function unwrapObject(payload: any): any {
   let cur = payload;
   for (let i = 0; i < 4 && cur && typeof cur === "object" && !Array.isArray(cur) && "data" in cur; i++) cur = cur.data;
   return cur && typeof cur === "object" ? cur : {};
+}
+
+function TypeBadges({ app }: { app: ApplicationRecord }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {app.isFreelancer && (
+        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-200">Freelancer</Badge>
+      )}
+      {app.isStudioOwner && (
+        <Badge variant="outline" className="bg-indigo-500/10 text-indigo-600 border-indigo-200">Studio Owner</Badge>
+      )}
+    </div>
+  );
 }
 
 type ActionType = "approve" | "reject" | "revise" | null;
@@ -250,7 +268,7 @@ export default function AdminVerification() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-heading font-bold">Professional Applications</h1>
-            <p className="text-sm text-muted-foreground mt-1">Review, verify, and approve Freelancer and Studio registrations.</p>
+            <p className="text-sm text-muted-foreground mt-1">Review, verify, and approve photographer registrations.</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 text-sm px-3 py-1">
@@ -326,9 +344,7 @@ export default function AdminVerification() {
                     </TableCell>
 
                     <TableCell className="px-4 py-3">
-                      <Badge variant="outline" className={`capitalize ${app.photographerType === "studio" ? "bg-indigo-500/10 text-indigo-600 border-indigo-200" : "bg-emerald-500/10 text-emerald-600 border-emerald-200"}`}>
-                        {app.photographerType}
-                      </Badge>
+                      <TypeBadges app={app} />
                     </TableCell>
 
                     <TableCell className="px-4 py-3">{statusBadge(app.status)}</TableCell>
@@ -391,9 +407,7 @@ export default function AdminVerification() {
               <div>
                 <div className="flex items-center gap-3 mb-1">
                   <h2 className="text-xl font-bold font-heading">{viewApp.businessName || viewApp.applicant?.name}</h2>
-                  <Badge variant="outline" className={`capitalize ${viewApp.photographerType === "studio" ? "bg-indigo-500/10 text-indigo-600 border-indigo-200" : "bg-emerald-500/10 text-emerald-600 border-emerald-200"}`}>
-                    {viewApp.photographerType}
-                  </Badge>
+                  <TypeBadges app={viewApp} />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Application ID: <span className="font-mono">{viewApp.id}</span>
