@@ -113,7 +113,7 @@ export default function ReportProblem() {
   // /client/bookings and /client/payments only ever return the logged-in client's own records.
   const { data: clientBookings = [], isLoading: bookingsLoading } = useBookings(
     undefined,
-    isClientReporter && target === "booking",
+    isClientReporter && (target === "booking" || target === "payment"),
   );
   const { data: clientPayments = [], isLoading: paymentsLoading } = useQuery({
     queryKey: ["client-payments-for-report"],
@@ -130,16 +130,38 @@ export default function ReportProblem() {
     staleTime: 60_000,
   });
 
+  const toneFor = (s: string): "success" | "warning" | "danger" | "neutral" =>
+    ["confirmed", "completed", "matched", "manually_verified"].includes(s)
+      ? "success"
+      : ["cancelled", "rejected", "not_matched", "declined"].includes(s)
+      ? "danger"
+      : ["pending", "pending_match", "submitted"].includes(s)
+      ? "warning"
+      : "neutral";
+  const avatarOf = (b: unknown) =>
+    (b as { photographerAvatar?: string | null } | undefined)?.photographerAvatar ?? null;
+
   const bookingOptions: PickerOption[] = clientBookings.map((b) => ({
     value: String(b.id),
     label: `${bookingRef(b.id)} · ${b.photographerName}`,
-    description: `${titleCase(String(b.eventType))} · ${formatShortDate(b.date)} · ${titleCase(String(b.status))}`,
+    description: `${titleCase(String(b.eventType))} · ${formatShortDate(b.date)}`,
+    avatarUrl: avatarOf(b),
+    avatarName: b.photographerName,
+    badge: titleCase(String(b.status)),
+    badgeTone: toneFor(String(b.status)),
   }));
-  const paymentOptions: PickerOption[] = clientPayments.map((p) => ({
-    value: String(p.id),
-    label: `${p.reference_number ?? `Payment #${p.id}`} · ${formatPeso(p.amount)}`,
-    description: `${bookingRef(p.booking_id)} · ${PAYMENT_STATUS_LABELS[p.matching_status] ?? titleCase(p.matching_status)} · ${formatShortDate(p.payment_date)}`,
-  }));
+  const paymentOptions: PickerOption[] = clientPayments.map((p) => {
+    const booking = clientBookings.find((b) => String(b.id) === String(p.booking_id));
+    return {
+      value: String(p.id),
+      label: `${p.reference_number ?? `Payment #${p.id}`} · ${formatPeso(p.amount)}`,
+      description: `${bookingRef(p.booking_id)}${booking ? ` · ${booking.photographerName}` : ""} · ${formatShortDate(p.payment_date)}`,
+      avatarUrl: avatarOf(booking),
+      avatarName: booking?.photographerName,
+      badge: PAYMENT_STATUS_LABELS[p.matching_status] ?? titleCase(p.matching_status),
+      badgeTone: toneFor(p.matching_status),
+    };
+  });
   const photographerOptions: PickerOption[] = photographerResults.map((p) => ({
     value: String(p.id),
     label: p.name,
@@ -544,7 +566,7 @@ export default function ReportProblem() {
                     <span className="ml-auto text-[10px] uppercase font-bold bg-background px-1.5 py-0.5 rounded border border-border">Locked</span>
                   </div>
                 ) : isClientReporter ? (
-                  <RecordPicker selected={referenceOption} onSelect={handleRecordSelect} {...pickerConfig} />
+                  <RecordPicker selected={referenceOption} onSelect={handleRecordSelect} showAvatar {...pickerConfig} />
                 ) : (
                   <input
                     type="text"

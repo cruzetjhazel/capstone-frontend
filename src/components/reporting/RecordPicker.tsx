@@ -20,9 +20,21 @@ export interface PickerOption {
   description?: string;
   /** Profile photo URL (only used when showAvatar is on). */
   avatarUrl?: string | null;
+  /** Name used for the avatar initials (defaults to label). */
+  avatarName?: string;
+  /** Small status pill shown on the right. */
+  badge?: string;
+  badgeTone?: "success" | "warning" | "danger" | "neutral";
 }
 
-function PickerAvatar({ url, name }: { url?: string | null; name: string }) {
+const BADGE_TONES = {
+  success: "text-emerald-600 bg-emerald-500/10 border-emerald-500/20",
+  warning: "text-amber-600 bg-amber-500/10 border-amber-500/20",
+  danger: "text-red-600 bg-red-500/10 border-red-500/20",
+  neutral: "text-muted-foreground bg-muted border-border/50",
+};
+
+function PickerAvatar({ url, name, size = "sm" }: { url?: string | null; name: string; size?: "sm" | "md" }) {
   const [failed, setFailed] = useState(false);
   const initials = name
     .split(" ")
@@ -33,7 +45,12 @@ function PickerAvatar({ url, name }: { url?: string | null; name: string }) {
     .toUpperCase();
 
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-bold text-primary",
+        size === "md" ? "h-9 w-9 text-xs" : "h-6 w-6 text-[10px]",
+      )}
+    >
       {url && !failed ? (
         <img src={url} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
@@ -90,7 +107,7 @@ export function RecordPicker({
           className="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
         >
           <span className="flex min-w-0 items-center gap-2">
-            {showAvatar && selected && <PickerAvatar url={selected.avatarUrl} name={selected.label} />}
+            {showAvatar && selected && <PickerAvatar url={selected.avatarUrl} name={selected.avatarName ?? selected.label} />}
             <span className={cn("truncate text-left", !selected && "text-muted-foreground")}>
               {selected ? selected.label : placeholder}
             </span>
@@ -136,25 +153,26 @@ export function RecordPicker({
                           onSelect(opt);
                           setOpen(false);
                         }}
-                        className={cn("flex gap-2", showAvatar ? "items-center" : "items-start")}
+                        className="flex items-center gap-3 rounded-lg px-2.5 py-2 data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground"
                       >
-                        {showAvatar ? (
-                          <PickerAvatar url={opt.avatarUrl} name={opt.label} />
-                        ) : (
-                          <Check
-                            className={cn(
-                              "w-4 h-4 mt-0.5 shrink-0 text-primary",
-                              isSelected ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                        )}
+                        {showAvatar && <PickerAvatar url={opt.avatarUrl} name={opt.avatarName ?? opt.label} size="md" />}
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{opt.label}</p>
+                          <p className="truncate text-sm font-semibold">{opt.label}</p>
                           {opt.description && (
                             <p className="truncate text-xs text-muted-foreground">{opt.description}</p>
                           )}
                         </div>
-                        {showAvatar && isSelected && <Check className="w-4 h-4 shrink-0 text-primary" />}
+                        {opt.badge && (
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              BADGE_TONES[opt.badgeTone ?? "neutral"],
+                            )}
+                          >
+                            {opt.badge}
+                          </span>
+                        )}
+                        <Check className={cn("h-4 w-4 shrink-0 text-primary", isSelected ? "opacity-100" : "opacity-0")} />
                       </CommandItem>
                     );
                   })}

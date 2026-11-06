@@ -233,6 +233,7 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     id: String(raw.id),
     photographerId: String(raw.photographer.id),
     photographerName: raw.photographer.name,
+      photographerAvatar: raw.photographer.avatar ?? null,
     photographerAvatar: raw.photographer.name.slice(0, 2).toUpperCase(),
     eventType: raw.event_type,
     date: raw.event_date,
