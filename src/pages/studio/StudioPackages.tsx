@@ -47,11 +47,43 @@ const MULTI_SESSIONS_ENABLED = false;
 // One pricing method per photographer. Price never decides the schedule:
 // per-day / per-person use "agreed coverage hours" for scheduling only.
 const PRICING_MODELS: { id: CustomPricingModel; label: string; help: string; example: string; icon: typeof Tag }[] = [
-  { id: "fixed", label: "Fixed price", help: "One flat price per booking.", example: "e.g. ₱5,000", icon: Tag },
-  { id: "hourly", label: "By the hour", help: "Rate × hours the client picks.", example: "e.g. ₱1,000 × 3 hrs", icon: Clock },
-  { id: "per_day", label: "By the day", help: "Rate × number of event days.", example: "e.g. ₱8,000 × 2 days", icon: CalendarDays },
-  { id: "per_person", label: "By the person", help: "Rate × number of people.", example: "e.g. ₱500 × 10 people", icon: Users },
+  { id: "fixed", label: "fixed price", help: "One flat price per booking.", example: "e.g. ₱5,000", icon: Tag },
+  { id: "hourly", label: "per hour", help: "Rate × hours the client picks.", example: "e.g. ₱1,000 × 3 hrs", icon: Clock },
+  { id: "per_day", label: "per day", help: "Rate × number of event days.", example: "e.g. ₱8,000 × 2 days", icon: CalendarDays },
+  { id: "per_person", label: "per person", help: "Rate × number of people.", example: "e.g. ₱500 × 10 people", icon: Users },
 ];
+
+// Rest time (stored as `buffer_minutes`): time kept free after each booking.
+// A dropdown of common choices is easier than typing a number of minutes.
+const REST_TIME_OPTIONS = [
+  { value: 0, label: "No break" },
+  { value: 15, label: "15 minutes" },
+  { value: 30, label: "30 minutes" },
+  { value: 45, label: "45 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: 90, label: "1 hour 30 minutes" },
+  { value: 120, label: "2 hours" },
+];
+
+function RestTimeSelect({ value, onChange }: { value: number; onChange: (minutes: number) => void }) {
+  const current = Number(value) || 0;
+  // Keep any value saved earlier (e.g. 20 minutes) selectable instead of silently changing it.
+  const options = REST_TIME_OPTIONS.some((o) => o.value === current)
+    ? REST_TIME_OPTIONS
+    : [...REST_TIME_OPTIONS, { value: current, label: `${current} minutes` }].sort((a, b) => a.value - b.value);
+
+  return (
+    <select
+      value={current}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="flex h-9 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
 
 // ---------- toast notifications ----------
 // Same implementation as ClientProfile.tsx (plain react-hot-toast success/error),
@@ -222,20 +254,15 @@ function PackageFormModal({
           {durationError && <p className="text-[11px] text-destructive">{durationError}</p>}
         </div>
         <div className={`space-y-1 ${isOpen ? "hidden" : ""}`}>
-          <Label className="text-xs">Buffer After Session (minutes) <span className="text-muted-foreground font-normal">(optional)</span></Label>
-          <Input
-            type="number" min={0} className={`h-9 text-sm ${bufferError ? "border-destructive focus-visible:ring-destructive" : ""}`}
-            placeholder="e.g. 30"
-            value={form.bufferMinutes === 0 ? "" : form.bufferMinutes}
-            onChange={(e) => set({ bufferMinutes: e.target.value === "" ? 0 : Number(e.target.value) })}
-          />
+          <Label className="text-xs">Rest time after this booking <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <RestTimeSelect value={form.bufferMinutes} onChange={(minutes) => set({ bufferMinutes: minutes })} />
           {bufferError && <p className="text-[11px] text-destructive">{bufferError}</p>}
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground -mt-2">
         {isOpen
           ? "Only the start time is checked. No end time is assumed and nothing after it is blocked automatically. You review and confirm each request yourself."
-          : "Availability reserves duration + buffer so clients can't book you back-to-back."}
+          : "After each booking, this time stays blocked for packing up and travel, so clients can't book you back-to-back."}
       </p>
 
       <div className={cn("rounded-lg border border-border p-3 space-y-2", !MULTI_SESSIONS_ENABLED && "hidden")}>
@@ -1473,11 +1500,11 @@ function CustomPackageDrawer({
 
       {/* Buffer time */}
       <div className="space-y-1.5">
-        <Label className="text-xs">Buffer Time After Each Session (minutes)</Label>
+        <Label className="text-xs">Rest time between bookings</Label>
         <p className="text-[11px] text-muted-foreground -mt-0.5">
-          Extra time held after each session for packing up and travel.
+          Time kept free after each booking for packing up and travel. Clients can't book you during it.
         </p>
-        <Input type="number" min={0} className="h-9 text-sm" value={bufferMinutes === 0 ? "" : bufferMinutes} onChange={(e) => setBufferMinutes(e.target.value === "" ? 0 : Number(e.target.value))} />
+        <RestTimeSelect value={bufferMinutes} onChange={setBufferMinutes} />
       </div>
 
       {/* Tier groups — still configurable whichever pricing method is on;
@@ -1486,9 +1513,12 @@ function CustomPackageDrawer({
           hurt and avoids photographers losing already-configured tiers. */}
       <div className="space-y-4 pt-2 border-t border-border/50">
         <div className="flex items-center justify-between pt-2">
-          <Label className="text-xs font-semibold">Rate Tiers</Label>
+          <div>
+            <Label className="text-xs font-semibold">Price options</Label>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Choices that change the price, like how many hours or how many edited photos. Clients pick one from each group.</p>
+          </div>
           <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => setShowNewTierForm((v) => !v)}>
-            <Plus className="w-3 h-3" /> Add Tier
+            <Plus className="w-3 h-3" /> Add option group
           </Button>
         </div>
 
@@ -1623,8 +1653,8 @@ function CustomPackageDrawer({
       <div className="space-y-2 pt-2 border-t border-border/50">
         <div className="flex items-center justify-between pt-2">
           <div>
-            <Label className="text-xs font-semibold">Custom Calculator Extras</Label>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Optional one-off extras clients can toggle on for their custom session.</p>
+            <Label className="text-xs font-semibold">Extras</Label>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Optional extras clients can add to a custom booking, like a rush delivery or an extra album.</p>
           </div>
           <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => setShowFlatForm((v) => !v)}>
             <Plus className="w-3 h-3" /> Add Extra
