@@ -13,7 +13,7 @@ type SnapshotComponent = {
 type RawBooking = {
   id: number;
   client: { id: number; name: string };
-  photographer: { id: number; name: string };
+  photographer: { id: number; name: string; avatar?: string | null };
   is_custom_package: boolean;
   package_snapshot: {
     name?: string;
@@ -89,6 +89,7 @@ type RawBooking = {
     can_report_photographer_no_show: boolean;
     no_show_report_deadline: string | null;
     no_show_report_expired: boolean;
+    can_confirm_completion?: boolean;
   };
   reschedule_history?: {
     type: "standard" | "weather" | "venue" | "agreed";
@@ -233,8 +234,8 @@ function toBookingRecord(raw: RawBooking): BookingRecord {
     id: String(raw.id),
     photographerId: String(raw.photographer.id),
     photographerName: raw.photographer.name,
-      photographerAvatar: raw.photographer.avatar ?? null,
     photographerAvatar: raw.photographer.name.slice(0, 2).toUpperCase(),
+    photographerPhotoUrl: raw.photographer.avatar ?? null,
     eventType: raw.event_type,
     date: raw.event_date,
     startTime: raw.start_time,
@@ -569,6 +570,11 @@ export const bookingService = {
 
   disputeNonCompletion: async (bookingId: string, reason: string): Promise<BookingRecord> => {
     const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/dispute-non-completion`, "POST", { reason });
+    return toBookingRecord(raw);
+  },
+
+  confirmCompletion: async (bookingId: string): Promise<BookingRecord> => {
+    const raw = await apiMutate<RawBooking>(`/client/bookings/${bookingId}/confirm-completion`, "POST");
     return toBookingRecord(raw);
   },
 

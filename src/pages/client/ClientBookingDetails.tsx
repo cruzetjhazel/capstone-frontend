@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useRole } from "@/contexts/RoleContext";
-import { useBookings, useRequestBookingCancellation, useReportBookingNonCompletion, useDisputeBookingNonCompletion, useRequestBookingReschedule, useRequestBookingModification, useRequestBookingExtension, useRescheduleSlots } from "@/hooks/useBookings";
+import { useBookings, useRequestBookingCancellation, useReportBookingNonCompletion, useDisputeBookingNonCompletion, useRequestBookingReschedule, useRequestBookingModification, useRequestBookingExtension, useRescheduleSlots, useConfirmBookingCompletion } from "@/hooks/useBookings";
 import { usePhotographer } from "@/hooks/usePhotographers";
 import { usePaymentsForBooking } from "@/hooks/useClientPayments";
 import { useMyReviews, useSubmitReview } from "@/hooks/useReviews";
@@ -89,7 +89,9 @@ export default function BookingDetails() {
   const { data: myReviews = [] } = useMyReviews();
   const submitReviewMutation = useSubmitReview();
   const { toast } = useToast();
-  const cancelMutation = useRequestBookingCancellation();
+   const cancelMutation = useRequestBookingCancellation();
+  const confirmCompletion = useConfirmBookingCompletion();
+  const [showConfirmComplete, setShowConfirmComplete] = useState(false);
   const reportNonCompletion = useReportBookingNonCompletion();
   const disputeNonCompletion = useDisputeBookingNonCompletion();
   const [disputeText, setDisputeText] = useState("");
@@ -324,6 +326,16 @@ export default function BookingDetails() {
         variant: "destructive" as never,
       });
     }
+  };
+  const handleConfirmCompletion = () => {
+    confirmCompletion.mutate(booking.id, {
+      onSuccess: () => {
+        setShowConfirmComplete(false);
+        toast({ title: "Booking completed", description: "Thanks for confirming. You can now leave a review." });
+      },
+      onError: (e: any) =>
+        toast({ title: "Couldn't complete booking", description: e?.message ?? "Please try again.", variant: "destructive" as never }),
+    });
   };
   const handleSubmitNoShowReport = () => {
   reportNonCompletion.mutate(
@@ -606,6 +618,24 @@ export default function BookingDetails() {
                 ? SERVICE_PROGRESS_STEPS[currentStep].description
                 : "Once your payment is confirmed, your service progress will appear here."}
             </p>
+
+            {booking.allowedActions?.can_confirm_completion && (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Happy with your photos?</p>
+                <p className="mt-1 text-xs text-emerald-800/80 dark:text-emerald-300/80">
+                  Confirm to complete this booking now.{" "}
+                  {noShowDeadline && noShowDeadline > new Date()
+                    ? `If you don't, it completes automatically after ${noShowDeadline.toLocaleString()}. `
+                    : ""}
+                  Once confirmed, you can no longer report a no-show for this booking.
+                </p>
+                <div className="mt-3">
+                  <Button size="sm" className="gap-1.5" onClick={() => setShowConfirmComplete(true)}>
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Confirm booking as completed
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1252,6 +1282,44 @@ export default function BookingDetails() {
                 disabled={reportNonCompletion.isPending || !noShowConfirmed || noShowStatement.trim().length < 20}
               >
                 {reportNonCompletion.isPending ? "Submitting…" : "Submit report"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Confirm booking completed */}
+      {showConfirmComplete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border/60 p-6 space-y-4">
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <CheckCircle2 className="text-emerald-600 w-5 h-5" /> Confirm booking as completed?
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              This completes Booking #{booking.id} right away. You will be able to leave a review afterwards.
+              {noShowDeadline && noShowDeadline > new Date()
+                ? ` If you don't confirm, it completes automatically after ${noShowDeadline.toLocaleString()}.`
+                : ""}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Once confirmed, you can <strong>no longer report a no-show</strong> for this booking.
+            </p>
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowConfirmComplete(false)}
+                disabled={confirmCompletion.isPending}
+              >
+                Not yet
+              </Button>
+              <Button
+                className="gap-1.5"
+                onClick={handleConfirmCompletion}
+                disabled={confirmCompletion.isPending}
+              >
+                {confirmCompletion.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                {confirmCompletion.isPending ? "Completing…" : "Yes, complete booking"}
               </Button>
             </div>
           </div>

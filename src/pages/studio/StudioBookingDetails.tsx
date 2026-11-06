@@ -688,7 +688,7 @@ export default function StudioBookingDetail() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-emerald-500/20">
                   <p className="text-xs text-emerald-800/80 dark:text-emerald-400/80">
                     {completionBlocked
-                      ? `Photos delivered. You can mark this booking Completed after ${new Date(booking.completionBlockedUntil as string).toLocaleString()}, once the client's 48-hour window to report a problem has ended.`
+                      ? `Photos delivered. You can mark this booking Completed after ${new Date(booking.completionBlockedUntil as string).toLocaleString()}, once the client's 48-hour window to report a problem has ended. If neither of you acts, it completes automatically at that time.`
                       : "Photos delivered. Conclude this booking once everything is squared away."}
                   </p>
                   <Button

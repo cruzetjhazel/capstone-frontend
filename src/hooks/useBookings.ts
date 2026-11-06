@@ -119,3 +119,15 @@ export function useRequestBookingExtension() {
     },
   });
 }
+
+export function useConfirmBookingCompletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => bookingService.confirmCompletion(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["booking", id] });
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
