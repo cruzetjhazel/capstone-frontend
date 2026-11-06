@@ -17,7 +17,7 @@ export default function StudioPortfolio() {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragIndex = useRef<number | null>(null);
-
+  const IMAGE_ACCEPT = "image/jpeg,image/png";
   const loadPortfolio = async () => {
     setIsLoading(true);
     setLoadError(null);

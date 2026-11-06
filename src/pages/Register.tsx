@@ -13,6 +13,7 @@ import { useRole, type Role } from "@/contexts/RoleContext";
 import { getAuthToken, setAuthToken } from "@/lib/tokenStorage";
 import { locationService, type Province, type CityMunicipality, type Barangay } from "@/services/locationService";
 import { cn } from "@/lib/utils";
+import { IMAGE_ACCEPT } from "@/lib/uploads";
 import { prepareImageForUpload } from "@/lib/prepareImage";
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeUrl, isValidEmail } from "@/lib/sanitize";
 
@@ -47,7 +48,6 @@ const MAX_UPLOAD_LABEL = "2 MB";
 
 // Same file types the backend accepts (mimes:jpg,jpeg,png,pdf)
 const DOC_ACCEPT = "image/jpeg,image/png,application/pdf";
-const IMAGE_ACCEPT = "image/jpeg,image/png";
 const TYPE_LABELS: Record<string, string> = { "image/jpeg": "JPG", "image/png": "PNG", "application/pdf": "PDF" };
 const typeListLabel = (accept: string) =>
   accept.split(",").map((t) => TYPE_LABELS[t.trim()] ?? t.trim()).join(", ");
