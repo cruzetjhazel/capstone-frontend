@@ -18,6 +18,29 @@ export interface PickerOption {
   label: string;
   /** Second line: date, status, amount, etc. */
   description?: string;
+  /** Profile photo URL (only used when showAvatar is on). */
+  avatarUrl?: string | null;
+}
+
+function PickerAvatar({ url, name }: { url?: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+      {url && !failed ? (
+        <img src={url} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      ) : (
+        initials || "?"
+      )}
+    </span>
+  );
 }
 
 interface RecordPickerProps {
@@ -31,6 +54,8 @@ interface RecordPickerProps {
   disabled?: boolean;
   /** Pass this to search on the server (e.g. photographers). Without it the list is filtered locally. */
   onSearchChange?: (query: string) => void;
+  /** Show a profile avatar on the left of each option and the selected value. */
+  showAvatar?: boolean;
 }
 
 export function RecordPicker({
@@ -43,6 +68,7 @@ export function RecordPicker({
   loading = false,
   disabled = false,
   onSearchChange,
+  showAvatar = false,
 }: RecordPickerProps) {
   const [open, setOpen] = useState(false);
   const serverSearch = !!onSearchChange;
@@ -63,8 +89,11 @@ export function RecordPicker({
           disabled={disabled}
           className="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60 disabled:bg-muted"
         >
-          <span className={cn("truncate text-left", !selected && "text-muted-foreground")}>
-            {selected ? selected.label : placeholder}
+          <span className="flex min-w-0 items-center gap-2">
+            {showAvatar && selected && <PickerAvatar url={selected.avatarUrl} name={selected.label} />}
+            <span className={cn("truncate text-left", !selected && "text-muted-foreground")}>
+              {selected ? selected.label : placeholder}
+            </span>
           </span>
           <span className="flex items-center gap-1 shrink-0">
             {selected && !disabled && (
@@ -97,30 +126,38 @@ export function RecordPicker({
               <>
                 <CommandEmpty>{emptyText}</CommandEmpty>
                 <CommandGroup>
-                  {options.map((opt) => (
-                    <CommandItem
-                      key={opt.value}
-                      value={`${opt.label} ${opt.description ?? ""} #${opt.value}`}
-                      onSelect={() => {
-                        onSelect(opt);
-                        setOpen(false);
-                      }}
-                      className="flex items-start gap-2"
-                    >
-                      <Check
-                        className={cn(
-                          "w-4 h-4 mt-0.5 shrink-0 text-primary",
-                          selected?.value === opt.value ? "opacity-100" : "opacity-0",
+                  {options.map((opt) => {
+                    const isSelected = selected?.value === opt.value;
+                    return (
+                      <CommandItem
+                        key={opt.value}
+                        value={`${opt.label} ${opt.description ?? ""} #${opt.value}`}
+                        onSelect={() => {
+                          onSelect(opt);
+                          setOpen(false);
+                        }}
+                        className={cn("flex gap-2", showAvatar ? "items-center" : "items-start")}
+                      >
+                        {showAvatar ? (
+                          <PickerAvatar url={opt.avatarUrl} name={opt.label} />
+                        ) : (
+                          <Check
+                            className={cn(
+                              "w-4 h-4 mt-0.5 shrink-0 text-primary",
+                              isSelected ? "opacity-100" : "opacity-0",
+                            )}
+                          />
                         )}
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{opt.label}</p>
-                        {opt.description && (
-                          <p className="truncate text-xs text-muted-foreground">{opt.description}</p>
-                        )}
-                      </div>
-                    </CommandItem>
-                  ))}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{opt.label}</p>
+                          {opt.description && (
+                            <p className="truncate text-xs text-muted-foreground">{opt.description}</p>
+                          )}
+                        </div>
+                        {showAvatar && isSelected && <Check className="w-4 h-4 shrink-0 text-primary" />}
+                      </CommandItem>
+                    );
+                  })}
                 </CommandGroup>
               </>
             )}

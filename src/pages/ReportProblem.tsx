@@ -125,7 +125,7 @@ export default function ReportProblem() {
     queryKey: ["report-photographers", debouncedPhotographerQuery],
     queryFn: async () =>
       (await api.get("/client/reports/photographers", { params: { search: debouncedPhotographerQuery || undefined } }))
-        .data.data as { id: number; name: string; type: string }[],
+        .data.data as { id: number; name: string; type: string; avatar?: string | null }[],
     enabled: isClientReporter && target === "studio",
     staleTime: 60_000,
   });
@@ -144,6 +144,7 @@ export default function ReportProblem() {
     value: String(p.id),
     label: p.name,
     description: p.type,
+    avatarUrl: p.avatar,
   }));
   const prefilledOption = prefilledBooking ? bookingOptions.find((o) => o.value === prefilledBooking) ?? null : null;
 
@@ -157,7 +158,7 @@ export default function ReportProblem() {
       ? { options: bookingOptions, loading: bookingsLoading, placeholder: "Select a booking", searchPlaceholder: "Search by photographer, event or date...", emptyText: "No bookings found." }
       : target === "payment"
       ? { options: paymentOptions, loading: paymentsLoading, placeholder: "Select a payment", searchPlaceholder: "Search by reference or amount...", emptyText: "No payments found." }
-      : { options: photographerOptions, loading: photographersLoading, placeholder: "Search for a photographer or studio", searchPlaceholder: "Type a name...", emptyText: "No photographer found.", onSearchChange: setPhotographerQuery };
+      : { options: photographerOptions, loading: photographersLoading, placeholder: "Search for a photographer", searchPlaceholder: "Type a name...", emptyText: "No photographer found.", onSearchChange: setPhotographerQuery, showAvatar: true };
 
   // System Requirement: Dynamic Target Options based on Role (Studio/Freelancer vs Client)
   const targetOptions = role === "studio"
@@ -169,7 +170,7 @@ export default function ReportProblem() {
         { value: "other", label: "Other" }
       ]
     : [
-        { value: "studio", label: "Studio / Professional" },
+        { value: "studio", label: "Photographer" },
         { value: "booking", label: "Booking" },
         { value: "payment", label: "Payment" },
         { value: "bug", label: "Platform Bug" },
@@ -229,7 +230,7 @@ export default function ReportProblem() {
     if (isClientReporter) {
       if (target === "booking") return "Booking";
       if (target === "payment") return "Payment";
-      if (target === "studio") return "Photographer / Studio";
+      if (target === "studio") return "Photographer";
     }
     if (target === "booking") return "Booking ID";
     if (target === "payment") return "Transaction ID";
