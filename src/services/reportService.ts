@@ -73,7 +73,7 @@ function toReport(raw: RawReport): Report {
     details: raw.details,
     expectedOutcome: REQUESTED_ACTION_LABELS[raw.requested_action] ?? raw.requested_action,
     attachments: raw.attachments ?? [],
-    adminNotes: raw.notes.map((n) => ({ date: formatDate(n.created_at), note: n.note })),
+    adminNotes: (raw.notes ?? []).map((n) => ({ date: formatDate(n.created_at), note: n.note })),
   };
 }
 

@@ -347,6 +347,7 @@ export default function ReportProblem() {
       setIsSuccess(true);
       toast.success("Report submitted successfully.");
     } catch (err) {
+      console.error("Report submit error:", err);
       toast.error(getApiErrorMessage(err, "Submission failed. Please check your connection and try again."));
     } finally {
       setIsSubmitting(false);
