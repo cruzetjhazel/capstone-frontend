@@ -9,11 +9,12 @@ export function useBooking(id: string | undefined) {
   });
 }
 
-export function useBookings(clientEmail?: string) {
+export function useBookings(clientEmail?: string, enabled = true) {
   return useQuery({
     queryKey: ["bookings", clientEmail],
     queryFn: () => bookingService.list(clientEmail),
     staleTime: 30_000,
+    enabled,
   });
 }
 

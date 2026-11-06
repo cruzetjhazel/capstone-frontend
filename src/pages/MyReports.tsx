@@ -219,7 +219,7 @@ export default function MyReports() {
                   
                   <div className="flex items-center justify-between sm:justify-end gap-4 border-t border-border/50 sm:border-0 pt-2 sm:pt-0">
                     <div className="text-xs text-muted-foreground font-mono flex items-center gap-1.5 bg-muted/40 px-2.5 py-1 rounded-lg">
-                      <FileText className="w-3.5 h-3.5 text-muted-foreground" /> {report.referenceId !== "N/A" ? report.referenceId : "General"}
+                      <FileText className="w-3.5 h-3.5 text-muted-foreground" /> {report.referenceId !== "N/A" ? (report.referenceLabel ?? report.referenceId) : "General"}
                     </div>
                     <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                   </div>
@@ -261,7 +261,7 @@ export default function MyReports() {
                     </div>
                     <div>
                       <p className="text-[11px] text-muted-foreground font-semibold">Associated Reference</p>
-                      <p className="font-mono font-semibold text-xs mt-0.5">{selectedReport.referenceId}</p>
+                      <p className="font-mono font-semibold text-xs mt-0.5">{selectedReport.referenceLabel ?? selectedReport.referenceId}</p>
                     </div>
                     <div className="col-span-2">
                       <p className="text-[11px] text-muted-foreground font-semibold">Report Details</p>

@@ -30,6 +30,7 @@ interface AdminReport {
   reporterRole: "Client" | "Studio" | "Freelancer";
   reportType: string; // already human-labeled by the backend
   referenceId: string;
+  referenceLabel: string | null;
   reason: string;
   severity: ReportSeverity;
   severityLabel: string;
@@ -49,6 +50,7 @@ function fromApi(raw: any): AdminReport {
     reporterRole: raw.reporterRole,
     reportType: raw.reportType,
     referenceId: raw.referenceId,
+    referenceLabel: raw.referenceLabel ?? null,
     reason: raw.reason,
     severity: raw.severity,
     severityLabel: raw.severityLabel,
@@ -405,7 +407,7 @@ export default function AdminReports() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-foreground/80">{report.reportType}</div>
-                        <div className="text-xs text-muted-foreground font-mono mt-0.5">{report.referenceId}</div>
+                        <div className="text-xs text-muted-foreground font-mono mt-0.5">{report.referenceLabel ?? report.referenceId}</div>
                       </td>
                       <td className="px-4 py-3 max-w-[200px] truncate" title={report.reason}>{report.reason}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -524,7 +526,7 @@ export default function AdminReports() {
                         <p className="font-semibold text-sm flex items-center">
                           {selectedReport.reportType} 
                           <span className="font-mono text-xs font-normal bg-muted border border-border/50 px-2 py-0.5 rounded ml-2 text-muted-foreground">
-                            {selectedReport.referenceId}
+                            {selectedReport.referenceLabel ?? selectedReport.referenceId}
                           </span>
                         </p>
                       </div>

@@ -23,6 +23,7 @@ export interface Report {
   date: string; // formatted submission date, e.g. "July 18, 2026"
   target: ReportTarget;
   referenceId: string; // "N/A" when none was provided
+  referenceLabel: string | null; // readable name for the record, when known
   reason: string;
   details: string;
   expectedOutcome: string; // human label, e.g. "Refund Request"
@@ -35,6 +36,7 @@ type RawReport = {
   reference_code: string;
   target_type: ReportTarget;
   reference_id: string | null;
+  reference_label: string | null;
   reason: string;
   severity: ReportSeverity;
   details: string;
@@ -66,6 +68,7 @@ function toReport(raw: RawReport): Report {
     date: formatDate(raw.created_at),
     target: raw.target_type,
     referenceId: raw.reference_id ?? "N/A",
+    referenceLabel: raw.reference_label ?? null,
     reason: raw.reason,
     details: raw.details,
     expectedOutcome: REQUESTED_ACTION_LABELS[raw.requested_action] ?? raw.requested_action,
