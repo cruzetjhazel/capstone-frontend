@@ -62,7 +62,7 @@ const { user, isLoading } = useRole();
               </p>
 
               <div className="mt-4 inline-flex items-center rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
-                Last updated: September 2026
+                Last updated: November 2026
               </div>
             </div>
           </div>
@@ -193,98 +193,131 @@ const { user, isLoading } = useRole();
             </p>
           </TermsCard>
 
-          {/* 5 - IMPORTANT LIABILITY SECTION */}
-          <section className="rounded-2xl border-2 border-destructive/20 bg-destructive/[0.035] overflow-hidden">
-            {/* Section Header */}
-            <div className="px-5 sm:px-7 py-5 border-b border-destructive/10 bg-destructive/[0.04]">
+                    {/* 5 - SNAPBULAN'S ROLE AND RESPONSIBILITIES */}
+          <section className="rounded-2xl border-2 border-primary/20 bg-primary/[0.035] overflow-hidden">
+            <div className="px-5 sm:px-7 py-5 border-b border-primary/10 bg-primary/[0.04]">
               <div className="flex items-start gap-4">
-                <div className="w-11 h-11 rounded-xl bg-destructive/10 flex items-center justify-center shrink-0">
-                  <ShieldAlert className="w-5 h-5 text-destructive" />
+                <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-primary" />
                 </div>
 
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold text-destructive">
-                      05
-                    </span>
-
-                    <span className="text-xs font-semibold uppercase tracking-wider text-destructive/80">
+                    <span className="text-xs font-bold text-primary">05</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-primary/80">
                       Important
                     </span>
                   </div>
 
                   <h2 className="font-heading font-semibold text-lg">
-                    System Responsibility and User Transactions
+                    SnapBulan's Role and Responsibilities
                   </h2>
                 </div>
               </div>
             </div>
 
-            {/* Section Content */}
-            <div className="p-5 sm:p-7 text-sm leading-relaxed">
+            <div className="p-5 sm:p-7 text-sm leading-relaxed space-y-5">
               <p className="font-medium text-foreground">
-                The system only provides the platform that connects clients
-                with photographers and studios. The system does not directly
-                provide, perform, control, or guarantee the photography
-                services offered by its users.
+                SnapBulan is a platform that connects clients with independent
+                photographers and photography studios. We provide the tools to
+                find photographers, book, pay, track progress, and report
+                problems. We do not perform the photography services ourselves.
               </p>
 
-              {/* Main liability statement */}
-              <div className="my-5 rounded-xl border border-destructive/20 bg-background p-5">
-                <p className="font-semibold text-foreground leading-relaxed">
-                  If a photographer, studio, or client scams another user,
-                  engages in fraudulent activity, fails to appear for a
-                  confirmed booking, fails to provide the agreed service,
-                  provides false or misleading information, or otherwise fails
-                  to fulfill their obligations, the system is not responsible
-                  or financially liable for the resulting payment, loss,
-                  refund, damages, or other financial transaction between the
-                  users.
+              <div className="rounded-xl border border-primary/20 bg-background p-5 space-y-4">
+                <div>
+                  <h3 className="font-heading font-semibold text-sm text-foreground">
+                    Photographers and studios are responsible for
+                  </h3>
+                  <p className="mt-1.5 text-muted-foreground">
+                    Their own photography services: attending confirmed
+                    bookings, keeping to the agreed schedule, the quality of
+                    their work, and delivering the photos and other
+                    deliverables they agreed to provide.
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="font-heading font-semibold text-sm text-foreground">
+                    SnapBulan is responsible for
+                  </h3>
+                  <p className="mt-1.5 text-muted-foreground">
+                    Running the platform properly: keeping the system working,
+                    handling your account and personal data with care,
+                    recording bookings, payments, and reports accurately, and
+                    meeting its legal obligations. Nothing in these Terms
+                    limits the responsibilities SnapBulan has under the law.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-heading font-semibold text-sm text-foreground">
+                  If something goes wrong
+                </h3>
+                <p className="mt-1.5">
+                  If a photographer does not show up, does not deliver the
+                  agreed service, or you have a disagreement with them, you
+                  can submit a report. SnapBulan's administrators can help by
+                  providing the photographer's available contact information
+                  and the relevant booking details, and by facilitating
+                  communication between you and the photographer where
+                  appropriate.
                 </p>
               </div>
 
-              <p className="mt-4">
-                Payments made directly between clients and photographers or
-                studios are transactions between those parties. The system
-                does not guarantee that a user will receive the service they
-                paid for, that a photographer or studio will attend a booking,
-                or that a payment will be returned if a dispute, scam,
-                cancellation, or no-show occurs.
-              </p>
-
-              <p className="mt-4">
-                The system is also not responsible for losses resulting from
-                false information, unauthorized transactions, fraudulent
-                payment references, failure to communicate, failure to attend
-                a booking, or other actions performed by users outside the
-                system's direct control.
-              </p>
-
-              <p className="mt-4">
-                Users are responsible for checking the identity and service
-                details of the other party, reviewing the booking information,
-                confirming payment instructions, and keeping appropriate proof
-                of payments and communications.
-              </p>
-
-              <div className="mt-5 rounded-xl bg-muted/60 p-4">
-                <p className="text-xs font-medium text-foreground mb-1">
-                  What the system can do
+              <div>
+                <h3 className="font-heading font-semibold text-sm text-foreground">
+                  What we can't promise
+                </h3>
+                <p className="mt-1.5">
+                  SnapBulan cannot guarantee that a photographer will fulfill
+                  their commitments, or that every report will result in a
+                  refund, compensation, or any particular outcome. Submitting
+                  a report does not automatically mean the dispute will be
+                  decided in the client's favor. Our administrators review the
+                  information available from everyone involved before
+                  deciding on any platform action.
                 </p>
-
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  When a problem is reported, the system may provide reporting
-                  tools, review submitted information, record incidents,
-                  contact involved users, or restrict/suspend accounts when
-                  appropriate. These platform actions do not make the system
-                  financially responsible for the underlying transaction or
-                  any loss suffered by a user.
+                <p className="mt-3">
+                  The photography agreement is between the client and the
+                  photographer or studio. SnapBulan is not a party to it and
+                  does not itself pay refunds or compensation for a user's
+                  failure to perform it. This does not affect SnapBulan's
+                  accountability for its own system operations, data
+                  handling, and legal obligations.
                 </p>
+              </div>
+
+              <div className="rounded-xl bg-muted/60 p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">
+                    What SnapBulan can do when a problem is reported
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Review the information submitted, record the incident,
+                    contact the people involved, share available contact
+                    details, help the parties communicate, and restrict or
+                    suspend accounts when appropriate.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">
+                    Before you book
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Please review the photographer's details, the booking
+                    information, and the payment instructions, and keep proof
+                    of your payments and conversations. These help us help
+                    you if a problem comes up.
+                  </p>
+                </div>
               </div>
             </div>
           </section>
 
-          {/* 6 */}
+                    {/* 6 */}
           <TermsCard
             number="06"
             icon={<ShieldCheck className="w-5 h-5" />}
@@ -297,29 +330,38 @@ const { user, isLoading } = useRole();
 
             <p className="mt-4">
               If a photographer or studio fails to appear for a confirmed and
-              paid booking, the client may submit a report through the booking
-              and provide supporting evidence.
+              paid booking, the client may submit a report through the
+              booking or the Report a Problem page. If a client fails to
+              attend a confirmed booking or otherwise violates the agreed
+              booking conditions, the photographer or studio may also submit
+              a report.
             </p>
 
             <p className="mt-4">
-              If a client fails to attend a confirmed booking or otherwise
-              violates the agreed booking conditions, the photographer or
-              studio may also submit a report through the system.
+              When you submit a report, you choose what you are reporting
+              and select the related photographer, booking, or payment from
+              your own records when one applies. You are encouraged to
+              include evidence, such as screenshots of conversations,
+              payment receipts, and booking confirmations. Attachments are
+              optional: up to 3 files per report (PNG, JPG, JPEG, or PDF,
+              2 MB each).
             </p>
 
             <p className="mt-4">
-              An administrator may review submitted reports and determine
-              appropriate platform-level action. This may include recording
-              the incident, contacting involved users, restricting an account,
-              or suspending an account when appropriate.
+              An administrator reviews each report and may record the
+              incident, contact the people involved, share available contact
+              information, help the parties communicate, restrict an
+              account, or suspend an account when appropriate. Submitting a
+              report does not guarantee that the dispute will be resolved in
+              your favor, or that a refund or compensation will be given.
             </p>
 
             <p className="mt-4">
-              Refund requests may be reviewed by an administrator on a
+              Refund requests are reviewed by an administrator on a
               case-by-case basis. The system does not automatically process
-              refund payments through the platform. If a refund is approved,
-              the appropriate parties may arrange the refund directly, such as
-              through a GCash transfer.
+              refund payments. If a refund is approved, the appropriate
+              parties may arrange it directly, such as through a GCash
+              transfer.
             </p>
 
             <p className="mt-4">
