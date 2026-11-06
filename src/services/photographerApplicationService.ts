@@ -11,6 +11,7 @@ export interface PhotographerApplication {
   businessName: string;
   location: string;
   yearsActive: number | null;
+  freelanceYearsExperience: number | null;
   teamSize: number | null;
   services: string[];
   otherServices: string;
@@ -34,6 +35,7 @@ type RawApplication = {
   business_name: string | null;
   location: string | null;
   years_active: number | null;
+  freelance_years_experience?: number | null;
   team_size: number | null;
   services: string[] | null;
   other_services: string | null;
@@ -58,6 +60,7 @@ function toApplication(raw: RawApplication): PhotographerApplication {
     businessName: raw.business_name ?? "",
     location: raw.location ?? "",
     yearsActive: raw.years_active ?? null,
+    freelanceYearsExperience: raw.freelance_years_experience ?? null,
     teamSize: raw.team_size ?? null,
     services: raw.services ?? [],
     otherServices: raw.other_services ?? "",
@@ -80,7 +83,8 @@ export interface ApplicationUpdatePayload {
   business_name: string;
   location: string;
   years_active: number;
-  team_size?: number; // only sent for photographer_type === "studio"
+  team_size?: number; // only sent for studio owners
+  freelance_years_experience?: number | null; // only meaningful for freelancer + studio owner
   services: string[];
   other_services?: string | null;
   coverage_area: string;

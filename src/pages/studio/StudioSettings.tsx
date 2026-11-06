@@ -78,7 +78,7 @@ const STATUS_LABEL: Record<string, { text: string; className: string }> = {
 
 type BusinessSnapshot = {
   isFreelancer: boolean; isStudioOwner: boolean;
-  businessName: string; location: string; yearsActive: string; teamSize: string;
+  businessName: string; location: string; yearsActive: string; teamSize: string; freelanceYears: string;
   services: string[]; otherServices: string; coverageArea: string;
   shootingTypes: string[]; priceMin: string; priceMax: string;
 };
@@ -101,7 +101,8 @@ export default function StudioSettings() {
   const [businessName, setBusinessName] = useState("");
   const [location, setLocation] = useState("");
   const [yearsActive, setYearsActive] = useState("");
-  const [teamSize, setTeamSize] = useState("");
+    const [teamSize, setTeamSize] = useState("");
+  const [freelanceYears, setFreelanceYears] = useState("");
   const [services, setServices] = useState<string[]>([]);
   const [otherServices, setOtherServices] = useState("");
   const [coverageArea, setCoverageArea] = useState("");
@@ -178,6 +179,7 @@ export default function StudioSettings() {
         setLocation(app.location);
         setYearsActive(app.yearsActive != null ? String(app.yearsActive) : "");
         setTeamSize(app.teamSize != null ? String(app.teamSize) : "");
+        setFreelanceYears(app.freelanceYearsExperience != null ? String(app.freelanceYearsExperience) : "");
         setServices(app.services);
         setOtherServices(app.otherServices);
         const areaLabel = Object.entries(AREA_COVERAGE_MAP).find(([, v]) => v === app.coverageArea)?.[0] ?? "";
@@ -193,6 +195,7 @@ export default function StudioSettings() {
           businessName: app.businessName, location: app.location,
           yearsActive: app.yearsActive != null ? String(app.yearsActive) : "",
           teamSize: app.teamSize != null ? String(app.teamSize) : "",
+          freelanceYears: app.freelanceYearsExperience != null ? String(app.freelanceYearsExperience) : "",
           services: app.services, otherServices: app.otherServices,
           coverageArea: areaLabel, shootingTypes: shootingLabels,
           priceMin: app.priceMin != null ? String(app.priceMin) : "",
@@ -251,7 +254,7 @@ export default function StudioSettings() {
 
   // ---- Dirty tracking (mirrors ClientProfile.tsx's sticky-bar pattern) ----
   const businessDirty = initialBusiness ? JSON.stringify({
-    isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax,
+    isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, freelanceYears, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax,
   }) !== JSON.stringify(initialBusiness) : false;
 
   const profileDirty = initialProfile ? (
@@ -338,6 +341,7 @@ export default function StudioSettings() {
       setLocation(initialBusiness.location);
       setYearsActive(initialBusiness.yearsActive);
       setTeamSize(initialBusiness.teamSize);
+      setFreelanceYears(initialBusiness.freelanceYears);
       setServices(initialBusiness.services);
       setOtherServices(initialBusiness.otherServices);
       setCoverageArea(initialBusiness.coverageArea);
@@ -382,8 +386,12 @@ export default function StudioSettings() {
         fail("Business name, location, and years active are required.");
         return;
       }
-      if (!teamSize) {
+      if (isStudioOwner && !teamSize) {
         fail("Number of team members is required.");
+        return;
+      }
+      if (isFreelancer && isStudioOwner && !freelanceYears) {
+        fail("Years of freelance experience is required.");
         return;
       }
       if (services.length === 0) {
@@ -426,14 +434,15 @@ export default function StudioSettings() {
           business_name: businessName.trim(),
           location: location.trim(),
           years_active: Number(yearsActive),
-          team_size: Number(teamSize),
+          team_size: isStudioOwner ? Number(teamSize) : undefined,
+          freelance_years_experience: isFreelancer && isStudioOwner ? Number(freelanceYears) : null,
           services,
           other_services: otherServices.trim() || null,
           coverage_area: AREA_COVERAGE_MAP[coverageArea],
           shooting_types: shootingTypes.map((s) => SHOOTING_TYPE_MAP[s]).filter(Boolean),
         });
         setApplication(updated);
-        setInitialBusiness({ isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax });
+        setInitialBusiness({ isFreelancer, isStudioOwner, businessName, location, yearsActive, teamSize, freelanceYears, services, otherServices, coverageArea, shootingTypes, priceMin, priceMax });
       } catch (err) {
         const msg = getApiErrorMessage(err, "Failed to save business details.");
         toast.error(msg);
@@ -631,7 +640,7 @@ export default function StudioSettings() {
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-up pb-24 relative">
 
         <div className="bg-card p-6 rounded-xl border border-border/50 card-shadow">
-          <h1 className="text-2xl font-heading font-bold">{isStudioOwner ? "Studio" : "Photographer"} Settings</h1>
+          <h1 className="text-2xl font-heading font-bold">Photographer Settings</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Manage your public profile, coverage, rates, payments, and account security.
           </p>
@@ -797,10 +806,18 @@ export default function StudioSettings() {
                 <Label>{isStudioOwner ? "Years Operating" : "Years of Experience"}</Label>
                 <Input type="number" value={yearsActive} onChange={(e) => setYearsActive(e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label>Number of Team Members</Label>
-                <Input type="number" value={teamSize} onChange={(e) => setTeamSize(e.target.value)} />
-              </div>
+              {isStudioOwner && (
+                <div className="space-y-2">
+                  <Label>Number of Team Members</Label>
+                  <Input type="number" min={1} max={500} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} />
+                </div>
+              )}
+              {isFreelancer && isStudioOwner && (
+                <div className="space-y-2">
+                  <Label>Years of Freelance Experience</Label>
+                  <Input type="number" min={0} max={80} value={freelanceYears} onChange={(e) => setFreelanceYears(e.target.value)} />
+                </div>
+              )}
 
             </div>
 

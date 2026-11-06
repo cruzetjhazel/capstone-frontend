@@ -251,7 +251,10 @@ export default function Register() {
     businessPermit: false,
     additionalDocuments: 0,
   });
-  const [existingPortfolioCount, setExistingPortfolioCount] = useState(0);
+  // Active portfolio images already saved for this application (resume / revision).
+  const [existingPortfolio, setExistingPortfolio] = useState<{ id: number | string; url: string | null }[]>([]);
+  const existingPortfolioCount = existingPortfolio.length;
+  const [archivingPortfolioId, setArchivingPortfolioId] = useState<number | string | null>(null);
   const [isResumingApplication, setIsResumingApplication] = useState(false);
   const [hasExistingProfile, setHasExistingProfile] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -349,6 +352,7 @@ export default function Register() {
           setAddress(rawLocation);
         }
         setTeamSize(application.team_size != null ? String(application.team_size) : "");
+        setFreelanceYears(application.freelance_years_experience != null ? String(application.freelance_years_experience) : "");
         if (savedStudio) {
           setYearsOperating(application.years_active != null ? String(application.years_active) : "");
         } else {
@@ -380,10 +384,12 @@ export default function Register() {
             headers: authHeaders(),
           });
           const portfolioPayload = await parseApiResponse(portfolioResponse);
-          const activeCount = Array.isArray(portfolioPayload.data)
-            ? portfolioPayload.data.filter((img: any) => img.status !== "archived").length
-            : 0;
-          setExistingPortfolioCount(activeCount);
+          const activeImages = Array.isArray(portfolioPayload.data)
+            ? portfolioPayload.data
+                .filter((img: any) => img.status !== "archived")
+                .map((img: any) => ({ id: img.id, url: (img.url ?? img.image_url ?? null) as string | null }))
+            : [];
+          setExistingPortfolio(activeImages);
         } catch {
           // non-fatal — Step 6 will just ask for fresh uploads
         }
@@ -477,6 +483,7 @@ export default function Register() {
   const [address, setAddress] = useState("");
   const [yearsExp, setYearsExp] = useState("");
   const [yearsOperating, setYearsOperating] = useState("");
+  const [freelanceYears, setFreelanceYears] = useState("");
   const [teamSize, setTeamSize] = useState("");
 
   // Service
@@ -693,6 +700,7 @@ export default function Register() {
       if (accountType === "studio") {
         payload.years_active = Number(yearsOperating);
         payload.team_size = Number(teamSize);
+        if (isFreelancer) payload.freelance_years_experience = Number(freelanceYears);
       } else {
         payload.years_active = Number(yearsExp);
       }
@@ -840,12 +848,41 @@ export default function Register() {
       );
     }
     const accepted = files.filter((f) => f.size <= MAX_UPLOAD_BYTES);
-    const totalSelected = [...portfolioFiles, ...accepted].slice(0, 12);
+    // Images already on file (resumed/revision application) count toward the 12-image cap.
+    const room = Math.max(0, 12 - existingPortfolioCount);
+    const combined = [...portfolioFiles, ...accepted];
+    if (combined.length > room) {
+      toast.error(
+        room === 0
+          ? "You already have the maximum of 12 portfolio images. Continue without adding more."
+          : `You can add only ${room} more image${room === 1 ? "" : "s"} (${existingPortfolioCount} already on file, 12 maximum).`
+      );
+    }
+    const totalSelected = combined.slice(0, room);
     setPortfolioFiles(totalSelected);
 
     portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
     const newPreviews = totalSelected.map((f) => URL.createObjectURL(f));
     setPortfolioPreviews(newPreviews);
+  };
+
+  // Moves a saved image to the Safe Archive so it stops counting toward the 12 active.
+  const archiveExistingPortfolioImage = async (id: number | string) => {
+    if (archivingPortfolioId !== null) return;
+    setArchivingPortfolioId(id);
+    try {
+      const response = await fetch(`${API_BASE}/photographer/portfolio/${id}/archive`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      await parseApiResponse(response);
+      setExistingPortfolio((prev) => prev.filter((img) => img.id !== id));
+      toast.success("Image removed from your active portfolio.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not remove this image.");
+    } finally {
+      setArchivingPortfolioId(null);
+    }
   };
 
   const removePortfolioImage = (idx: number) => {
@@ -887,7 +924,7 @@ export default function Register() {
 
   const canProStep3 =
     accountType === "studio"
-            ? !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsOperating, 0, 80) && isIntInRange(teamSize, 1, 500))
+            ? !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsOperating, 0, 80) && isIntInRange(teamSize, 1, 500) && (!isFreelancer || isIntInRange(freelanceYears, 0, 80)))
             : !!(businessName.trim() && provinceId && cityMunicipalityId && barangayId && isIntInRange(yearsExp, 0, 80));
 
   const canStep4 =
@@ -904,9 +941,10 @@ export default function Register() {
       ? !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof) // business permit / DTI is optional
       : !!((govId || existingDocs.governmentId) && (selfieId || existingDocs.selfieWithId) && hasAdequateAdditionalProof);
 
-  const portfolioFilesWithinLimits = portfolioFiles.length >= 6 && portfolioFiles.length <= 12;
+  const portfolioTotalCount = existingPortfolioCount + portfolioFiles.length;
+  const portfolioFilesWithinLimits = portfolioTotalCount >= 6 && portfolioTotalCount <= 12;
   const portfolioFilesValidSizes = portfolioFiles.every((f) => f.size <= MAX_UPLOAD_BYTES);
-  const canStep6Portfolio = (portfolioFilesWithinLimits || existingPortfolioCount >= 6) && portfolioFilesValidSizes;
+  const canStep6Portfolio = portfolioFilesWithinLimits && portfolioFilesValidSizes;
 
   const canStep7Profile = bio.trim().length >= 20 && photographyStyles.length > 0 && photographyStyles.length <= MAX_STYLES && !!(facebook.trim() || instagram.trim() || website.trim());
 
@@ -961,6 +999,10 @@ export default function Register() {
       else if (!isIntInRange(yearsOperating, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
       if (accountType === "studio" && teamSize.trim() === "") req("team", "Number of team members is required.");
       else if (accountType === "studio" && !isIntInRange(teamSize, 1, 500)) bad("team", "Enter a whole number between 1 and 500.");
+      if (isFreelancer) {
+        if (freelanceYears.trim() === "") req("freelanceYears", "Years of freelance experience is required.");
+        else if (!isIntInRange(freelanceYears, 0, 80)) bad("freelanceYears", "Enter a whole number between 0 and 80.");
+      }
     } else {
       if (yearsExp.trim() === "") req("years", "Years of experience is required.");
       else if (!isIntInRange(yearsExp, 0, 80)) bad("years", "Enter a whole number between 0 and 80.");
@@ -976,7 +1018,9 @@ export default function Register() {
     if (!hasAdequateAdditionalProof) req("additional", `Upload at least 2 additional proof files (${additionalProof.length} selected).`);
   } else if (step === 6 && accountType !== "client") {
     if (!portfolioFilesValidSizes) bad("portfolio", "One or more images exceed 2 MB. Remove them to continue.");
-    else if (!(portfolioFilesWithinLimits || existingPortfolioCount >= 6)) req("portfolio", `Upload at least 6 portfolio images (${portfolioFiles.length} selected).`);
+    else if (!portfolioFilesWithinLimits) req("portfolio", existingPortfolioCount > 0
+      ? `You need 6 to 12 portfolio images in total (${existingPortfolioCount} already on file, ${portfolioFiles.length} selected).`
+      : `Upload at least 6 portfolio images (${portfolioFiles.length} selected).`);
   } else if (step === 7 && accountType !== "client") {
     if (!bio.trim()) req("bio", "Brand bio is required.");
     else if (bio.trim().length < 20) req("bio", `Bio must be at least 20 characters (${bio.trim().length}/20).`);
@@ -1197,7 +1241,7 @@ export default function Register() {
           <h1 className="text-2xl font-heading font-bold mb-2">Account pending approval</h1>
           <p className="text-muted-foreground text-sm leading-relaxed mb-6">
             Thanks for signing up, <span className="font-medium text-foreground">{name}</span>!
-            Your {accountType === "studio" ? "studio" : "photographer"} account is now under review.
+            Your photographer account is now under review.
             We'll email <span className="font-medium text-foreground">{email}</span> once your application is approved.
             We also sent a link to that address to verify your email, so please open it too.
           </p>
@@ -1673,10 +1717,10 @@ export default function Register() {
           {step === 3 && accountType !== "client" && (
             <div>
               <h2 className="text-2xl font-heading font-bold mb-1">
-                {accountType === "studio" ? "Studio information" : "Photographer information"}
+                {isStudioOwner && isFreelancer ? "Freelancer & studio information" : accountType === "studio" ? "Studio information" : "Photographer information"}
               </h2>
               <p className="text-muted-foreground mb-6">
-                {accountType === "studio" ? "Details about your studio business." : "Details about your photography practice."}
+                {isStudioOwner && isFreelancer ? "Details about your photography practice and your studio." : accountType === "studio" ? "Details about your studio business." : "Details about your photography practice."}
               </p>
 
               <form className="space-y-4" onSubmit={handleStep3Submit}>
@@ -1724,6 +1768,11 @@ export default function Register() {
                     <Field label="Number of team members" required error={errs.team}>
                       <Input type="number" min={1} max={500} value={teamSize} onChange={(e) => setTeamSize(e.target.value)} onBlur={() => touch("team")} placeholder="e.g. 5" />
                     </Field>
+                    {isFreelancer && (
+                      <Field label="Years of freelance experience" required error={errs.freelanceYears}>
+                        <Input type="number" min={0} max={80} value={freelanceYears} onChange={(e) => setFreelanceYears(e.target.value)} onBlur={() => touch("freelanceYears")} placeholder="e.g. 3" />
+                      </Field>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1985,6 +2034,43 @@ export default function Register() {
               </p>
 
               <form className="space-y-5" onSubmit={handleStep6Submit}>
+                {existingPortfolioCount > 0 && (
+                  <p className="text-sm rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    You already have <strong>{existingPortfolioCount}</strong> portfolio image{existingPortfolioCount === 1 ? "" : "s"} on file
+                    {existingPortfolioCount >= 12
+                      ? ". That is the maximum, so you can continue without uploading more."
+                      : existingPortfolioCount >= 6
+                        ? `. You can add up to ${12 - existingPortfolioCount} more, or continue as is.`
+                        : `. Add at least ${6 - existingPortfolioCount} more to reach the 6 minimum.`}
+                  </p>
+                )}
+                {existingPortfolio.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Already uploaded ({existingPortfolio.length})</p>
+                    <div className="grid grid-cols-3 gap-2 border border-border p-3 rounded-xl bg-card shadow-sm">
+                      {existingPortfolio.map((img, idx) => (
+                        <div key={String(img.id)} className="relative aspect-square rounded-lg border border-border overflow-hidden bg-muted">
+                          {img.url ? (
+                            <img src={img.url} alt={`Saved portfolio image ${idx + 1}`} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                              <ImageIcon className="w-6 h-6" />
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            disabled={archivingPortfolioId !== null}
+                            onClick={() => archiveExistingPortfolioImage(img.id)}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                            title="Remove image"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <Field 
                   label="Sample works gallery" 
                   required 
@@ -2014,7 +2100,7 @@ export default function Register() {
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-xs">
                       <span className={cn("font-medium", portfolioFilesWithinLimits ? "text-emerald-600" : "text-destructive")}>
-                        {portfolioFiles.length} / 12 files selected (minimum 6)
+                        {portfolioTotalCount} / 12 total ({portfolioFiles.length} new, minimum 6 overall)
                       </span>
                       {!portfolioFilesValidSizes && (
                         <span className="text-destructive font-semibold flex items-center gap-1">
@@ -2281,12 +2367,12 @@ export default function Register() {
                       <div className="space-y-2 border-t border-border pt-3">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Showcase Gallery</span>
                         <div className="grid grid-cols-6 gap-1">
-                          {portfolioPreviews.slice(0, 12).map((previewUrl, i) => (
+                          {[...existingPortfolio.map((img) => img.url).filter((u): u is string => !!u), ...portfolioPreviews].slice(0, 12).map((previewUrl, i) => (
                             <div key={i} className="aspect-square rounded overflow-hidden bg-muted">
                               <img src={previewUrl} alt="gallery thumbnail" className="w-full h-full object-cover" />
                             </div>
                           ))}
-                          {Array.from({ length: Math.max(0, 6 - portfolioPreviews.length) }).map((_, i) => (
+                          {Array.from({ length: Math.max(0, 6 - portfolioTotalCount) }).map((_, i) => (
                             <div key={i} className="aspect-square rounded border border-dashed border-border bg-muted/20 flex items-center justify-center">
                               <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/30" />
                             </div>

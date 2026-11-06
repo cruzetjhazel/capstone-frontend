@@ -17,10 +17,13 @@ type ApplicationStatus = "draft" | "pending_review" | "revision_requested" | "ap
 interface ApplicationDetail {
   id: number;
   photographerType: "freelancer" | "studio";
+  isFreelancer: boolean;
+  isStudioOwner: boolean;
   status: ApplicationStatus;
   businessName: string | null;
   location: string | null;
   yearsActive: number | null;
+  freelanceYearsExperience: number | null;
   teamSize: number | null;
   services: string[];
   otherServices: string | null;
@@ -54,10 +57,13 @@ function fromApi(raw: any): ApplicationDetail {
   return {
     id: raw.id,
     photographerType: raw.photographer_type,
+    isFreelancer: Boolean(raw.is_freelancer ?? raw.photographer_type === "freelancer"),
+    isStudioOwner: Boolean(raw.is_studio_owner ?? raw.photographer_type === "studio"),
     status: raw.status,
     businessName: raw.business_name,
     location: raw.location,
     yearsActive: raw.years_active,
+    freelanceYearsExperience: raw.freelance_years_experience ?? null,
     teamSize: raw.team_size,
     services: raw.services ?? [],
     otherServices: raw.other_services,
@@ -209,7 +215,7 @@ export default function AdminReviewApplication() {
     );
   }
 
-  const isStudio = application.photographerType === "studio";
+  const isStudio = application.isStudioOwner;
   const displayName = application.businessName ?? application.applicant?.name ?? `Application #${application.id}`;
   const canReview = application.status === "pending_review";
   const canApprove = !application.checklist || application.checklist.summary.ready_for_approval;
@@ -233,7 +239,8 @@ export default function AdminReviewApplication() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-heading font-bold">{displayName}</h1>
-              <Badge variant="secondary" className="capitalize">{application.photographerType}</Badge>
+              {application.isFreelancer && <Badge variant="secondary">Freelancer</Badge>}
+              {application.isStudioOwner && <Badge variant="secondary">Studio Owner</Badge>}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               Application ID: {application.id} • Submitted {formatDate(application.submittedAt)}
@@ -310,6 +317,11 @@ export default function AdminReviewApplication() {
                   {application.yearsActive != null ? `${application.yearsActive} Years` : null}
                 </Field>
                 {isStudio && <Field label="Team Members">{application.teamSize}</Field>}
+                {isStudio && application.isFreelancer && (
+                  <Field label="Years of Freelance Experience">
+                    {application.freelanceYearsExperience != null ? `${application.freelanceYearsExperience} Years` : null}
+                  </Field>
+                )}
                 <Field label="Coverage Area">{application.coverageArea}</Field>
                 <Field label="Price Range">
                   {formatMoney(application.priceMin)} - {formatMoney(application.priceMax)}
