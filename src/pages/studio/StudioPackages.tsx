@@ -1512,21 +1512,22 @@ function CustomPackageDrawer({
           fixed pricing (see Booking.tsx), so leaving this visible doesn't
           hurt and avoids photographers losing already-configured tiers. */}
       <div className="space-y-4 pt-2 border-t border-border/50">
-        <div className="flex items-center justify-between pt-2">
-          <div>
-            <Label className="text-xs font-semibold">Price options</Label>
+        <div className="flex items-center justify-between gap-4 pt-2">
+          <div className="min-w-0">
+            <Label className="text-sm font-semibold">Price options</Label>
             <p className="text-[11px] text-muted-foreground mt-0.5">Choices that change the price, like how many hours or how many edited photos. Clients pick one from each group.</p>
           </div>
-          <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={() => setShowNewTierForm((v) => !v)}>
-            <Plus className="w-3 h-3" /> Add option group
+          <Button size="sm" className="h-9 px-4 text-xs gap-1.5 shrink-0" onClick={() => setShowNewTierForm(true)}>
+            <Plus className="w-4 h-4" /> Add option group
           </Button>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         {allTierNames.map((tierName) => {
           const options = tierGroups[tierName] ?? [];
           const staged = stagedByTier[tierName] ?? [];
           return (
-            <div key={tierName} className="pt-2">
+            <div key={tierName} className="min-w-0 rounded-lg border border-border/60 p-3">
               <Label className="text-xs font-semibold">{tierName}</Label>
               <p className="text-[11px] text-muted-foreground mt-0.5 mb-1">Clients pick one option from this tier. {tierCount(tierName)}/4 options.</p>
               <div className="space-y-2">
@@ -1540,12 +1541,14 @@ function CustomPackageDrawer({
                           <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
                           <span className="text-muted-foreground">+₱</span>
                           <Input type="number" className="w-24 h-7 text-xs font-semibold" value={editingFields.price === 0 ? "" : editingFields.price} onChange={(e) => setEditingFields((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
-                          <Input
-                            type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
-                            title="Coverage duration in minutes — only set this on the option representing how long you'll be shooting, not the client's whole event."
-                            value={editingFields.durationMinutes ?? ""}
-                            onChange={(e) => setEditingFields((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
-                          />
+                          {pricingModel === "fixed" && (
+                            <Input
+                              type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                              title="Coverage duration in minutes — only set this on the option representing how long you'll be shooting, not the client's whole event."
+                              value={editingFields.durationMinutes ?? ""}
+                              onChange={(e) => setEditingFields((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                            />
+                          )}
                           <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
                           <Button size="sm" className="h-7 text-[11px]" onClick={() => stageEdit(c)}>Done</Button>
                         </>
@@ -1592,12 +1595,14 @@ function CustomPackageDrawer({
                     <Input className="flex-1 h-7 text-xs" placeholder="e.g. 100+ photos, or 2 hours" value={newOption.label} onChange={(e) => setNewOption((prev) => ({ ...prev, label: e.target.value }))} />
                     <span className="text-muted-foreground">+₱</span>
                     <Input type="number" className="w-24 h-7 text-xs" value={newOption.price === 0 ? "" : newOption.price} onChange={(e) => setNewOption((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
-                    <Input
-                      type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
-                      title="Coverage duration in minutes — only fill this in if this option represents how long you'll be shooting (e.g. a '2 hours' Coverage Duration tier), not the client's whole event."
-                      value={newOption.durationMinutes ?? ""}
-                      onChange={(e) => setNewOption((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
-                    />
+                    {pricingModel === "fixed" && (
+                      <Input
+                        type="number" min={0} className="w-24 h-7 text-xs" placeholder="Min."
+                        title="Coverage duration in minutes — only fill this in if this option represents how long you'll be shooting (e.g. a '2 hours' Coverage Duration tier), not the client's whole event."
+                        value={newOption.durationMinutes ?? ""}
+                        onChange={(e) => setNewOption((prev) => ({ ...prev, durationMinutes: e.target.value === "" ? null : Number(e.target.value) }))}
+                      />
+                    )}
                     <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setAddOptionTier(null)}>Cancel</Button>
                     <Button size="sm" className="h-7 text-[11px] gap-1" onClick={() => submitAddOption(tierName)}>
                       <Plus className="w-3 h-3" /> Add
@@ -1612,40 +1617,56 @@ function CustomPackageDrawer({
             </div>
           );
         })}
+        </div>
 
-        {showNewTierForm && (
-          <div className="pt-2 border-t border-border/50 space-y-2">
-            <Input className="h-8 text-xs font-semibold" placeholder="Tier name (e.g. Edited Photos, or Coverage Duration)" value={newTier.tierName} onChange={(e) => setNewTier((prev) => ({ ...prev, tierName: e.target.value }))} />
-            <p className="text-[11px] text-muted-foreground -mt-1">
-              Only fill in "Min." for a tier where each option represents how long you'll actually be shooting (e.g. a "Coverage Duration" tier with "2 hours" / "4 hours" options) — this is the photography service time, not the length of the client's whole event. Leave it blank for every other tier (photo count, delivery speed, etc.).
-            </p>
-            {newTier.options.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <Input className="flex-1 h-7 text-xs" placeholder="Option label" value={opt.label} onChange={(e) => updateNewTierOption(i, { label: e.target.value })} />
-                <span className="text-muted-foreground">+₱</span>
-                <Input type="number" className="w-24 h-7 text-xs" value={opt.price === 0 ? "" : opt.price} onChange={(e) => updateNewTierOption(i, { price: e.target.value === "" ? 0 : Number(e.target.value) })} />
-                <Input
-                  type="number" min={0} className="w-20 h-7 text-xs" placeholder="Min."
-                  value={opt.durationMinutes ?? ""}
-                  onChange={(e) => updateNewTierOption(i, { durationMinutes: e.target.value === "" ? null : Number(e.target.value) })}
-                />
-                {newTier.options.length > 1 && (
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeNewTierOptionRow(i)}><X className="w-3.5 h-3.5" /></Button>
-                )}
-              </div>
-            ))}
+        {showNewTierForm && createPortal(
+          <ModalShell
+            title="Add Price Option Group"
+            icon={<Tag className="w-5 h-5 text-primary" />}
+            onClose={() => setShowNewTierForm(false)}
+            maxWidth="max-w-lg"
+          >
+            <div className="space-y-1">
+              <Label className="text-xs">Group name</Label>
+              <Input className="h-9 text-sm font-semibold" placeholder="Tier name (e.g. Edited Photos, or Coverage Duration)" value={newTier.tierName} onChange={(e) => setNewTier((prev) => ({ ...prev, tierName: e.target.value }))} />
+            </div>
+            {pricingModel === "fixed" && (
+              <p className="text-[11px] text-muted-foreground">
+                Only fill in "Min." for a tier where each option represents how long you'll actually be shooting (e.g. a "Coverage Duration" tier with "2 hours" / "4 hours" options) — this is the photography service time, not the length of the client's whole event. Leave it blank for every other tier (photo count, delivery speed, etc.).
+              </p>
+            )}
+            <div className="space-y-2">
+              {newTier.options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <Input className="flex-1 h-9 text-sm" placeholder="Option label" value={opt.label} onChange={(e) => updateNewTierOption(i, { label: e.target.value })} />
+                  <span className="text-muted-foreground">+₱</span>
+                  <Input type="number" className="w-24 h-9 text-sm" value={opt.price === 0 ? "" : opt.price} onChange={(e) => updateNewTierOption(i, { price: e.target.value === "" ? 0 : Number(e.target.value) })} />
+                  {pricingModel === "fixed" && (
+                    <Input
+                      type="number" min={0} className="w-20 h-9 text-sm" placeholder="Min."
+                      value={opt.durationMinutes ?? ""}
+                      onChange={(e) => updateNewTierOption(i, { durationMinutes: e.target.value === "" ? null : Number(e.target.value) })}
+                    />
+                  )}
+                  {newTier.options.length > 1 && (
+                    <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10" onClick={() => removeNewTierOptionRow(i)}><X className="w-3.5 h-3.5" /></Button>
+                  )}
+                </div>
+              ))}
+            </div>
             {newTier.options.length < 4 && (
-              <Button size="sm" variant="ghost" className="h-7 text-[11px] gap-1" onClick={addNewTierOptionRow}>
+              <Button size="sm" variant="outline" className="h-8 text-xs gap-1 self-start" onClick={addNewTierOptionRow}>
                 <Plus className="w-3 h-3" /> Add Option ({newTier.options.length}/4)
               </Button>
             )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowNewTierForm(false)}>Cancel</Button>
-              <Button size="sm" className="h-8 text-xs gap-1" onClick={submitNewTier}>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => setShowNewTierForm(false)}>Cancel</Button>
+              <Button size="sm" className="gap-1.5" onClick={submitNewTier}>
                 <Plus className="w-3.5 h-3.5" /> Add Tier
               </Button>
             </div>
-          </div>
+          </ModalShell>,
+          document.body
         )}
       </div>
 
@@ -1660,12 +1681,12 @@ function CustomPackageDrawer({
             <Plus className="w-3 h-3" /> Add Extra
           </Button>
         </div>
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-start">
           {flatOptions.map((c) => {
             const v = viewOf(c);
             const edited = !!stagedEdits[c.id];
             return (
-              <div key={c.id} className={cn("flex items-center gap-2 p-2.5 rounded-lg border text-xs", edited ? "border-dashed border-primary/40 bg-primary/5" : "border-border bg-muted/10")}>
+              <div key={c.id} className={cn("flex items-center gap-2 p-2.5 rounded-lg border text-xs", editingId === c.id && "col-span-full", edited ? "border-dashed border-primary/40 bg-primary/5" : "border-border bg-muted/10")}>
                 {editingId === c.id ? (
                   <>
                     <Input className="flex-1 h-7 text-xs" value={editingFields.label} onChange={(e) => setEditingFields((prev) => ({ ...prev, label: e.target.value }))} />
@@ -1701,10 +1722,10 @@ function CustomPackageDrawer({
             </div>
           ))}
           {flatOptions.length === 0 && stagedFlat.length === 0 && !showFlatForm && (
-            <p className="text-[11px] text-muted-foreground italic">No custom extras yet.</p>
+            <p className="col-span-full text-[11px] text-muted-foreground italic">No custom extras yet.</p>
           )}
           {showFlatForm && (
-            <div className="flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 text-xs">
+            <div className="col-span-full flex items-center gap-2 p-2.5 rounded-lg border border-dashed border-primary/40 text-xs">
               <Input className="flex-1 h-7 text-xs" placeholder="e.g. Include RAW Files" value={newFlat.label} onChange={(e) => setNewFlat((prev) => ({ ...prev, label: e.target.value }))} />
               <span className="text-muted-foreground">+₱</span>
               <Input type="number" className="w-24 h-7 text-xs" value={newFlat.price === 0 ? "" : newFlat.price} onChange={(e) => setNewFlat((prev) => ({ ...prev, price: e.target.value === "" ? 0 : Number(e.target.value) }))} />
