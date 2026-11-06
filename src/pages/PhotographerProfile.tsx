@@ -466,13 +466,13 @@ export default function PhotographerProfile() {
         {/* Experience & Shooting Types */}
         {(p.yearsActive != null || coverageLabel(p.coverageArea) || (p.shootingTypes && p.shootingTypes.length > 0)) && (
           <Reveal>
-          <div className={cn(sectionCard, "px-6 py-5 grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-5")}>
+          <div className={cn(sectionCard, "px-6 py-5 grid grid-cols-1 sm:grid-cols-4 gap-x-6 gap-y-5")}>
             {p.yearsActive != null && (
               <div>
                 <span className={sectionLabel}>
                   <Calendar className="w-4 h-4" /> Experience
                 </span>
-                <p className="mt-2 text-lg font-heading font-semibold">
+                <p className="mt-2 text-sm sm:text-[15px] font-medium text-foreground">
                   {p.yearsActive} {p.yearsActive === 1 ? "year" : "years"}
                 </p>
               </div>
@@ -482,7 +482,7 @@ export default function PhotographerProfile() {
                 <span className={sectionLabel}>
                   <Camera className="w-4 h-4" /> Team Size
                 </span>
-                <p className="mt-2 text-lg font-heading font-semibold">
+                <p className="mt-2 text-sm sm:text-[15px] font-medium text-foreground">
                   {p.teamSize} {p.teamSize === 1 ? "member" : "members"}
                 </p>
               </div>
@@ -492,7 +492,7 @@ export default function PhotographerProfile() {
                 <span className={sectionLabel}>
                   <Globe className="w-4 h-4" /> Areas Covered
                 </span>
-                <p className="mt-2 text-lg font-heading font-semibold">{coverageLabel(p.coverageArea)}</p>
+                <p className="mt-2 text-sm sm:text-[15px] font-medium text-foreground">{coverageLabel(p.coverageArea)}</p>
               </div>
             )}
             {p.shootingTypes && p.shootingTypes.length > 0 && (
@@ -500,7 +500,7 @@ export default function PhotographerProfile() {
                 <span className={sectionLabel}>
                   <Camera className="w-4 h-4" /> Shooting Types Supported
                 </span>
-                <div className="mt-2.5 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-1.5">
                   {p.shootingTypes.map((t) => (
                     <span key={t} className={chip}>
                       {t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
