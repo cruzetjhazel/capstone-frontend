@@ -41,7 +41,7 @@ const roles = [
 ];
 
 const team = [
-  { name: "Jhazel G. Cruzet", role: "Lead Developer & Programmer" },
+  { name: "Jhazel G. Cruzet", role: "Developer" },
   { name: "Erica G. Muring", role: "Project Manager" },
   { name: "Chariza Mae Demetrial", role: "Technical Writer" },
   { name: "Patrick B. Palacio", role: "System Analyst" },
