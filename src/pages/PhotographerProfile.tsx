@@ -75,7 +75,8 @@ export default function PhotographerProfile() {
   const { data: favoritePhotographers = [], isLoading: favoritesLoading } = useFavorites();
   const addFavorite = useAddFavorite();
   const removeFavorite = useRemoveFavorite();
-  const isFavorite = (id: string) => favoritePhotographers.some((f) => f.photographerId === id);
+    const isFavorite = (id: string) => favoritePhotographers.some((f) => String(f.photographerId) === String(id));
+  const [favCooldown, setFavCooldown] = useState(false);
   const { user, role } = useRole();
 
   // A photographer previewing their own page sees what is blocking bookings.
@@ -89,11 +90,11 @@ export default function PhotographerProfile() {
   const isPackageFavorite = (pkgId: number) => favoritePackages.some((f) => f.packageId === String(pkgId));
   const toggleFavoritePackage = (pkg: any) => {
     if (!user) {
-      toast.error("Please log in or create an account to save packages.");
+      toast.error("Please log in or create an account to save packages.", { id: "pkg-fav-login-required" });
       return;
     }
     if (role !== "client") {
-      toast.error("Only client accounts can save packages.");
+      toast.error("Only client accounts can save packages.", { id: "pkg-fav-role-required" });
       return;
     }
     const id = String(pkg.id);
@@ -286,18 +287,24 @@ export default function PhotographerProfile() {
               size="icon"
               aria-label={isFav ? "Remove from favorites" : "Add to favorites"}
               className="active:scale-75 transition-all duration-200"
-              disabled={favoritesLoading || addFavorite.isPending || removeFavorite.isPending}
+              disabled={favoritesLoading || favCooldown || addFavorite.isPending || removeFavorite.isPending}
               onClick={() => {
+                setFavCooldown(true);
+                setTimeout(() => setFavCooldown(false), 2000);
                 if (!user) {
-                  toast.error("Please log in or create an account to save favorites.");
+                  toast.error("Please log in or create an account to save favorites.", { id: "fav-login-required" });
                   return;
                 }
                 if (isFav) {
-                  removeFavorite.mutate(p.id);
-                  toast(`${p.name} removed from favorites.`);
+                  removeFavorite.mutate(p.id, {
+                    onSuccess: () => toast(`${p.name} removed from favorites.`),
+                    onError: () => toast.error("Could not remove from favorites. Please try again."),
+                  });
                 } else {
-                  addFavorite.mutate(p.id);
-                  toast.success(`${p.name} added to favorites!`);
+                  addFavorite.mutate(p.id, {
+                    onSuccess: () => toast.success(`${p.name} added to favorites!`),
+                    onError: () => toast.error("Could not add to favorites. Please try again."),
+                  });
                 }
               }}
             >
