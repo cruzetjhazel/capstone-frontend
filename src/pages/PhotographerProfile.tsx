@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { 
   Star, MapPin, Camera, Check, ArrowLeft, Image, MessageCircle, 
-  Calendar, Globe, Tag, Heart, AlertTriangle, X, Paperclip, Palette, Wrench, Phone, Mail, Search
+  Calendar, Globe, Tag, Heart, AlertTriangle, X, Paperclip, Palette, Wrench, Phone, Mail, Search,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { FaFacebook as Facebook, FaInstagram as Instagram } from "react-icons/fa";
 import { Link, useParams, useNavigate } from "react-router-dom";
@@ -145,6 +146,25 @@ export default function PhotographerProfile() {
 
   const [activeTab, setActiveTab] = useState<"portfolio" | "packages" | "reviews">("portfolio");
   const [showAllReviews, setShowAllReviews] = useState(false);
+
+  // Portfolio lightbox: index of the photo being viewed, or null when closed.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const portfolioCount = photographer?.portfolio?.length ?? 0;
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxIndex(null);
+      else if (e.key === "ArrowRight") setLightboxIndex((i) => (i === null || portfolioCount === 0 ? i : (i + 1) % portfolioCount));
+      else if (e.key === "ArrowLeft") setLightboxIndex((i) => (i === null || portfolioCount === 0 ? i : (i - 1 + portfolioCount) % portfolioCount));
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [lightboxIndex, portfolioCount]);
 
   // Fixed package search / filter state
   const [packageSearch, setPackageSearch] = useState("");
@@ -556,14 +576,19 @@ export default function PhotographerProfile() {
             {p.portfolio.length > 0 ? (
               p.portfolio.map((url, i) => (
                 <Reveal key={i} delay={(i % 4) * 70}>
-                  <div className="group aspect-[4/3] rounded-xl overflow-hidden bg-muted">
+                  <button
+                    type="button"
+                    onClick={() => setLightboxIndex(i)}
+                    aria-label={`View portfolio photo ${i + 1}`}
+                    className="group block w-full aspect-[4/3] rounded-xl overflow-hidden bg-muted cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
                     <img
                       src={url}
                       alt={`Portfolio ${i + 1}`}
                       loading="lazy"
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
-                  </div>
+                  </button>
                 </Reveal>
               ))
             ) : (
@@ -830,6 +855,59 @@ export default function PhotographerProfile() {
           </button>
         </div>
       </div>
+
+      {/* --- PORTFOLIO LIGHTBOX --- */}
+      {lightboxIndex !== null && p.portfolio[lightboxIndex] && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 animate-fade-in p-4"
+          onClick={() => setLightboxIndex(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Portfolio photo viewer"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxIndex(null)}
+            aria-label="Close"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {p.portfolio.length > 1 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex((lightboxIndex - 1 + p.portfolio.length) % p.portfolio.length); }}
+              aria-label="Previous photo"
+              className="absolute left-3 sm:left-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+
+          <img
+            src={p.portfolio[lightboxIndex]}
+            alt={`Portfolio ${lightboxIndex + 1}`}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+          />
+
+          {p.portfolio.length > 1 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex((lightboxIndex + 1) % p.portfolio.length); }}
+              aria-label="Next photo"
+              className="absolute right-3 sm:right-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          )}
+
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-white/10 text-white text-xs font-medium">
+            {lightboxIndex + 1} / {p.portfolio.length}
+          </div>
+        </div>
+      )}
 
       {/* --- REPORT PROFILE MODAL --- */}
       {showReportModal && (
