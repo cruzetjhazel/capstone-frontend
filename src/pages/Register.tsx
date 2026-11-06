@@ -251,6 +251,36 @@ export default function Register() {
     businessPermit: false,
     additionalDocuments: 0,
   });
+  // Preview of a document already on file (government ID, selfie, permit, additional proof).
+  const [docPreview, setDocPreview] = useState<{ title: string; url: string; isImage: boolean } | null>(null);
+  const [loadingDocKey, setLoadingDocKey] = useState<string | null>(null);
+
+  const viewExistingDocument = async (key: string, path: string, title: string) => {
+    if (loadingDocKey) return;
+    setLoadingDocKey(key);
+    try {
+      const response = await fetch(`${API_BASE}/photographer/application/${path}`, {
+        method: "GET",
+        headers: authHeaders(false),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || "Could not load that document.");
+      }
+      const blob = await response.blob();
+      setDocPreview({ title, url: URL.createObjectURL(blob), isImage: blob.type.startsWith("image/") });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not load that document.");
+    } finally {
+      setLoadingDocKey(null);
+    }
+  };
+
+  const closeDocPreview = () => {
+    if (docPreview) URL.revokeObjectURL(docPreview.url);
+    setDocPreview(null);
+  };
+
   // Active portfolio images already saved for this application (resume / revision).
   const [existingPortfolio, setExistingPortfolio] = useState<{ id: number | string; url: string | null }[]>([]);
   const existingPortfolioCount = existingPortfolio.length;
@@ -1884,6 +1914,32 @@ export default function Register() {
                 Help our admins confirm you're a real professional. Documents are private and reviewed by admin only.
               </p>
 
+              {docPreview && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-md p-4">
+                  <div className="bg-card w-full max-w-2xl rounded-xl shadow-2xl border border-border/50 flex flex-col overflow-hidden max-h-[85vh]">
+                    <div className="px-5 py-3 border-b border-border/50 flex items-center justify-between bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary" />
+                        <h3 className="text-sm font-heading font-bold">{docPreview.title}</h3>
+                      </div>
+                      <button type="button" onClick={closeDocPreview} className="text-muted-foreground hover:text-foreground">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-4 flex-1 bg-muted/10 flex items-center justify-center overflow-auto min-h-[300px]">
+                      {docPreview.isImage ? (
+                        <img src={docPreview.url} alt={docPreview.title} className="max-w-full max-h-[65vh] object-contain" />
+                      ) : (
+                        <iframe src={docPreview.url} title={docPreview.title} className="w-full h-[65vh] rounded-md border border-border" />
+                      )}
+                    </div>
+                    <div className="px-5 py-3 border-t border-border/50 flex justify-end">
+                      <Button type="button" size="sm" onClick={closeDocPreview}>Close</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <form className="space-y-5" onSubmit={handleStep5Submit}>
                 <FileField
                   label="Government ID (front)"
@@ -1894,6 +1950,8 @@ export default function Register() {
                   onChange={setGovId}
                   accept={DOC_ACCEPT}
                   alreadyUploaded={existingDocs.governmentId}
+                  onViewExisting={() => viewExistingDocument("government_id", "documents/government_id", "Government ID")}
+                  viewingExisting={loadingDocKey === "government_id"}
                 />
 
                 <FileField
@@ -1905,6 +1963,8 @@ export default function Register() {
                   onChange={setSelfieId}
                   accept={IMAGE_ACCEPT}
                   alreadyUploaded={existingDocs.selfieWithId}
+                  onViewExisting={() => viewExistingDocument("selfie_with_id", "documents/selfie_with_id", "Selfie holding ID")}
+                  viewingExisting={loadingDocKey === "selfie_with_id"}
                 />
 
                 {accountType === "studio" && (
@@ -1915,6 +1975,8 @@ export default function Register() {
                     onChange={setBusinessPermit}
                     accept={DOC_ACCEPT}
                     alreadyUploaded={existingDocs.businessPermit}
+                    onViewExisting={() => viewExistingDocument("business_permit", "documents/business_permit", "Business permit / DTI registration")}
+                    viewingExisting={loadingDocKey === "business_permit"}
                   />
                 )}
 
@@ -1952,6 +2014,35 @@ export default function Register() {
                         : `${additionalProof.length} / 5 files selected (minimum 2)`}
                     </span>
                   </div>
+
+                  {existingDocs.additionalDocuments > 0 && (
+                    <div className="space-y-2 mb-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Currently on file ({existingDocs.additionalDocuments})
+                        {additionalProof.length > 0 ? " — these will be replaced by your new upload" : ""}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {Array.from({ length: existingDocs.additionalDocuments }).map((_, i) => (
+                          <div key={i} className="flex items-center gap-3 p-3 border border-border rounded-xl bg-card shadow-sm">
+                            <div className="w-10 h-10 shrink-0 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <p className="text-sm font-medium flex-1 truncate">Additional document {i + 1}</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 shrink-0"
+                              disabled={loadingDocKey !== null}
+                              onClick={() => viewExistingDocument(`additional_${i}`, `additional-documents/${i}`, `Additional document ${i + 1}`)}
+                            >
+                              <Eye className="w-3.5 h-3.5" /> {loadingDocKey === `additional_${i}` ? "Loading…" : "View"}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {additionalProof.length > 0 && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2536,11 +2627,16 @@ function IconInput({ icon: Icon, value, onChange, placeholder }: {
   );
 }
 
-function FileField({ label, required, hint, error, file, onChange, accept, alreadyUploaded }: {
+function FileField({ label, required, hint, error, file, onChange, accept, alreadyUploaded, onViewExisting, viewingExisting }: {
   label: string; required?: boolean; hint?: string; error?: React.ReactNode; file: File | null; onChange: (f: File | null) => void; accept?: string; alreadyUploaded?: boolean;
+  onViewExisting?: () => void; viewingExisting?: boolean;
 }) {
   const showsExisting = !file && alreadyUploaded;
   const [sizeError, setSizeError] = useState<string | null>(null);
+  // The View button lives inside the label, and a button counts as the label's
+  // target. Point the label at the file input explicitly so clicking the box
+  // opens the file picker instead of triggering View.
+  const inputId = useId();
   return (
     <Field
       label={label}
@@ -2548,7 +2644,7 @@ function FileField({ label, required, hint, error, file, onChange, accept, alrea
       hint={hint ? `${hint}. Maximum file size: ${MAX_UPLOAD_LABEL}.` : `Maximum file size: ${MAX_UPLOAD_LABEL}.`}
       error={sizeError ?? error}
     >
-      <label className={cn("border-2 border-dashed rounded-xl p-4 hover:border-primary/30 transition-colors cursor-pointer flex items-center gap-3", error ? "border-red-500" : "border-border")}>
+      <label htmlFor={inputId} className={cn("border-2 border-dashed rounded-xl p-4 hover:border-primary/30 transition-colors cursor-pointer flex items-center gap-3", error ? "border-red-500" : "border-border")}>
         <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", (file || showsExisting) ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
           <CheckCircle2 className="w-5 h-5" style={{ display: file || showsExisting ? undefined : "none" }} />
           <FileText className="w-5 h-5" style={{ display: file || showsExisting ? "none" : undefined }} />
@@ -2561,7 +2657,17 @@ function FileField({ label, required, hint, error, file, onChange, accept, alrea
             {file ? `${(file.size / 1024).toFixed(0)} KB` : showsExisting ? "On file from your previous submission" : "JPG, PNG, or PDF"}
           </p>
         </div>
-        <input type="file" accept={accept} className="hidden"
+        {showsExisting && onViewExisting && (
+          <button
+            type="button"
+            disabled={viewingExisting}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onViewExisting(); }}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <Eye className="w-3.5 h-3.5" /> {viewingExisting ? "Loading…" : "View"}
+          </button>
+        )}
+        <input id={inputId} type="file" accept={accept} className="hidden"
           onChange={(e) => {
             const picked = e.target.files?.[0] || null;
             e.target.value = "";
