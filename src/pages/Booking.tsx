@@ -2177,26 +2177,42 @@ export default function Booking() {
                     )}
 
                     {rates.hourlyRate == null && !isUnitModel && (
-                      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs flex items-start gap-2">
-                        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                        <span>These rates are set by <strong>{p.name}</strong>. Base fee starts at {formatPrice(rates.baseFee)}.</span>
+                      <div className="p-4 rounded-lg bg-primary/10 border border-primary/30 border-l-4 border-l-primary flex items-center justify-between gap-4">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                          <p className="text-sm text-muted-foreground">
+                            These rates are set by <strong className="text-foreground">{p.name}</strong>.
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Base fee starts at</p>
+                          <p className="text-xl font-heading font-bold text-primary">{formatPrice(rates.baseFee)}</p>
+                        </div>
                       </div>
                     )}
 
                     {isUnitModel && (
-                      <div className="p-4 rounded-xl border border-border space-y-3">
-                        <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs flex items-start gap-2">
-                          <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                          <span>
-                            These rates are set by <strong>{p.name}</strong>:{" "}
-                            {rates.pricingModel === "per_day"
-                              ? `${formatPrice(unitRate)} per event day. Two sessions on the same date count as one day.`
-                              : `${formatPrice(unitRate)} per person covered.`}
+                    <div className="p-4 rounded-xl border border-border space-y-3">
+                      <div className="p-4 rounded-lg bg-primary/10 border border-primary/30 border-l-4 border-l-primary flex items-center justify-between gap-4">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <p>These rates are set by <strong className="text-foreground">{p.name}</strong>.</p>
+                          <p className="text-xs">
+                            {rates.pricingModel === "per_day" && "Two sessions on the same date count as one day. "}
                             {rates.coverageHours
-                              ? ` Coverage is ${rates.coverageHours} hour${rates.coverageHours === 1 ? "" : "s"} per session.`
-                              : " The coverage length per session is confirmed by the photographer after you book."}
-                          </span>
+                              ? `Coverage is ${rates.coverageHours} hour${rates.coverageHours === 1 ? "" : "s"} per session.`
+                              : "The coverage length per session is confirmed by the photographer after you book."}
+                          </p>
                         </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          {rates.pricingModel === "per_day" ? "Rate per event day" : "Rate per person"}
+                        </p>
+                        <p className="text-xl font-heading font-bold text-primary">{formatPrice(unitRate)}</p>
+                      </div>
+                    </div>
                         {rates.pricingModel === "per_person" && (
                           <div className="space-y-1.5">
                             <Label className="text-sm font-medium">Number of people to be covered</Label>
