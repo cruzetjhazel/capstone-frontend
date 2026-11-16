@@ -304,8 +304,12 @@ export default function Register() {
   const revealErrors = () => {
     setShowErrors(true);
     // First problem, in field order, so the user also sees it if the field is off-screen.
-    const first = Object.values(raw)[0]?.msg;
-    if (typeof first === "string") toast.error(first, { id: "form-error" });
+    const all = Object.values(raw);
+    if (all.length === 1 && typeof all[0].msg === "string") {
+      toast.error(all[0].msg, { id: "form-error" });
+    } else if (all.length > 0) {
+      toast.error(`Please fix the ${all.length} highlighted fields.`, { id: "form-error" });
+    }
     setTimeout(() => {
       document
         .querySelector<HTMLElement>('[data-field-error="true"]')
