@@ -1243,9 +1243,11 @@ export default function Register() {
             <CheckCircle2 className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-2xl font-heading font-bold mb-2">Check your email</h1>
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8">
-            Thank you for registering! If your registration can proceed, check your email for the next steps.
-            After you open the link, sign in to continue.
+          <p className="text-muted-foreground text-sm leading-relaxed mb-3">
+            Thank you for registering! Check your email for a link to verify your account. You can sign in anytime, but you need to verify your email before you can book.
+          </p>
+          <p className="text-muted-foreground/80 text-xs leading-relaxed mb-8">
+            Didn't get it? Check your spam folder, or try signing in if you already have an account.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button asChild variant="outline" className="flex-1"><Link to="/">Back to home</Link></Button>
