@@ -27,6 +27,7 @@ import { useRole } from "@/contexts/RoleContext";
 import { Pagination, PillTabs, usePagination } from "@/components/ListPagination";
 import { useNotifications, useNotificationActions } from "@/hooks/useNotifications";
 import type { AppNotification } from "@/services/notificationService";
+import { getNotificationLink } from "@/lib/notificationLinks";
 
 type NotifType = AppNotification["type"];
 
@@ -217,18 +218,18 @@ export default function Notifications() {
                     <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono">
                       {n.time}
                     </p>
-
+                    
                     {/* Contextual Quick Actions */}
-                    {n.bookingId && (
+                    {(
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {n.action === "pay" && role === "client" && (
+                                                {n.action === "pay" && n.bookingId && role === "client" && (
                           <Link to={`/booking/${n.bookingId}/pay`}>
                             <Button size="sm" className="gap-1.5 h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">
                               <Wallet className="w-3.5 h-3.5" /> Pay Deposit / Balance
                             </Button>
                           </Link>
                         )}
-                        <Link to={role === "admin" ? (n.title.includes("Dispute") ? "/admin/reports" : "/admin/bookings") : detailsPath(n.bookingId)}>
+                        <Link to={getNotificationLink(n, user)}>
                           <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs rounded-lg">
                             <FileText className="w-3.5 h-3.5" /> View Details
                           </Button>

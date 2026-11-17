@@ -10,6 +10,7 @@ import {
   useUnreadNotificationCount,
 } from "@/hooks/useNotifications";
 import type { AppNotification } from "@/services/notificationService";
+import { getNotificationLink } from "@/lib/notificationLinks";
 
 const RECENT_LIMIT = 5;
 
@@ -72,9 +73,9 @@ export function NotificationBell({ onDark = false }: { onDark?: boolean }) {
 
   const handleOpen = (n: AppNotification) => {
     markViewed(n);
-    if (role === "admin" && n.bookingId) {
+    if (role === "admin") {
       setOpen(false);
-      navigate(n.title.includes("Dispute") ? "/admin/reports" : "/admin/bookings");
+      navigate(getNotificationLink(n, user));
     }
   };
 
@@ -162,16 +163,16 @@ export function NotificationBell({ onDark = false }: { onDark?: boolean }) {
                         {formatFullDate(n.createdAt)} • {n.time}
                       </p>
 
-                      {n.bookingId && role !== "admin" && (
+                      {(
                         <div className="flex flex-wrap gap-2 mt-2">
-                          {n.action === "pay" && role === "client" && (
+                          {n.action === "pay" && n.bookingId && role === "client" && (
                             <Link to={`/booking/${n.bookingId}/pay`} onClick={() => setOpen(false)}>
                               <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white">
                                 <Wallet className="w-3 h-3" /> Pay Now
                               </span>
                             </Link>
                           )}
-                          <Link to={detailsPath(n.bookingId)} onClick={() => setOpen(false)}>
+                          <Link to={getNotificationLink(n, user)} onClick={() => setOpen(false)}>
                             <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11px] font-semibold border border-border hover:bg-muted">
                               <FileText className="w-3 h-3" /> View Details
                             </span>
