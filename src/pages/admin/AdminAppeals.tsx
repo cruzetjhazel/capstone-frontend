@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PillTabs } from "@/components/ListPagination";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,23 @@ export default function AdminAppeals() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filter]);
 
+  // Deep link from a notification: /admin/appeals?open=<appeal id>
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (!id) return;
+    setFilter(""); // show All so the appeal is visible whatever its status
+    setHighlightId(Number(id));
+    setSearchParams({}, { replace: true });
+  }, [searchParams]);
+  useEffect(() => {
+    if (highlightId == null || loading) return;
+    document.getElementById(`appeal-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setHighlightId(null), 4000);
+    return () => clearTimeout(t);
+  }, [highlightId, loading, appeals]);
+
   const decide = async (a: Appeal, decision: "approve" | "deny") => {
     const response = (responses[a.id] ?? "").trim();
     if (decision === "deny" && !response) {
@@ -98,7 +116,13 @@ export default function AdminAppeals() {
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
             {appeals.map((a) => (
-              <div key={a.id} className="bg-card border border-border/50 rounded-xl shadow-sm p-5 space-y-4">
+              <div
+                key={a.id}
+                id={`appeal-${a.id}`}
+                className={`bg-card border rounded-xl shadow-sm p-5 space-y-4 transition-shadow ${
+                  highlightId === a.id ? "border-primary ring-2 ring-primary/40" : "border-border/50"
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-semibold">{a.user.name}</p>
