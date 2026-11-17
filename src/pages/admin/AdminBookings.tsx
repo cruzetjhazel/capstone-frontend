@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -173,7 +174,28 @@ export default function AdminBookings() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [noShowNotes, setNoShowNotes] = useState("");
   const [isResolving, setIsResolving] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  // Deep link from a notification: /admin/bookings?open=<booking raw id>
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (!id || isLoading) return;
+    setSearchParams({}, { replace: true });
+    const onPage = bookings.find((b) => String(b.rawId) === id);
+    if (onPage) {
+      setViewBooking(onPage);
+      return;
+    }
+    // Not on the current page: look it up by search.
+    api.get("/admin/bookings", { params: { search: id, per_page: 50 } })
+      .then((res) => {
+        const env = unwrapObject(res.data);
+        const found = unwrapList(env.bookings ?? env).map(fromApi).find((b) => String(b.rawId) === id);
+        if (found) setViewBooking(found);
+        else toast.error("That booking could not be found.");
+      })
+      .catch(() => toast.error("That booking could not be loaded."));
+  }, [searchParams, isLoading, bookings]);
   // Studio filter options — reuse the existing user-management endpoint.
   useEffect(() => {
     api.get("/admin/users", { params: { account_type: "photographer", account_status: "active" } })
