@@ -9,6 +9,7 @@ interface RawNotification {
   title: string;
   description: string;
   booking_id: string | null;
+  application_id?: string | null;
   action: NotificationActionKind;
   read: boolean;
   created_at: string;
@@ -23,6 +24,7 @@ export interface AppNotification {
   createdAt: string;
   read: boolean;
   bookingId: string | null;
+  applicationId: string | null;
   action: NotificationActionKind;
 }
 
@@ -48,6 +50,7 @@ function toAppNotification(raw: RawNotification): AppNotification {
     createdAt: raw.created_at,
     read: raw.read,
     bookingId: raw.booking_id,
+    applicationId: raw.application_id ?? null,
     action: raw.action,
   };
 }
