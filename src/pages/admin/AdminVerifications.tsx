@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
   Search, Clock, ArrowRight, CheckCircle2, XCircle,
@@ -27,6 +28,7 @@ export interface ApplicationRecord {
   businessName: string | null;
   location: string | null;
   yearsActive: number | null;
+  freelanceYearsExperience?: number | null;
   teamSize: number | null;
   services: string[] | null;
   otherServices: string | null;
@@ -122,6 +124,17 @@ export default function AdminVerification() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewApp, setViewApp] = useState<ApplicationRecord | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from a notification: /admin/verifications?open=27
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (!id || isLoading) return;
+    const target = apps.find((a) => String(a.id) === id);
+    if (target) setViewApp(target);
+    else toast.error("That application could not be found.");
+    setSearchParams({}, { replace: true });
+  }, [searchParams, isLoading, apps]);
 
   // The list rows only carry summary data. The modal loads the full record (checklist,
   // documents, portfolio, profile) from the single-application endpoint when it opens.
