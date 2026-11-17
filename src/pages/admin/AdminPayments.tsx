@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import {
   PhilippinePeso, Clock, Search, Filter,
@@ -76,6 +77,17 @@ export default function AdminPayments() {
   const [selectedPayment, setSelectedPayment] = useState<AdminPayment | null>(null);
   const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from a notification: /admin/payments?open=<payment id>
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (!id || isLoading) return;
+    const target = payments.find((p) => String(p.id) === id);
+    if (target) setSelectedPayment(target);
+    else toast({ title: "That payment could not be found.", variant: "destructive" });
+    setSearchParams({}, { replace: true });
+  }, [searchParams, isLoading, payments]);
 
   const { verifiedRevenue, pendingReviewAmount } = useMemo(() => {
     return payments.reduce(
