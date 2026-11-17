@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { 
   Search, Filter, ShieldAlert, AlertTriangle, 
@@ -197,6 +198,27 @@ export default function AdminReports() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [isAddingNote, setIsAddingNote] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from a notification: /admin/reports?open=<report raw id>
+  useEffect(() => {
+    const id = searchParams.get("open");
+    if (!id || isLoading) return;
+    setSearchParams({}, { replace: true });
+    const onPage = reports.find((r) => String(r.rawId) === id);
+    if (onPage) {
+      setSelectedReport(onPage);
+      return;
+    }
+    api.get("/admin/reports", { params: { search: `RPT-${id.padStart(5, "0")}`, per_page: 10 } })
+      .then((res) => {
+        const env = unwrapObject(res.data);
+        const found = unwrapList(env.reports ?? env).map(fromApi).find((r) => String(r.rawId) === id);
+        if (found) setSelectedReport(found);
+        else toast.error("That report could not be found.");
+      })
+      .catch(() => toast.error("That report could not be loaded."));
+  }, [searchParams, isLoading, reports]);
 
   const fetchReports = () => {
     setIsLoading(true);
