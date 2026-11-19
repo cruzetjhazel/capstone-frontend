@@ -311,18 +311,6 @@ export default function AdminUsers() {
             />
           </div>
 
-          <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-full md:w-[150px] h-10 rounded-xl bg-card">
-              <SelectValue placeholder="All Roles" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Roles</SelectItem>
-              <SelectItem value="client">Client</SelectItem>
-              <SelectItem value="photographer">Photographer</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
-
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
             <SelectTrigger className="w-full md:w-[150px] h-10 rounded-xl bg-card">
               <SelectValue placeholder="All Statuses" />

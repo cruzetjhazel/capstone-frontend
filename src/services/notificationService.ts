@@ -10,6 +10,9 @@ interface RawNotification {
   description: string;
   booking_id: string | null;
   application_id?: string | null;
+  appeal_id?: string | null;
+  report_id?: string | null;
+  payment_id?: string | null;
   action: NotificationActionKind;
   read: boolean;
   created_at: string;
@@ -25,6 +28,9 @@ export interface AppNotification {
   read: boolean;
   bookingId: string | null;
   applicationId: string | null;
+  appealId: string | null;
+  reportId: string | null;
+  paymentId: string | null;
   action: NotificationActionKind;
 }
 
@@ -51,6 +57,9 @@ function toAppNotification(raw: RawNotification): AppNotification {
     read: raw.read,
     bookingId: raw.booking_id,
     applicationId: raw.application_id ?? null,
+    appealId: raw.appeal_id ?? null,
+    reportId: raw.report_id ?? null,
+    paymentId: raw.payment_id ?? null,
     action: raw.action,
   };
 }

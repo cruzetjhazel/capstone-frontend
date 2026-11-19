@@ -13,6 +13,9 @@ export function getNotificationLink(n: AppNotification, user: User | null): stri
 if (user.role === "admin" || user.accountType === "administrator") {
   const title = n.title.toLowerCase();
   if (n.applicationId) return `/admin/verifications?open=${n.applicationId}`;
+  if (n.reportId) return `/admin/reports?open=${n.reportId}`;
+  if (n.appealId) return `/admin/appeals?open=${n.appealId}`;
+  if (n.paymentId) return `/admin/payments?open=${n.paymentId}`;
   if (n.bookingId) return `/admin/bookings?open=${n.bookingId}`;
   if (title.includes("appeal")) return "/admin/appeals";
   if (title.includes("report") || title.includes("dispute")) return "/admin/reports";

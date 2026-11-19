@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { PillTabs } from "@/components/ListPagination";
+import { Pagination, PillTabs, usePagination } from "@/components/ListPagination";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ShieldAlert, CheckCircle2, XCircle, Clock, FileText } from "lucide-react";
+import { Loader2, ShieldAlert, CheckCircle2, XCircle, Clock, FileText, Search, Eye, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api, { getApiErrorMessage } from "@/lib/api";
 
@@ -27,16 +28,33 @@ type Appeal = {
 };
 
 const FILTERS: { id: string; label: string }[] = [
+  { id: "", label: "All" },
   { id: "pending", label: "Pending" },
   { id: "approved", label: "Approved" },
   { id: "denied", label: "Rejected" },
-  { id: "", label: "All" },
 ];
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "-");
 
+function StatusPill({ status }: { status: Appeal["status"] }) {
+  return (
+    <span
+      className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${
+        status === "pending" ? "bg-amber-500/10 text-amber-600"
+        : status === "approved" ? "bg-emerald-500/10 text-emerald-600"
+        : "bg-destructive/10 text-destructive"
+      }`}
+    >
+      {status === "pending" ? <Clock className="w-3 h-3" /> : status === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+      {status === "denied" ? "rejected" : status}
+    </span>
+  );
+}
+
 export default function AdminAppeals() {
-  const [filter, setFilter] = useState("pending");
+  const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [viewAppeal, setViewAppeal] = useState<Appeal | null>(null);
   const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [responses, setResponses] = useState<Record<number, string>>({});
@@ -59,20 +77,22 @@ export default function AdminAppeals() {
 
   // Deep link from a notification: /admin/appeals?open=<appeal id>
   const [searchParams, setSearchParams] = useSearchParams();
-  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
   useEffect(() => {
     const id = searchParams.get("open");
     if (!id) return;
-    setFilter(""); // show All so the appeal is visible whatever its status
-    setHighlightId(Number(id));
+    setFilter(""); // show All so the appeal is found whatever its status
+    setOpenId(Number(id));
     setSearchParams({}, { replace: true });
   }, [searchParams]);
   useEffect(() => {
-    if (highlightId == null || loading) return;
-    document.getElementById(`appeal-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const t = setTimeout(() => setHighlightId(null), 4000);
-    return () => clearTimeout(t);
-  }, [highlightId, loading, appeals]);
+    if (openId == null || loading) return;
+    const target = appeals.find((a) => a.id === openId);
+    if (target) {
+      setViewAppeal(target);
+      setOpenId(null);
+    }
+  }, [openId, loading, appeals]);
 
   const decide = async (a: Appeal, decision: "approve" | "deny") => {
     const response = (responses[a.id] ?? "").trim();
@@ -84,6 +104,7 @@ export default function AdminAppeals() {
     try {
       await api.patch(`/admin/appeals/${a.id}/decide`, { decision, response: response || undefined });
       setDialog(null);
+      setViewAppeal(null);
       toast.success(decision === "approve" ? `${a.user.name}'s account was reactivated.` : "Appeal rejected.");
       await load();
     } catch (err) {
@@ -93,6 +114,18 @@ export default function AdminAppeals() {
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const visible = appeals.filter(
+    (a) =>
+      !q ||
+      a.user.name.toLowerCase().includes(q) ||
+      a.user.email.toLowerCase().includes(q) ||
+      a.message.toLowerCase().includes(q) ||
+      (a.user.suspension_reason ?? "").toLowerCase().includes(q) ||
+      String(a.id) === q.replace("#", "")
+  );
+  const pager = usePagination(visible, 10, `${filter}|${search}`);
+
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-up pb-12">
@@ -101,92 +134,76 @@ export default function AdminAppeals() {
           <p className="text-sm text-muted-foreground mt-1">Review appeals from users. Approving an appeal reactivates the account.</p>
         </div>
 
-        <PillTabs
-          value={filter}
-          onChange={setFilter}
-          tabs={FILTERS.map((f) => ({ key: f.id, label: f.label }))}
-        />
-
-        {loading ? (
-          <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading...
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <PillTabs
+            value={filter}
+            onChange={setFilter}
+            tabs={FILTERS.map((f) => ({ key: f.id, label: f.label }))}
+          />
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, email or reason..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 h-10 rounded-xl bg-card"
+            />
           </div>
-        ) : appeals.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic text-center py-12">No appeals here.</p>
-        ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-            {appeals.map((a) => (
-              <div
-                key={a.id}
-                id={`appeal-${a.id}`}
-                className={`bg-card border rounded-xl shadow-sm p-5 space-y-4 transition-shadow ${
-                  highlightId === a.id ? "border-primary ring-2 ring-primary/40" : "border-border/50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold">{a.user.name}</p>
-                    <p className="text-xs text-muted-foreground break-all">{a.user.email}</p>
-                  </div>
-                  <span
-                    className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-                      a.status === "pending" ? "bg-amber-500/10 text-amber-600"
-                      : a.status === "approved" ? "bg-emerald-500/10 text-emerald-600"
-                      : "bg-destructive/10 text-destructive"
-                    }`}
-                  >
-                    {a.status === "pending" ? <Clock className="w-3 h-3" /> : a.status === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                    {a.status === "denied" ? "rejected" : a.status}
-                  </span>
-                </div>
+        </div>
 
-                <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
-                  <p className="font-semibold flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /> Suspended {fmt(a.user.suspended_at)}</p>
-                  <p className="text-muted-foreground break-words">Reason: {a.user.suspension_reason || "none recorded"}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Appeal ({fmt(a.created_at)})</p>
-                  <p className="text-sm whitespace-pre-wrap break-words">{a.message}</p>
-                </div>
-
-                {a.attachments.length > 0 && (
-                  <div className="grid grid-cols-5 gap-2">
-                    {a.attachments.map((f) => (
-                      <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-border">
-                        {/\.pdf$/i.test(f.name) ? (
-                          <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-muted/50 p-1 text-center">
-                            <FileText className="w-5 h-5 text-muted-foreground" />
-                            <span className="text-[9px] leading-tight text-muted-foreground break-all line-clamp-2">{f.name}</span>
-                          </div>
-                        ) : (
-                          <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
-                        )}
-                      </a>
-                    ))}
-                  </div>
-                )}
-
-                {a.status === "pending" ? (
-                  <div className="space-y-2 pt-2 border-t border-border/50">
-
-                    <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="destructive" disabled={busyId === a.id} onClick={() => setDialog({ appeal: a, step: "reject-reason" })}>Reject</Button>
-                      <Button size="sm" disabled={busyId === a.id} onClick={() => setDialog({ appeal: a, step: "approve" })}>
-                        Approve &amp; reactivate
-                      </Button>
-                    </div>
-                  </div>
+        <div className="bg-card border border-border/50 rounded-xl shadow-sm overflow-hidden text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border/50">
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">User</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Suspension Reason</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Appealed</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-12 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading...
+                    </td>
+                  </tr>
+                ) : visible.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-16 text-center text-muted-foreground italic">No appeals here.</td>
+                  </tr>
                 ) : (
-                  <div className="text-xs text-muted-foreground pt-2 border-t border-border/50">
-                    Decided {fmt(a.decided_at)}{a.admin_response ? `: ${a.admin_response}` : ""}
-                  </div>
+                  pager.pageItems.map((a) => (
+                    <tr key={a.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold">{a.user.name}</p>
+                        <p className="text-xs text-muted-foreground break-all">{a.user.email}</p>
+                      </td>
+                      <td className="px-4 py-3 max-w-[260px] truncate" title={a.user.suspension_reason ?? ""}>
+                        {a.user.suspension_reason || <span className="text-muted-foreground italic">none recorded</span>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{fmt(a.created_at)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap"><StatusPill status={a.status} /></td>
+                      <td className="px-4 py-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setViewAppeal(a)}
+                          className="h-8 text-primary hover:text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          <Eye className="w-4 h-4 mr-1.5" /> Review
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
                 )}
-              </div>
-            ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+        </div>
+        {!loading && <Pagination pagination={pager} />}
       {dialog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
@@ -271,6 +288,7 @@ export default function AdminAppeals() {
           </div>
         </div>
       )}
+      </div>
     </DashboardLayout>
   );
 }
