@@ -9,13 +9,32 @@ import api, { getApiErrorMessage } from "@/lib/api";
 import Logo from "@/components/Logo";
 import toast from "react-hot-toast";
 
+const LOCK_KEY = "login_lock";
+
+// Reads the saved cooldown (if it is still running) so a refresh keeps showing the timer.
+function readLock(): { email: string; until: number } | null {
+  try {
+    const raw = localStorage.getItem(LOCK_KEY);
+    if (!raw) return null;
+    const lock = JSON.parse(raw);
+    return lock && lock.until > Date.now() ? lock : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => readLock()?.email ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [retryAfter, setRetryAfter] = useState(0);
+  const [retryAfter, setRetryAfter] = useState(() => {
+    const lock = readLock();
+    return lock ? Math.ceil((lock.until - Date.now()) / 1000) : 0;
+  });
 
   // Counts down the temporary block so the user knows exactly when to try again.
   useEffect(() => {
@@ -47,6 +66,29 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    // Own validation (form uses noValidate), so no login request is sent when a field is invalid.
+    const trimmedEmail = email.trim();
+    let nextEmailError = "";
+    let nextPasswordError = "";
+
+    if (!trimmedEmail) {
+      nextEmailError = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      nextEmailError = "Enter a valid email address.";
+    }
+    if (!password) {
+      nextPasswordError = "Password is required.";
+    }
+
+    setEmailError(nextEmailError);
+    setPasswordError(nextPasswordError);
+
+    if (nextEmailError || nextPasswordError) {
+      toast.error(nextEmailError || nextPasswordError, { id: "login-error" });
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -83,6 +125,11 @@ export default function Login() {
         const seconds = Number((err as any)?.response?.data?.retry_after) || 60;
         setRetryAfter(seconds);
         setError("");
+        try {
+          localStorage.setItem(LOCK_KEY, JSON.stringify({ email, until: Date.now() + seconds * 1000 }));
+        } catch {
+          // storage blocked: the screen still works, the server still enforces the lockout
+        }
         toast.error(`Too many login attempts. Please try again in ${seconds} seconds.`, { id: "login-error" });
         return;
       }
@@ -158,7 +205,7 @@ export default function Login() {
               <h2 className="text-2xl font-heading font-bold mb-1">Welcome back</h2>
               <p className="text-muted-foreground mb-5">Sign in to your account</p>
 
-              <form className="space-y-4" onSubmit={handleSubmit}>
+              <form className="space-y-4" onSubmit={handleSubmit} noValidate>
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input
@@ -166,10 +213,17 @@ export default function Login() {
                 type="email"
                 placeholder="name@example.com"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                onChange={(e) => { setEmail(e.target.value); setError(""); setEmailError(""); }}
                 autoComplete="email"
-                required
+                aria-invalid={!!emailError}
+                className={emailError ? "border-destructive focus-visible:ring-destructive" : ""}
               />
+              {emailError && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                  <ShieldX className="w-3.5 h-3.5 shrink-0" />
+                  <span>{emailError}</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -188,11 +242,11 @@ export default function Login() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
+                  className={`pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden ${passwordError ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                  onChange={(e) => { setPassword(e.target.value); setError(""); setPasswordError(""); }}
                   autoComplete="current-password"
-                  required
+                  aria-invalid={!!passwordError}
                 />
                 <button
                   type="button"
@@ -207,6 +261,12 @@ export default function Login() {
                   )}
                 </button>
               </div>
+              {passwordError && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                  <ShieldX className="w-3.5 h-3.5 shrink-0" />
+                  <span>{passwordError}</span>
+                </div>
+              )}
             </div>
 
             <div className="min-h-[1.25rem]">
