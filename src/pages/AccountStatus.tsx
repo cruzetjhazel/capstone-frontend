@@ -74,7 +74,7 @@ export default function AccountStatus() {
   if (!account) return <Navigate to="/login" replace />;
 
   const isSuspended = account.status === "suspended";
-  const canAppeal = isSuspended && appeal?.status !== "pending";
+  const canAppeal = isSuspended && !appeal;
 
   const handleReactivate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,7 +212,7 @@ export default function AccountStatus() {
                 <div className="min-w-0">
                   <p className="font-semibold text-destructive">Your last appeal was rejected</p>
                   {appeal.adminResponse && <p className="text-xs text-muted-foreground mt-0.5 break-words">{appeal.adminResponse}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">You can submit a new appeal with more information.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Each suspension can only be appealed once.</p>
                 </div>
               </div>
             )}
