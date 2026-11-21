@@ -81,6 +81,7 @@ export function ProfileOverlay({ open, onClose }: ProfileOverlayProps) {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [deactivateConfirmWord, setDeactivateConfirmWord] = useState("");
+  const [deactivatePassword, setDeactivatePassword] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
@@ -176,13 +177,15 @@ export function ProfileOverlay({ open, onClose }: ProfileOverlayProps) {
     } else {
       setShowDeactivateModal(true);
       setDeactivateConfirmWord("");
+      setDeactivatePassword("");
     }
   };
 
   const confirmDeactivateAccount = async () => {
     setIsDeactivating(true);
     try {
-      await api.post("/client/deactivate", { confirmation: deactivateConfirmWord });
+      await api.post("/client/deactivate", { confirmation: deactivateConfirmWord, password: deactivatePassword });
+      setDeactivatePassword("");
       setShowDeactivateModal(false);
       setShowSuccessModal(true);
     } catch (err) {
@@ -413,13 +416,23 @@ export function ProfileOverlay({ open, onClose }: ProfileOverlayProps) {
                 className="border-destructive/40 focus-visible:ring-destructive text-sm font-medium"
               />
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Enter your password to confirm:</Label>
+              <Input
+                type="password"
+                value={deactivatePassword}
+                onChange={(e) => setDeactivatePassword(e.target.value)}
+                autoComplete="current-password"
+                className="border-destructive/40 focus-visible:ring-destructive text-sm"
+              />
+            </div>
             <div className="flex gap-2 justify-end pt-2">
               <Button variant="outline" size="sm" onClick={() => setShowDeactivateModal(false)} disabled={isDeactivating}>Cancel</Button>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={confirmDeactivateAccount}
-                disabled={isDeactivating || deactivateConfirmWord !== "DEACTIVATE"}
+                disabled={isDeactivating || deactivateConfirmWord !== "DEACTIVATE" || !deactivatePassword}
               >
                 {isDeactivating ? "Deactivating account..." : "Confirm Deactivation"}
               </Button>

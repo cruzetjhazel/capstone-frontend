@@ -263,6 +263,7 @@ export default function Profile() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [deactivateConfirmWord, setDeactivateConfirmWord] = useState("");
+  const [deactivatePassword, setDeactivatePassword] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
@@ -368,6 +369,7 @@ export default function Profile() {
     } else {
       setShowDeactivateModal(true);
       setDeactivateConfirmWord("");
+      setDeactivatePassword("");
     }
   };
 
@@ -377,7 +379,8 @@ export default function Profile() {
   const confirmDeactivateAccount = async () => {
     setIsDeactivating(true);
     try {
-      await api.post("/client/deactivate", { confirmation: deactivateConfirmWord });
+      await api.post("/client/deactivate", { confirmation: deactivateConfirmWord, password: deactivatePassword });
+      setDeactivatePassword("");
       setShowDeactivateModal(false);
       setShowSuccessModal(true);
     } catch (err) {
@@ -833,6 +836,17 @@ export default function Profile() {
                   className="border-destructive/40 focus-visible:ring-destructive text-sm font-medium"
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Enter your password to confirm:</Label>
+                <Input
+                  type="password"
+                  value={deactivatePassword}
+                  onChange={(e) => setDeactivatePassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="border-destructive/40 focus-visible:ring-destructive text-sm"
+                />
+              </div>
             </div>
 
             <div className="flex gap-2 justify-end p-6 pt-4 shrink-0">
@@ -848,7 +862,7 @@ export default function Profile() {
                 variant="destructive"
                 size="sm"
                 onClick={confirmDeactivateAccount}
-                disabled={isDeactivating || deactivateCooldownActive || deactivateConfirmWord !== "DEACTIVATE"}
+                disabled={isDeactivating || deactivateCooldownActive || deactivateConfirmWord !== "DEACTIVATE" || !deactivatePassword}
               >
                 {isDeactivating ? "Deactivating account..." : "Confirm Deactivation"}
               </Button>

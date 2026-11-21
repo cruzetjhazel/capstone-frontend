@@ -26,7 +26,8 @@ import {
 } from "lucide-react";
 
 const MAX_STYLES = 6; // photography style tags (also enforced by the API)
-const COVER_MAX_BYTES = 3 * 1024 * 1024; // 3 MB. Any dimensions are accepted; the server crops to a 4:1 banner.
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB per image, same as the backend
+const COVER_MAX_BYTES = MAX_UPLOAD_BYTES; // Any dimensions are accepted; the server crops to a 4:1 banner.
 
 const SERVICE_OPTIONS = [
   "Wedding", "Debut", "Birthday", "Engagement", "Pre-Nuptial", "Graduation",
@@ -145,6 +146,7 @@ export default function StudioSettings() {
   // ---- Modals ----
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [deactivateInput, setDeactivateInput] = useState("");
+  const [deactivatePassword, setDeactivatePassword] = useState("");
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [deactivateAvailableOn, setDeactivateAvailableOn] = useState<string | null>(null);
   const deactivateCooldownActive = !!deactivateAvailableOn && new Date(deactivateAvailableOn) > new Date();
@@ -313,7 +315,11 @@ export default function StudioSettings() {
   const handleAvatarSelect = async (file: File | null) => {
     if (!file) return;
     try {
-      const { file: prepared } = await prepareImageForUpload(file, { maxWidth: 1200 });
+      const { file: prepared } = await prepareImageForUpload(file, { maxWidth: 1200, maxBytes: MAX_UPLOAD_BYTES });
+      if (prepared.size > MAX_UPLOAD_BYTES) {
+        toast.error("Profile photo must be under 2 MB.");
+        return;
+      }
       setProfilePhotoFile(prepared);
       setProfilePhotoPreview(URL.createObjectURL(prepared));
     } catch {
@@ -324,8 +330,12 @@ export default function StudioSettings() {
   const handleCoverSelect = async (file: File | null) => {
     if (!file) return;
     try {
-      // Any size/shape is fine. Only shrink if over 3 MB; the server resizes and crops to the banner.
+      // Any size/shape is fine. Only shrink if over 2 MB; the server resizes and crops to the banner.
       const { file: prepared } = await prepareImageForUpload(file, { maxBytes: COVER_MAX_BYTES });
+      if (prepared.size > MAX_UPLOAD_BYTES) {
+        toast.error("Cover photo must be under 2 MB.");
+        return;
+      }
       setCoverPhotoFile(prepared);
       setCoverPhotoPreview(URL.createObjectURL(prepared));
     } catch {
@@ -561,9 +571,10 @@ export default function StudioSettings() {
   const handleDeactivate = async () => {
     setIsDeactivating(true);
     try {
-      await api.post("/photographer/deactivate", { confirmation: deactivateInput });
+      await api.post("/photographer/deactivate", { confirmation: deactivateInput, password: deactivatePassword });
       setShowDeactivateConfirm(false);
       setDeactivateInput("");
+      setDeactivatePassword("");
       toast.success("Your account has been deactivated.");
       await logout(); // clears the session; the route guard then sends them to /login
     } catch (err) {
@@ -678,7 +689,7 @@ export default function StudioSettings() {
               <div id="cover-photo" className="space-y-2 flex-1 w-full scroll-mt-24">
                 <Label>Cover Banner</Label>
                 <p className="text-[11px] text-muted-foreground -mt-1">
-                  Any photo works, max 3 MB. We automatically resize and crop it to a wide banner (4:1), so keep your subject near the center.
+                  Any photo works, max 2 MB. We automatically resize and crop it to a wide banner (4:1), so keep your subject near the center.
                 </p>
                 <label htmlFor="cover-input"
                   className="aspect-[4/1] w-full rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center hover:bg-muted/80 transition-colors cursor-pointer overflow-hidden">
@@ -998,7 +1009,7 @@ export default function StudioSettings() {
               <p className="text-[11px] text-muted-foreground mb-3">
                 Temporarily disable your account. You can reactivate it by logging in again or contacting support.
               </p>
-              <Button variant="destructive" size="sm" onClick={() => { setDeactivateInput(""); setShowDeactivateConfirm(true); }}>
+              <Button variant="destructive" size="sm" onClick={() => { setDeactivateInput(""); setDeactivatePassword(""); setShowDeactivateConfirm(true); }}>
                 Deactivate Account
               </Button>
             </div>
@@ -1061,13 +1072,18 @@ export default function StudioSettings() {
               <Input value={deactivateInput} onChange={(e) => setDeactivateInput(e.target.value)} placeholder="DEACTIVATE"
                 className="border-destructive/40 focus-visible:ring-destructive text-sm" />
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Enter your password to confirm:</Label>
+              <Input type="password" value={deactivatePassword} onChange={(e) => setDeactivatePassword(e.target.value)}
+                autoComplete="current-password" className="border-destructive/40 focus-visible:ring-destructive text-sm" />
+            </div>
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" size="sm" disabled={isDeactivating} onClick={() => { setShowDeactivateConfirm(false); setDeactivateInput(""); }}>Cancel</Button>
+              <Button variant="outline" size="sm" disabled={isDeactivating} onClick={() => { setShowDeactivateConfirm(false); setDeactivateInput(""); setDeactivatePassword(""); }}>Cancel</Button>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={handleDeactivate}
-                disabled={isDeactivating || deactivateCooldownActive || deactivateInput !== "DEACTIVATE"}
+                disabled={isDeactivating || deactivateCooldownActive || deactivateInput !== "DEACTIVATE" || !deactivatePassword}
               >
                 {isDeactivating ? "Deactivating account..." : "Confirm Deactivation"}
               </Button>
